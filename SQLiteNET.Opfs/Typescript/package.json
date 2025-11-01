@@ -1,0 +1,19 @@
+{
+  "name": "sqlitenet-opfs-typescript",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "build": "npm run copy-wasm && npm run build:worker && npm run build:main",
+    "build:worker": "esbuild sqlite-worker.ts --bundle --format=esm --sourcemap=inline --outfile=../wwwroot/sqlite-worker.js",
+    "build:main": "esbuild opfs-initializer.ts --bundle --format=esm --sourcemap=inline --outfile=../Components/OpfsInitializer.razor.js",
+    "build:release": "npm run copy-wasm && esbuild sqlite-worker.ts --bundle --format=esm --minify --outfile=../wwwroot/sqlite-worker.js && esbuild opfs-initializer.ts --bundle --format=esm --minify --outfile=../Components/OpfsInitializer.razor.js",
+    "copy-wasm": "cp node_modules/@sqlite.org/sqlite-wasm/sqlite-wasm/jswasm/sqlite3.wasm ../wwwroot/"
+  },
+  "devDependencies": {
+    "esbuild": "^0.24.0",
+    "typescript": "^5.8.3"
+  },
+  "dependencies": {
+    "@sqlite.org/sqlite-wasm": "3.50.4-build1"
+  }
+}

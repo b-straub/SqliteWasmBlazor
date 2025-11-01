@@ -1,0 +1,20 @@
+@using SQLiteNET.Opfs.Abstractions
+@inject IOpfsStorage OpfsStorage
+
+@if (!OpfsStorage.IsReady)
+{
+    <div style="padding: 1rem; background: #fff3cd; border: 1px solid #ffc107; border-radius: 4px;">
+        <strong>Initializing OPFS Storage...</strong>
+        <p style="margin: 0.5rem 0 0 0; font-size: 0.9rem;">
+            Please wait while the database storage is being initialized.
+        </p>
+    </div>
+}
+
+@code {
+    protected override async Task OnInitializedAsync()
+    {
+        await OpfsStorage.InitializeAsync();
+        StateHasChanged();
+    }
+}

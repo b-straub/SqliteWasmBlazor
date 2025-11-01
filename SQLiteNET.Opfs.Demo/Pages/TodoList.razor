@@ -1,0 +1,432 @@
+@page "/todos"
+@using SQLiteNET.Opfs.Demo.Data
+@using SQLiteNET.Opfs.Demo.Models
+@using Microsoft.EntityFrameworkCore
+@using SQLiteNET.Opfs.Abstractions
+@using System.Diagnostics
+@inject IDbContextFactory<TodoDbContext> DbContextFactory
+@inject ISnackbar Snackbar
+@inject IOpfsStorage OpfsStorage
+
+<PageTitle>OPFS Todo List</PageTitle>
+
+<MudContainer MaxWidth="MaxWidth.Large" Class="mt-4">
+    <MudText Typo="Typo.h3" GutterBottom="true">
+        <MudIcon Icon="@Icons.Material.Filled.Storage" Class="mr-2" />
+        OPFS SQLite Todo List
+    </MudText>
+    <MudText Typo="Typo.body1" Color="Color.Secondary" Class="mb-6">
+        Persistent storage using SQLite WASM with OPFS - Data survives page refresh!
+    </MudText>
+
+    <!-- Add New Todo Card -->
+    <MudPaper Elevation="2" Class="pa-4 mb-6">
+        <MudText Typo="Typo.h6" Class="mb-3">
+            <MudIcon Icon="@Icons.Material.Filled.Add" Size="Size.Small" Class="mr-1" />
+            Add New Todo
+        </MudText>
+        <MudGrid>
+            <MudItem xs="12" sm="4">
+                <MudTextField @bind-Value="_newTitle"
+                              Label="Title"
+                              Variant="Variant.Outlined"
+                              Required="true"
+                              Immediate="true"
+                              OnKeyDown="HandleKeyDownAsync" />
+            </MudItem>
+            <MudItem xs="12" sm="6">
+                <MudTextField @bind-Value="_newDescription"
+                              Label="Description"
+                              Variant="Variant.Outlined"
+                              OnKeyDown="HandleKeyDownAsync" />
+            </MudItem>
+            <MudItem xs="12" sm="2">
+                <MudButton Variant="Variant.Filled"
+                           Color="Color.Primary"
+                           OnClick="AddTodoAsync"
+                           FullWidth="true"
+                           StartIcon="@Icons.Material.Filled.Add"
+                           Size="Size.Large">
+                    Add
+                </MudButton>
+            </MudItem>
+        </MudGrid>
+    </MudPaper>
+
+    <!-- Search and Performance Testing Card -->
+    <MudPaper Elevation="2" Class="pa-4 mb-6">
+        <MudText Typo="Typo.h6" Class="mb-3">
+            <MudIcon Icon="@Icons.Material.Filled.Speed" Size="Size.Small" Class="mr-1" />
+            Search & Performance Testing
+        </MudText>
+        <MudStack Spacing="3">
+            <MudTextField T="string"
+                          Value="_searchString"
+                          ValueChanged="@(s => OnSearch(s))"
+                          Immediate="true"
+                          Label="Search"
+                          Variant="Variant.Outlined"
+                          Placeholder="Search by title or description..."
+                          Adornment="Adornment.Start"
+                          AdornmentIcon="@Icons.Material.Filled.Search"
+                          Clearable="true" />
+
+            <MudStack Row="true" Spacing="2">
+                <MudButton Variant="Variant.Filled"
+                           Color="Color.Secondary"
+                           OnClick="CreateTestDataAsync"
+                           StartIcon="@Icons.Material.Filled.PlayArrow"
+                           Disabled="_isGenerating">
+                    @if (_isGenerating)
+                    {
+                        <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" />
+                        @:Generating...
+                    }
+                    else
+                    {
+                        @:Generate 5000 Entries
+                    }
+                </MudButton>
+                <MudButton Variant="Variant.Outlined"
+                           Color="Color.Error"
+                           OnClick="ClearAllDataAsync"
+                           StartIcon="@Icons.Material.Filled.DeleteSweep">
+                    Clear All
+                </MudButton>
+            </MudStack>
+
+            @if (!string.IsNullOrEmpty(_performanceInfo))
+            {
+                <MudAlert Severity="Severity.Success" Variant="Variant.Outlined">
+                    @_performanceInfo
+                </MudAlert>
+            }
+        </MudStack>
+    </MudPaper>
+
+    <!-- Todo List Table -->
+    <MudPaper Elevation="2" Class="pa-4 mb-6">
+        <MudText Typo="Typo.h6" Class="mb-3">
+            <MudIcon Icon="@Icons.Material.Filled.List" Size="Size.Small" Class="mr-1" />
+            Todo Items (@_totalCount)
+            @if (!string.IsNullOrWhiteSpace(_searchString))
+            {
+                <MudChip T="string" Size="Size.Small" Color="Color.Primary" OnClose="ClearSearch">
+                    Filtered: @_searchString
+                </MudChip>
+            }
+        </MudText>
+
+        <MudTable ServerData="LoadServerDataAsync"
+                  Hover="true"
+                  Breakpoint="Breakpoint.Sm"
+                  Dense="true"
+                  @ref="Table">
+            <HeaderContent>
+                <MudTh>Status</MudTh>
+                <MudTh>Title</MudTh>
+                <MudTh>Description</MudTh>
+                <MudTh>Created</MudTh>
+                <MudTh Style="text-align: right;">Actions</MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd DataLabel="Status">
+                    <MudCheckBox T="bool"
+                                 Value="@context.IsCompleted"
+                                 ValueChanged="async (value) => await ToggleCompleteAsync(context)"
+                                 Color="Color.Success" />
+                </MudTd>
+                <MudTd DataLabel="Title">
+                    <MudText Typo="Typo.body2"
+                             Style="@(context.IsCompleted ? "text-decoration: line-through; color: var(--mud-palette-text-secondary);" : "")">
+                        @context.Title
+                    </MudText>
+                </MudTd>
+                <MudTd DataLabel="Description">
+                    <MudText Typo="Typo.body2"
+                             Style="@(context.IsCompleted ? "text-decoration: line-through; color: var(--mud-palette-text-secondary);" : "")">
+                        @context.Description
+                    </MudText>
+                </MudTd>
+                <MudTd DataLabel="Created">
+                    <MudChip T="string" Size="Size.Small" Variant="Variant.Text">
+                        @context.CreatedAt.ToString("g")
+                    </MudChip>
+                </MudTd>
+                <MudTd DataLabel="Actions" Style="text-align: right;">
+                    <MudIconButton Icon="@Icons.Material.Filled.Delete"
+                                   Color="Color.Error"
+                                   Size="Size.Small"
+                                   OnClick="async () => await DeleteTodoAsync(context)" />
+                </MudTd>
+            </RowTemplate>
+            <NoRecordsContent>
+                <MudText>No todos yet. Add one above to get started!</MudText>
+            </NoRecordsContent>
+            <PagerContent>
+                <MudTablePager PageSizeOptions="[10, 25, 50, 100]" />
+            </PagerContent>
+        </MudTable>
+    </MudPaper>
+
+    <!-- Database Info Card -->
+    <MudPaper Elevation="2" Class="pa-4">
+        <MudGrid>
+            <MudItem xs="12" sm="8">
+                <MudText Typo="Typo.h6" Class="mb-2">
+                    <MudIcon Icon="@Icons.Material.Filled.Info" Size="Size.Small" Class="mr-1" />
+                    Database Information
+                </MudText>
+                <MudStack Spacing="2">
+                    <MudStack Row="true" AlignItems="AlignItems.Center">
+                        <MudIcon Icon="@Icons.Material.Filled.TableChart" Size="Size.Small" />
+                        <MudText Typo="Typo.body2">
+                            <strong>Total Items:</strong> @_totalCount
+                        </MudText>
+                    </MudStack>
+                    <MudStack Row="true" AlignItems="AlignItems.Center">
+                        <MudIcon Icon="@Icons.Material.Filled.Storage" Size="Size.Small" />
+                        <MudText Typo="Typo.body2">
+                            <strong>Storage:</strong> OPFS (Origin Private File System)
+                        </MudText>
+                    </MudStack>
+                    <MudStack Row="true" AlignItems="AlignItems.Center">
+                        <MudIcon Icon="@Icons.Material.Filled.CheckCircle" Size="Size.Small" />
+                        <MudText Typo="Typo.body2">
+                            <strong>Persistence:</strong> Data survives page refresh!
+                        </MudText>
+                    </MudStack>
+                </MudStack>
+            </MudItem>
+            <MudItem xs="12" sm="4" Style="display: flex; align-items: center; justify-content: center;">
+                <MudButton Variant="Variant.Filled"
+                           Color="Color.Success"
+                           OnClick="RefreshListAsync"
+                           StartIcon="@Icons.Material.Filled.Refresh"
+                           Size="Size.Large">
+                    Refresh List
+                </MudButton>
+            </MudItem>
+        </MudGrid>
+    </MudPaper>
+</MudContainer>
+
+@code {
+    public required MudTable<TodoItem> Table;
+    private int _totalCount;
+    private string _newTitle = string.Empty;
+    private string _newDescription = string.Empty;
+    private string _searchString = string.Empty;
+    private string _performanceInfo = string.Empty;
+    private bool _isGenerating;
+
+    private static readonly string[] TaskPrefixes = ["Task", "Work", "Project", "Meeting", "Call", "Email", "Review", "Plan", "Design", "Test"];
+    private static readonly string[] TaskTypes = ["urgent", "important", "routine", "followup", "research", "development", "documentation", "deployment"];
+    private static readonly Random Random = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await UpdateTotalCountAsync();
+    }
+
+    private async Task<TableData<TodoItem>> LoadServerDataAsync(TableState state, CancellationToken cancellationToken)
+    {
+        await using var context = await DbContextFactory.CreateDbContextAsync(cancellationToken);
+
+        var query = context.TodoItems.AsQueryable();
+
+        // Apply search filter if active
+        if (!string.IsNullOrWhiteSpace(_searchString))
+        {
+            query = query.Where(t => t.Title.StartsWith(_searchString) || t.Description.Contains(_searchString));
+        }
+
+        query = query.OrderByDescending(t => t.CreatedAt);
+
+        // Get fresh count for accurate paging
+        var count = await query.CountAsync(cancellationToken);
+        _totalCount = count;
+
+        var data = await query
+            .Skip(state.Page * state.PageSize)
+            .Take(state.PageSize)
+            .ToListAsync(cancellationToken);
+
+        return new TableData<TodoItem>
+        {
+            Items = data,
+            TotalItems = count
+        };
+    }
+
+    private async Task UpdateTotalCountAsync()
+    {
+        await using var context = await DbContextFactory.CreateDbContextAsync();
+
+        var query = context.TodoItems.AsQueryable();
+
+        // Apply search filter if active
+        if (!string.IsNullOrWhiteSpace(_searchString))
+        {
+            query = query.Where(t => t.Title.StartsWith(_searchString) || t.Description.Contains(_searchString));
+        }
+
+        _totalCount = await query.CountAsync();
+        StateHasChanged();
+    }
+
+    private async Task AddTodoAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_newTitle))
+        {
+            Snackbar.Add("Please enter a title", Severity.Warning);
+            return;
+        }
+
+        var stopwatch = Stopwatch.StartNew();
+
+        var todo = new TodoItem
+        {
+            Title = _newTitle,
+            Description = _newDescription,
+            CreatedAt = DateTime.UtcNow,
+            IsCompleted = false
+        };
+
+        await using var context = await DbContextFactory.CreateDbContextAsync();
+        context.TodoItems.Add(todo);
+        await context.SaveChangesAsync();
+
+        stopwatch.Stop();
+
+        _newTitle = string.Empty;
+        _newDescription = string.Empty;
+        
+        await Table.ReloadServerData();
+        Snackbar.Add($"Todo created in {stopwatch.ElapsedMilliseconds}ms", Severity.Success);
+    }
+
+    private async Task ToggleCompleteAsync(TodoItem todo)
+    {
+        var stopwatch = Stopwatch.StartNew();
+
+        todo.IsCompleted = !todo.IsCompleted;
+        todo.CompletedAt = todo.IsCompleted ? DateTime.UtcNow : null;
+
+        await using var context = await DbContextFactory.CreateDbContextAsync();
+        context.TodoItems.Update(todo);
+        await context.SaveChangesAsync();
+
+        stopwatch.Stop();
+        
+        await Table.ReloadServerData();
+        var action = todo.IsCompleted ? "completed" : "reopened";
+        Snackbar.Add($"Todo {action} in {stopwatch.ElapsedMilliseconds}ms", Severity.Info);
+    }
+
+    private async Task DeleteTodoAsync(TodoItem todo)
+    {
+        var stopwatch = Stopwatch.StartNew();
+
+        await using var context = await DbContextFactory.CreateDbContextAsync();
+        context.TodoItems.Remove(todo);
+        await context.SaveChangesAsync();
+
+        stopwatch.Stop();
+        
+        await Table.ReloadServerData();
+        Snackbar.Add($"Todo deleted in {stopwatch.ElapsedMilliseconds}ms", Severity.Error);
+    }
+
+    private async Task RefreshListAsync()
+    {
+        var stopwatch = Stopwatch.StartNew();
+
+        await Table.ReloadServerData();
+
+        stopwatch.Stop();
+
+        Snackbar.Add($"List refreshed in {stopwatch.ElapsedMilliseconds}ms", Severity.Info);
+    }
+
+    private async Task HandleKeyDownAsync(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+            await AddTodoAsync();
+        }
+    }
+
+    private async Task CreateTestDataAsync()
+    {
+        _isGenerating = true;
+        _performanceInfo = string.Empty;
+        StateHasChanged();
+
+        var stopwatch = Stopwatch.StartNew();
+
+        await using var context = await DbContextFactory.CreateDbContextAsync();
+
+        // Pause automatic persistence for batch insert
+        OpfsStorage.PauseAutomaticPersistent();
+
+        var items = new List<TodoItem>();
+        for (int i = 0; i < 5000; i++)
+        {
+            var prefix = TaskPrefixes[Random.Next(TaskPrefixes.Length)];
+            var type = TaskTypes[Random.Next(TaskTypes.Length)];
+
+            items.Add(new TodoItem
+            {
+                Title = $"{prefix} #{i + 1}",
+                Description = $"{type} task - {Guid.NewGuid()}",
+                CreatedAt = DateTime.UtcNow.AddMinutes(-Random.Next(10000)),
+                IsCompleted = Random.Next(100) < 30
+            });
+        }
+
+        context.TodoItems.AddRange(items);
+        await context.SaveChangesAsync();
+
+        // Resume and flush
+        await OpfsStorage.ResumeAutomaticPersistent();
+
+        stopwatch.Stop();
+
+        var itemsPerSecond = 5000.0 / stopwatch.Elapsed.TotalSeconds;
+        _performanceInfo = $"Generated 5000 entries in {stopwatch.ElapsedMilliseconds}ms ({itemsPerSecond:F0} items/sec)";
+        _isGenerating = false;
+
+        await Table.ReloadServerData();
+        StateHasChanged();
+        Snackbar.Add($"Generated 5000 entries in {stopwatch.ElapsedMilliseconds}ms", Severity.Success);
+    }
+
+    private void OnSearch(string text)
+    {
+        _searchString = text;
+        Table.ReloadServerData();
+    }
+
+    private void ClearSearch()
+    {
+        _searchString = string.Empty;
+        Table.ReloadServerData();
+        _performanceInfo = string.Empty;
+    }
+
+    private async Task ClearAllDataAsync()
+    {
+        var stopwatch = Stopwatch.StartNew();
+
+        await using var context = await DbContextFactory.CreateDbContextAsync();
+        await context.Database.ExecuteSqlRawAsync("DELETE FROM TodoItems");
+
+        stopwatch.Stop();
+
+        await UpdateTotalCountAsync();
+        await Table!.ReloadServerData();
+        _performanceInfo = $"All data cleared in {stopwatch.ElapsedMilliseconds}ms";
+        Snackbar.Add($"All todos deleted in {stopwatch.ElapsedMilliseconds}ms", Severity.Warning);
+    }
+}
