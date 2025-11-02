@@ -1,7 +1,6 @@
 using System.Data.Common;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
-using Microsoft.Extensions.DependencyInjection;
 using SQLiteNET.Opfs.Abstractions;
 
 namespace SQLiteNET.Opfs.Factories;

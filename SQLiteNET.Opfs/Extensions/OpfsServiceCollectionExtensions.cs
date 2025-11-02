@@ -28,8 +28,9 @@ public static class OpfsServiceCollectionExtensions
         where TDbContext : DbContext
     {
         // Register core services (singleton - shared across app)
-        services.TryAddSingleton<IOpfsStorage, OpfsStorageService>();
-        services.TryAddSingleton<OpfsDbContextInterceptor>();
+        services.AddSingleton<OpfsStorageService>();
+        services.AddSingleton<IOpfsStorage>(sp => sp.GetRequiredService<OpfsStorageService>());
+        services.AddSingleton<OpfsDbContextInterceptor>();
 
         // Register DbContext factory with OPFS support
         services.AddDbContextFactory<TDbContext, OpfsPooledDbContextFactory<TDbContext>>(

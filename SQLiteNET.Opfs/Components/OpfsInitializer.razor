@@ -12,9 +12,6 @@
 }
 
 @code {
-    protected override async Task OnInitializedAsync()
-    {
-        await OpfsStorage.InitializeAsync();
-        StateHasChanged();
-    }
+    // Note: OPFS initialization is handled in Program.cs before the app starts.
+    // This component only displays the initialization status.
 }

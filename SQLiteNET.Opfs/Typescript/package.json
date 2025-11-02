@@ -3,17 +3,15 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "build": "npm run copy-wasm && npm run build:worker && npm run build:main",
-    "build:worker": "esbuild sqlite-worker.ts --bundle --format=esm --sourcemap=inline --outfile=../wwwroot/sqlite-worker.js",
-    "build:main": "esbuild opfs-initializer.ts --bundle --format=esm --sourcemap=inline --outfile=../Components/OpfsInitializer.razor.js",
-    "build:release": "npm run copy-wasm && esbuild sqlite-worker.ts --bundle --format=esm --minify --outfile=../wwwroot/sqlite-worker.js && esbuild opfs-initializer.ts --bundle --format=esm --minify --outfile=../Components/OpfsInitializer.razor.js",
-    "copy-wasm": "cp node_modules/@sqlite.org/sqlite-wasm/sqlite-wasm/jswasm/sqlite3.wasm ../wwwroot/"
+    "build": "npm run build:worker && npm run build:initializer",
+    "build:worker": "esbuild opfs-worker.ts --bundle --format=esm --sourcemap=inline --outfile=../wwwroot/opfs-worker.js",
+    "build:initializer": "esbuild opfs-initializer.ts --bundle --format=esm --sourcemap=inline --outfile=../Components/OpfsInitializer.razor.js",
+    "build:release": "npm run build:worker:release && npm run build:initializer:release",
+    "build:worker:release": "esbuild opfs-worker.ts --bundle --format=esm --minify --outfile=../wwwroot/opfs-worker.js",
+    "build:initializer:release": "esbuild opfs-initializer.ts --bundle --format=esm --minify --outfile=../Components/OpfsInitializer.razor.js"
   },
   "devDependencies": {
     "esbuild": "^0.24.0",
     "typescript": "^5.8.3"
-  },
-  "dependencies": {
-    "@sqlite.org/sqlite-wasm": "3.50.4-build1"
   }
 }

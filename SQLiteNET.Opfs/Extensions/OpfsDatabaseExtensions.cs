@@ -13,9 +13,8 @@ public static class OpfsDatabaseExtensions
     /// This method must be called before EnsureCreatedAsync() or MigrateAsync().
     /// </summary>
     /// <param name="database">The database facade</param>
-    /// <returns>The database facade for method chaining</returns>
     /// <exception cref="InvalidOperationException">If called on non-SQLite database or outside browser context</exception>
-    public static async Task<DatabaseFacade> ConfigureSqliteForWasmAsync(this DatabaseFacade database)
+    public static async Task ConfigureSqliteForWasmAsync(this DatabaseFacade database)
     {
         if (database.ProviderName is null || !database.ProviderName.EndsWith("Sqlite", StringComparison.OrdinalIgnoreCase))
         {
@@ -26,8 +25,7 @@ public static class OpfsDatabaseExtensions
 
         if (!OperatingSystem.IsBrowser())
         {
-            // Not in browser - skip configuration (allows same code to work in server-side scenarios)
-            return database;
+            throw new InvalidOperationException("This method can only be called on browsers.");
         }
 
         var connectionString = database.GetConnectionString();
@@ -47,6 +45,11 @@ public static class OpfsDatabaseExtensions
         command.CommandText = "PRAGMA journal_mode = 'delete';";
         await command.ExecuteNonQueryAsync();
 
-        return database;
+        // Additional WASM-friendly settings
+        command.CommandText = "PRAGMA synchronous = NORMAL;";
+        await command.ExecuteNonQueryAsync();
+
+        command.CommandText = "PRAGMA temp_store = MEMORY;";
+        await command.ExecuteNonQueryAsync();
     }
 }

@@ -7,14 +7,14 @@ namespace SQLiteNET.Opfs.Abstractions;
 public interface IOpfsStorage
 {
     /// <summary>
-    /// Initialize OPFS storage
-    /// </summary>
-    Task<bool> InitializeAsync();
-
-    /// <summary>
     /// Check if OPFS is initialized and ready
     /// </summary>
     bool IsReady { get; }
+
+    /// <summary>
+    /// Initialize OPFS storage. Can be called multiple times safely.
+    /// </summary>
+    Task<bool> InitializeAsync();
 
     /// <summary>
     /// Persist a database file from Emscripten MEMFS to OPFS.
