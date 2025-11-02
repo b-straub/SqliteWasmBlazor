@@ -197,6 +197,22 @@ export async function persist(filename: string): Promise<void> {
 }
 
 /**
+ * Persist only dirty pages from MEMFS to OPFS (incremental sync).
+ * Used by VFS tracking for efficient partial updates.
+ */
+export async function persistDirtyPages(filename: string, pages: any[]): Promise<void> {
+    console.log('[OPFS Persist Dirty] Starting incremental persist for:', filename, '-', pages.length, 'pages');
+
+    // Send dirty pages to worker for partial write
+    const result = await sendMessage('persistDirtyPages', {
+        filename,
+        pages
+    });
+
+    console.log('[OPFS Persist Dirty] Written', result.pagesWritten, 'pages (', result.bytesWritten, 'bytes)');
+}
+
+/**
  * Load a database file from OPFS to Emscripten MEMFS.
  * Reads the file from OPFS and writes it to native WASM memory.
  */

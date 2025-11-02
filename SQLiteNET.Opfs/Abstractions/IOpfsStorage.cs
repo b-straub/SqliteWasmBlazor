@@ -12,6 +12,17 @@ public interface IOpfsStorage
     bool IsReady { get; }
 
     /// <summary>
+    /// Check if incremental sync (VFS tracking) is available
+    /// </summary>
+    bool IsIncrementalSyncEnabled { get; }
+
+    /// <summary>
+    /// Set to true to temporarily disable incremental sync and use full sync instead.
+    /// Useful for performance testing and debugging.
+    /// </summary>
+    bool ForceFullSync { get; set; }
+
+    /// <summary>
     /// Initialize OPFS storage. Can be called multiple times safely.
     /// </summary>
     Task<bool> InitializeAsync();

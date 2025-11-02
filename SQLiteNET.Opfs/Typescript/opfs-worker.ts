@@ -112,6 +112,71 @@ self.onmessage = async (event: MessageEvent<WorkerMessage>) => {
                 };
                 break;
 
+            case 'persistDirtyPages':
+                // Write only dirty pages to OPFS (incremental sync)
+                const { filename, pages } = args;
+
+                if (!pages || pages.length === 0) {
+                    result = { pagesWritten: 0 };
+                    break;
+                }
+
+                console.log(`[OPFS Worker] Persisting ${pages.length} dirty pages for ${filename}`);
+
+                const PAGE_SIZE = 4096;
+                const SQLITE_OK = 0;
+                const FLAGS_READWRITE = 0x02;
+                const FLAGS_MAIN_DB = 0x100;
+
+                // Open file for partial writes
+                const partialFileId = opfsSAHPool.xOpen(
+                    filename,
+                    FLAGS_READWRITE | FLAGS_MAIN_DB
+                );
+
+                if (partialFileId < 0) {
+                    throw new Error(`Failed to open file for partial write: ${filename}`);
+                }
+
+                let pagesWritten = 0;
+
+                try {
+                    // Write each dirty page
+                    for (const page of pages) {
+                        const { pageNumber, data } = page;
+                        const offset = pageNumber * PAGE_SIZE;
+                        const pageBuffer = new Uint8Array(data);
+
+                        const writeRc = opfsSAHPool.xWrite(
+                            partialFileId,
+                            pageBuffer,
+                            pageBuffer.length,
+                            offset
+                        );
+
+                        if (writeRc !== SQLITE_OK) {
+                            throw new Error(`Failed to write page ${pageNumber} at offset ${offset}`);
+                        }
+
+                        pagesWritten++;
+                    }
+
+                    // Sync to ensure data is persisted
+                    opfsSAHPool.xSync(partialFileId, 0);
+
+                    console.log(`[OPFS Worker] Successfully wrote ${pagesWritten} pages`);
+
+                } finally {
+                    // Always close the file
+                    opfsSAHPool.xClose(partialFileId);
+                }
+
+                result = {
+                    pagesWritten,
+                    bytesWritten: pagesWritten * PAGE_SIZE
+                };
+                break;
+
             case 'deleteFile':
                 const deleteResult = opfsSAHPool.xDelete(args.filename, 1);
                 if (deleteResult !== 0) {

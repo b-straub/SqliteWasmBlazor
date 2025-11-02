@@ -12,10 +12,17 @@
     <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly" Version="10.0.0-rc.2.25502.107" />
     <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.DevServer" Version="10.0.0-rc.2.25502.107" PrivateAssets="all" />
     <PackageReference Include="MudBlazor" Version="8.13.0" />
+    <!-- Exclude packaged SQLite native library - using custom build from SQLiteNET.Opfs -->
+    <PackageReference Include="SQLitePCLRaw.lib.e_sqlite3" Version="2.1.11" ExcludeAssets="native;buildTransitive" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\SQLiteNET.Opfs\SQLiteNET.Opfs.csproj" />
+  </ItemGroup>
+
+  <!-- Override with custom SQLite library that includes VFS tracking -->
+  <ItemGroup>
+    <NativeFileReference Include="..\SQLiteNET.Opfs\Native\lib\e_sqlite3.a" />
   </ItemGroup>
 
 </Project>

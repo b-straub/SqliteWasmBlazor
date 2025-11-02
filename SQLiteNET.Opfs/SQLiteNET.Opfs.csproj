@@ -15,9 +15,13 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.Components.Web" Version="10.0.0-rc.2.25502.107" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.0-rc.2.25502.107" />
-    <PackageReference Include="SQLitePCLRaw.core" Version="2.1.11" />
-    <PackageReference Include="SQLitePCLRaw.provider.e_sqlite3" Version="2.1.11" />
-    <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="2.1.11" />
+    <!-- Exclude packaged native library - using custom build with VFS tracking -->
+    <PackageReference Include="SQLitePCLRaw.lib.e_sqlite3" Version="2.1.11" ExcludeAssets="native;buildTransitive" />
+  </ItemGroup>
+
+  <!-- Custom SQLite library with VFS tracking (replaces packaged e_sqlite3.a) -->
+  <ItemGroup>
+    <NativeFileReference Include="Native\lib\e_sqlite3.a" />
   </ItemGroup>
 
 </Project>

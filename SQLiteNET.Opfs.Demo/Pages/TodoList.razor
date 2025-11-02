@@ -84,7 +84,7 @@
                     }
                     else
                     {
-                        @($":Generate {GeneratedFakeEntries} Entries")
+                        @($"Generate {GeneratedFakeEntries} Entries")
                     }
                 </MudButton>
                 <MudButton Variant="Variant.Outlined"
@@ -228,6 +228,11 @@
 
     protected override async Task OnInitializedAsync()
     {
+        // Disable incremental sync temporarily to test performance
+        // OpfsStorage.ForceFullSync = true;
+        Console.WriteLine($"Incremental sync available: {OpfsStorage.IsIncrementalSyncEnabled}");
+        Console.WriteLine($"Using full sync: {OpfsStorage.ForceFullSync}");
+
         await UpdateTotalCountAsync();
     }
 
