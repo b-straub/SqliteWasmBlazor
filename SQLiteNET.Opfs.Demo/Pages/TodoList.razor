@@ -84,7 +84,7 @@
                     }
                     else
                     {
-                        @:Generate 5000 Entries
+                        @($":Generate {GeneratedFakeEntries} Entries")
                     }
                 </MudButton>
                 <MudButton Variant="Variant.Outlined"
@@ -212,6 +212,8 @@
 </MudContainer>
 
 @code {
+    const double GeneratedFakeEntries = 50000.0;
+    
     public required MudTable<TodoItem> Table;
     private int _totalCount;
     private string _newTitle = string.Empty;
@@ -371,7 +373,7 @@
         OpfsStorage.PauseAutomaticPersistent();
 
         var items = new List<TodoItem>();
-        for (int i = 0; i < 5000; i++)
+        for (int i = 0; i < GeneratedFakeEntries; i++)
         {
             var prefix = TaskPrefixes[Random.Next(TaskPrefixes.Length)];
             var type = TaskTypes[Random.Next(TaskTypes.Length)];
@@ -393,13 +395,13 @@
 
         stopwatch.Stop();
 
-        var itemsPerSecond = 5000.0 / stopwatch.Elapsed.TotalSeconds;
-        _performanceInfo = $"Generated 5000 entries in {stopwatch.ElapsedMilliseconds}ms ({itemsPerSecond:F0} items/sec)";
+        var itemsPerSecond = GeneratedFakeEntries / stopwatch.Elapsed.TotalSeconds;
+        _performanceInfo = $"Generated {GeneratedFakeEntries} entries in {stopwatch.ElapsedMilliseconds}ms ({itemsPerSecond:F0} items/sec)";
         _isGenerating = false;
 
         await Table.ReloadServerData();
         StateHasChanged();
-        Snackbar.Add($"Generated 5000 entries in {stopwatch.ElapsedMilliseconds}ms", Severity.Success);
+        Snackbar.Add($"Generated {GeneratedFakeEntries} entries in {stopwatch.ElapsedMilliseconds}ms", Severity.Success);
     }
 
     private void OnSearch(string text)
