@@ -4,25 +4,22 @@
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>SqliteWasm.Demo</RootNamespace>
     <OverrideHtmlAssetPlaceholders>true</OverrideHtmlAssetPlaceholders>
-    <WasmBuildNative>true</WasmBuildNative>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly" Version="10.0.0-rc.2.25502.107" />
     <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.DevServer" Version="10.0.0-rc.2.25502.107" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.0-rc.2.25502.107" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.0-rc.2.25502.107" />
     <PackageReference Include="MudBlazor" Version="8.13.0" />
-    <!-- Exclude packaged SQLite native library - using custom build from SQLiteNET.Opfs -->
-    <PackageReference Include="SQLitePCLRaw.lib.e_sqlite3" Version="2.1.11" ExcludeAssets="native;buildTransitive" />
+    <!-- Include SQLite native library to prevent initialization errors -->
+    <PackageReference Include="SQLitePCLRaw.lib.e_sqlite3" Version="2.1.11" />
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\SQLiteNET.Opfs\SQLiteNET.Opfs.csproj" />
-  </ItemGroup>
-
-  <!-- Override with custom SQLite library that includes VFS tracking -->
-  <ItemGroup>
-    <NativeFileReference Include="..\SQLiteNET.Opfs\Native\lib\e_sqlite3.a" />
+    <ProjectReference Include="..\SqliteWasm.Data\SqliteWasm.Data.csproj" />
   </ItemGroup>
 
 </Project>

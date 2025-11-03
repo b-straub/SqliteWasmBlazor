@@ -1,7 +1,7 @@
 using Microsoft.EntityFrameworkCore;
-using SQLiteNET.Opfs.Demo.Models;
+using SqliteWasm.Demo.Models;
 
-namespace SQLiteNET.Opfs.Demo.Data;
+namespace SqliteWasm.Demo.Data;
 
 public class TodoDbContext : DbContext
 {

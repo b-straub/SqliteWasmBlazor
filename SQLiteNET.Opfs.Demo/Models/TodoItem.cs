@@ -1,4 +1,4 @@
-namespace SQLiteNET.Opfs.Demo.Models;
+namespace SqliteWasm.Demo.Models;
 
 public class TodoItem
 {

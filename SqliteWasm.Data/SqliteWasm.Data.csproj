@@ -1,0 +1,40 @@
+<Project Sdk="Microsoft.NET.Sdk.Razor">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>System.Data.SQLite.Wasm</RootNamespace>
+    <AssemblyName>System.Data.SQLite.Wasm</AssemblyName>
+    <Description>Minimal ADO.NET provider for SQLite via sqlite-wasm with OPFS persistence. Drop-in replacement for EF Core SQLite provider.</Description>
+    <PackageId>System.Data.SQLite.Wasm</PackageId>
+    <Version>1.0.0</Version>
+    <Authors>SqliteWasm Contributors</Authors>
+    <Copyright>MIT License</Copyright>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <RepositoryUrl>https://github.com/YourRepo/SqliteWasm.Data</RepositoryUrl>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <SupportedPlatform Include="browser" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.0-*" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.0-*" />
+  </ItemGroup>
+
+  <!-- Exclude reference files and obsolete files -->
+  <ItemGroup>
+    <Compile Remove="_Reference/**/*.cs" />
+    <Compile Remove="SqliteWasmInterop.cs" />
+    <Compile Remove="SqliteWasmHandles.cs" />
+  </ItemGroup>
+
+  <!-- Build TypeScript very early, before static web assets are discovered -->
+  <Target Name="BuildTypeScript" BeforeTargets="BeforeCompile">
+    <Exec WorkingDirectory="TypeScript" Command="npm run build" Condition="Exists('TypeScript/package.json')" />
+  </Target>
+
+</Project>

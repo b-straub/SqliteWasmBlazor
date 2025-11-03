@@ -1,0 +1,140 @@
+// System.Data.SQLite.Wasm - Minimal EF Core compatible provider
+// MIT License
+
+using System.Data;
+using System.Data.Common;
+using System.Runtime.Versioning;
+
+namespace System.Data.SQLite.Wasm;
+
+/// <summary>
+/// Minimal SQLite connection for EF Core using sqlite-wasm + OPFS.
+/// </summary>
+[SupportedOSPlatform("browser")]
+public sealed class SqliteWasmConnection : DbConnection
+{
+    private string _connectionString = string.Empty;
+    private ConnectionState _state = ConnectionState.Closed;
+    private readonly SqliteWasmWorkerBridge _bridge;
+
+    public SqliteWasmConnection()
+    {
+        _bridge = SqliteWasmWorkerBridge.Instance;
+    }
+
+    public SqliteWasmConnection(string connectionString) : this()
+    {
+        _connectionString = connectionString;
+    }
+
+    public override string ConnectionString
+    {
+        get => _connectionString;
+        set => _connectionString = value;
+    }
+
+    public override string Database => GetDatabaseName();
+
+    public override string DataSource => GetDatabaseName();
+
+    public override string ServerVersion => "3.47.0"; // sqlite-wasm version
+
+    public override ConnectionState State => _state;
+
+    private string GetDatabaseName()
+    {
+        // Parse "Data Source=mydb.db" from connection string
+        if (string.IsNullOrEmpty(_connectionString))
+        {
+            return ":memory:";
+        }
+
+        var parts = _connectionString.Split(';');
+        foreach (var part in parts)
+        {
+            var kv = part.Split('=', 2);
+            if (kv.Length == 2 &&
+                kv[0].Trim().Equals("Data Source", StringComparison.OrdinalIgnoreCase))
+            {
+                return kv[1].Trim();
+            }
+        }
+
+        return ":memory:";
+    }
+
+    public override void Open()
+    {
+        // EF Core's SqliteDatabaseCreator calls synchronous Open()
+        // We can't block in WebAssembly, but we can set state optimistically
+        // Actual opening will happen on first command execution
+        if (_state == ConnectionState.Open)
+        {
+            return;
+        }
+
+        _state = ConnectionState.Open;
+
+        // Queue async open in background (fire and forget is safe here since
+        // commands will await the worker bridge initialization)
+        _ = _bridge.OpenDatabaseAsync(Database, CancellationToken.None);
+    }
+
+    public override async Task OpenAsync(CancellationToken cancellationToken = default)
+    {
+        if (_state == ConnectionState.Open)
+        {
+            return;
+        }
+
+        _state = ConnectionState.Connecting;
+
+        try
+        {
+            await _bridge.OpenDatabaseAsync(Database, cancellationToken);
+            _state = ConnectionState.Open;
+        }
+        catch
+        {
+            _state = ConnectionState.Broken;
+            throw;
+        }
+    }
+
+    public override void Close()
+    {
+        if (_state == ConnectionState.Closed)
+        {
+            return;
+        }
+
+        _state = ConnectionState.Closed;
+    }
+
+    protected override DbCommand CreateDbCommand()
+    {
+        return new SqliteWasmCommand
+        {
+            Connection = this
+        };
+    }
+
+    protected override DbTransaction BeginDbTransaction(IsolationLevel isolationLevel)
+    {
+        return new SqliteWasmTransaction(this, isolationLevel);
+    }
+
+    public override void ChangeDatabase(string databaseName)
+    {
+        throw new NotSupportedException("Changing database is not supported.");
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+        {
+            Close();
+        }
+        base.Dispose(disposing);
+    }
+}

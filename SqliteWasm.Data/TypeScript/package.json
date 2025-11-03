@@ -1,0 +1,21 @@
+{
+  "name": "system-data-sqlite-wasm-typescript",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "build": "npm run build:worker && npm run build:bridge && npm run copy:wasm",
+    "build:worker": "esbuild sqlite-worker.ts --bundle --format=esm --sourcemap=inline --outfile=../wwwroot/sqlite-wasm-worker.js",
+    "build:bridge": "esbuild worker-bridge.ts --bundle --format=esm --sourcemap=inline --outfile=../wwwroot/sqlite-wasm-bridge.js",
+    "copy:wasm": "cp node_modules/@sqlite.org/sqlite-wasm/sqlite-wasm/jswasm/sqlite3.wasm ../wwwroot/",
+    "build:release": "npm run build:worker:release && npm run build:bridge:release && npm run copy:wasm",
+    "build:worker:release": "esbuild sqlite-worker.ts --bundle --format=esm --minify --outfile=../wwwroot/sqlite-wasm-worker.js",
+    "build:bridge:release": "esbuild worker-bridge.ts --bundle --format=esm --minify --outfile=../wwwroot/sqlite-wasm-bridge.js"
+  },
+  "dependencies": {
+    "@sqlite.org/sqlite-wasm": "^3.50.4-build1"
+  },
+  "devDependencies": {
+    "esbuild": "^0.24.0",
+    "typescript": "^5.8.3"
+  }
+}

@@ -1,0 +1,90 @@
+// System.Data.SQLite.Wasm - Minimal EF Core compatible provider
+// MIT License
+
+using System.Data;
+using System.Data.Common;
+using System.Runtime.Versioning;
+
+namespace System.Data.SQLite.Wasm;
+
+/// <summary>
+/// Transaction that wraps BEGIN/COMMIT/ROLLBACK SQL commands.
+/// </summary>
+[SupportedOSPlatform("browser")]
+public sealed class SqliteWasmTransaction : DbTransaction
+{
+    private readonly SqliteWasmConnection _connection;
+    private readonly IsolationLevel _isolationLevel;
+    private bool _completed;
+
+    internal SqliteWasmTransaction(SqliteWasmConnection connection, IsolationLevel isolationLevel)
+    {
+        _connection = connection ?? throw new ArgumentNullException(nameof(connection));
+        _isolationLevel = isolationLevel;
+
+        // Start transaction
+        ExecuteNonQuery(GetBeginSql(isolationLevel));
+    }
+
+    public override IsolationLevel IsolationLevel => _isolationLevel;
+
+    protected override DbConnection DbConnection => _connection;
+
+    public override void Commit()
+    {
+        if (_completed)
+        {
+            throw new InvalidOperationException("Transaction has already been committed or rolled back.");
+        }
+
+        ExecuteNonQuery("COMMIT");
+        _completed = true;
+    }
+
+    public override void Rollback()
+    {
+        if (_completed)
+        {
+            throw new InvalidOperationException("Transaction has already been committed or rolled back.");
+        }
+
+        ExecuteNonQuery("ROLLBACK");
+        _completed = true;
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing && !_completed)
+        {
+            try
+            {
+                Rollback();
+            }
+            catch
+            {
+                // Suppress exceptions during dispose
+            }
+        }
+        base.Dispose(disposing);
+    }
+
+    private void ExecuteNonQuery(string sql)
+    {
+        using var command = _connection.CreateCommand();
+        command.CommandText = sql;
+        command.ExecuteNonQuery();
+    }
+
+    private static string GetBeginSql(IsolationLevel isolationLevel)
+    {
+        return isolationLevel switch
+        {
+            IsolationLevel.ReadUncommitted => "BEGIN DEFERRED",
+            IsolationLevel.ReadCommitted => "BEGIN DEFERRED",
+            IsolationLevel.RepeatableRead => "BEGIN DEFERRED",
+            IsolationLevel.Serializable => "BEGIN IMMEDIATE",
+            IsolationLevel.Snapshot => "BEGIN IMMEDIATE",
+            _ => "BEGIN"
+        };
+    }
+}
