@@ -32,7 +32,44 @@ let sqlite3: any;
 let poolUtil: any;
 const openDatabases = new Map<string, any>();
 
+// Cache table schemas: Map<tableName, Map<columnName, columnType>>
+const schemaCache = new Map<string, Map<string, string>>();
+
 const MODULE_NAME = 'SQLite Worker';
+
+// Helper function to convert BigInt and Uint8Array for JSON serialization
+// BigInts within safe integer range (±2^53-1) are converted to number for efficiency
+// Larger BigInts are converted to string to preserve precision
+// Uint8Arrays are converted to Base64 strings (matches .NET 6+ JSInterop convention)
+function convertBigIntToString(value: any): any {
+    if (typeof value === 'bigint') {
+        // Check if BigInt fits in JavaScript's safe integer range
+        if (value >= Number.MIN_SAFE_INTEGER && value <= Number.MAX_SAFE_INTEGER) {
+            return Number(value);  // Convert to number for efficiency
+        }
+        return value.toString();  // Convert to string to preserve precision
+    }
+    if (value instanceof Uint8Array) {
+        // Convert Uint8Array to Base64 string (matches .NET 6+ convention)
+        // Use btoa() with binary string conversion
+        let binaryString = '';
+        for (let i = 0; i < value.length; i++) {
+            binaryString += String.fromCharCode(value[i]);
+        }
+        return btoa(binaryString);
+    }
+    if (Array.isArray(value)) {
+        return value.map(convertBigIntToString);
+    }
+    if (value && typeof value === 'object') {
+        const converted: any = {};
+        for (const key in value) {
+            converted[key] = convertBigIntToString(value[key]);
+        }
+        return converted;
+    }
+    return value;
+}
 
 // Initialize sqlite-wasm with OPFS SAHPool
 (async () => {
@@ -168,6 +205,43 @@ async function openDatabase(dbName: string) {
     }
 }
 
+// Get schema info for a table by querying PRAGMA table_info
+function getTableSchema(db: any, tableName: string): Map<string, string> {
+    if (schemaCache.has(tableName)) {
+        return schemaCache.get(tableName)!;
+    }
+
+    const schema = new Map<string, string>();
+    try {
+        // Query PRAGMA table_info to get column types
+        const result = db.exec({
+            sql: `PRAGMA table_info("${tableName}")`,
+            returnValue: 'resultRows',
+            rowMode: 'array'
+        });
+
+        // PRAGMA table_info returns: [cid, name, type, notnull, dflt_value, pk]
+        for (const row of result) {
+            const columnName = row[1] as string;  // name
+            const columnType = row[2] as string;  // type
+            schema.set(columnName, columnType.toUpperCase());
+        }
+
+        schemaCache.set(tableName, schema);
+    } catch (error) {
+        logger.warn(MODULE_NAME, `Failed to load schema for table ${tableName}:`, error);
+    }
+
+    return schema;
+}
+
+// Extract table name from SELECT statement (simple heuristic)
+function extractTableName(sql: string): string | null {
+    // Match: SELECT ... FROM "tableName" or FROM tableName
+    const match = sql.match(/FROM\s+["']?(\w+)["']?/i);
+    return match ? match[1] : null;
+}
+
 async function executeSql(dbName: string, sql: string, parameters: Record<string, any>) {
     const db = openDatabases.get(dbName);
     if (!db) {
@@ -199,18 +273,46 @@ async function executeSql(dbName: string, sql: string, parameters: Record<string
             try {
                 const colCount = stmt.columnCount;
 
-                for (let i = 0; i < colCount; i++) {
-                    columnNames.push(stmt.getColumnName(i));
+                // Try to get schema from table (for SELECT queries)
+                let tableSchema: Map<string, string> | null = null;
+                if (sql.trim().toUpperCase().startsWith('SELECT')) {
+                    const tableName = extractTableName(sql);
+                    if (tableName) {
+                        tableSchema = getTableSchema(db, tableName);
+                    }
+                }
 
-                    // Infer type from first row value since stmt.getColumnDeclType doesn't exist
+                for (let i = 0; i < colCount; i++) {
+                    const colName = stmt.getColumnName(i);
+                    columnNames.push(colName);
+
+                    // Use declared type from schema if available
+                    let declaredType = tableSchema?.get(colName);
+
+                    // Normalize declared type to SQLite affinity
                     let inferredType = 'TEXT';
-                    if (result.length > 0 && result[0][i] !== null) {
+                    if (declaredType) {
+                        const typeUpper = declaredType.toUpperCase();
+                        if (typeUpper.includes('INT')) {
+                            inferredType = 'INTEGER';
+                        } else if (typeUpper.includes('REAL') || typeUpper.includes('DOUBLE') || typeUpper.includes('FLOAT')) {
+                            inferredType = 'REAL';
+                        } else if (typeUpper.includes('BLOB')) {
+                            inferredType = 'BLOB';
+                        } else {
+                            inferredType = 'TEXT';
+                        }
+                    } else if (result.length > 0 && result[0][i] !== null) {
+                        // Fallback to value-based inference if no schema available
                         const value = result[0][i];
+
                         if (typeof value === 'number') {
                             inferredType = Number.isInteger(value) ? 'INTEGER' : 'REAL';
+                        } else if (typeof value === 'bigint') {
+                            inferredType = 'INTEGER';
                         } else if (typeof value === 'boolean') {
                             inferredType = 'INTEGER';
-                        } else if (value instanceof Uint8Array) {
+                        } else if (value instanceof Uint8Array || ArrayBuffer.isView(value)) {
                             inferredType = 'BLOB';
                         }
                     }
@@ -236,9 +338,9 @@ async function executeSql(dbName: string, sql: string, parameters: Record<string
         return {
             columnNames,
             columnTypes,
-            rows: result || [],
+            rows: convertBigIntToString(result || []),
             rowsAffected,
-            lastInsertId
+            lastInsertId: convertBigIntToString(lastInsertId)
         };
     } catch (error) {
         console.error(`[SQLite Worker] SQL execution failed:`, error);

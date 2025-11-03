@@ -25,6 +25,33 @@ public sealed class SqliteWasmDataReader : DbDataReader
         _command = command;
     }
 
+    public override T GetFieldValue<T>(int ordinal)
+    {
+        // Special handling for DateTimeOffset since there's no GetDateTimeOffset() in DbDataReader
+        if (typeof(T) == typeof(DateTimeOffset))
+        {
+            return (T)(object)GetDateTimeOffset(ordinal);
+        }
+
+        // Special handling for TimeSpan
+        if (typeof(T) == typeof(TimeSpan))
+        {
+            var value = GetValue(ordinal);
+            if (value is System.Text.Json.JsonElement jsonElement && jsonElement.ValueKind == System.Text.Json.JsonValueKind.String)
+            {
+                var str = jsonElement.GetString();
+                if (str is not null)
+                {
+                    return (T)(object)TimeSpan.Parse(str);
+                }
+            }
+            return (T)(object)TimeSpan.Parse(Convert.ToString(value) ?? string.Empty);
+        }
+
+        // Default behavior for all other types
+        return base.GetFieldValue<T>(ordinal);
+    }
+
     public override int Depth => 0;
 
     public override int FieldCount => _result.ColumnNames.Count;
@@ -67,7 +94,33 @@ public sealed class SqliteWasmDataReader : DbDataReader
     public override long GetBytes(int ordinal, long dataOffset, byte[]? buffer, int bufferOffset, int length)
     {
         var value = GetValue(ordinal);
-        if (value is not byte[] bytes)
+        byte[] bytes;
+
+        if (value is System.Text.Json.JsonElement jsonElement)
+        {
+            // Convert Base64 string to byte[]
+            if (jsonElement.ValueKind == System.Text.Json.JsonValueKind.String)
+            {
+                var str = jsonElement.GetString();
+                if (str is not null)
+                {
+                    bytes = System.Convert.FromBase64String(str);
+                }
+                else
+                {
+                    throw new InvalidCastException($"Column {ordinal} is not a byte array.");
+                }
+            }
+            else
+            {
+                throw new InvalidCastException($"Column {ordinal} is not a byte array.");
+            }
+        }
+        else if (value is byte[] byteArray)
+        {
+            bytes = byteArray;
+        }
+        else
         {
             throw new InvalidCastException($"Column {ordinal} is not a byte array.");
         }
@@ -134,11 +187,47 @@ public sealed class SqliteWasmDataReader : DbDataReader
         return Convert.ToDateTime(value);
     }
 
+    public DateTimeOffset GetDateTimeOffset(int ordinal)
+    {
+        var value = GetValue(ordinal);
+        if (value is System.Text.Json.JsonElement jsonElement)
+        {
+            // SQLite stores DateTimeOffset as TEXT (ISO8601 with offset)
+            if (jsonElement.ValueKind == System.Text.Json.JsonValueKind.String)
+            {
+                var str = jsonElement.GetString();
+                if (str is not null)
+                {
+                    return DateTimeOffset.Parse(str, null, System.Globalization.DateTimeStyles.RoundtripKind);
+                }
+            }
+            return jsonElement.GetDateTimeOffset();
+        }
+        if (value is DateTimeOffset dto)
+        {
+            return dto;
+        }
+        if (value is DateTime dt)
+        {
+            return new DateTimeOffset(dt);
+        }
+        return DateTimeOffset.Parse(Convert.ToString(value) ?? string.Empty);
+    }
+
     public override decimal GetDecimal(int ordinal)
     {
         var value = GetValue(ordinal);
         if (value is System.Text.Json.JsonElement jsonElement)
         {
+            // SQLite stores decimals as TEXT, so handle both string and number
+            if (jsonElement.ValueKind == System.Text.Json.JsonValueKind.String)
+            {
+                var str = jsonElement.GetString();
+                if (str is not null)
+                {
+                    return decimal.Parse(str, System.Globalization.CultureInfo.InvariantCulture);
+                }
+            }
             return jsonElement.GetDecimal();
         }
         return Convert.ToDecimal(value);
@@ -179,6 +268,18 @@ public sealed class SqliteWasmDataReader : DbDataReader
     public override Guid GetGuid(int ordinal)
     {
         var value = GetValue(ordinal);
+        if (value is System.Text.Json.JsonElement jsonElement)
+        {
+            // SQLite stores GUIDs as TEXT
+            if (jsonElement.ValueKind == System.Text.Json.JsonValueKind.String)
+            {
+                var guidStr = jsonElement.GetString();
+                if (guidStr is not null)
+                {
+                    return Guid.Parse(guidStr);
+                }
+            }
+        }
         if (value is string str)
         {
             return Guid.Parse(str);
@@ -215,6 +316,15 @@ public sealed class SqliteWasmDataReader : DbDataReader
         var value = GetValue(ordinal);
         if (value is System.Text.Json.JsonElement jsonElement)
         {
+            // Handle both number (for values within safe JS integer range) and string (for large int64)
+            if (jsonElement.ValueKind == System.Text.Json.JsonValueKind.String)
+            {
+                var str = jsonElement.GetString();
+                if (str is not null)
+                {
+                    return long.Parse(str);
+                }
+            }
             return jsonElement.GetInt64();
         }
         return Convert.ToInt64(value);
@@ -262,7 +372,38 @@ public sealed class SqliteWasmDataReader : DbDataReader
         }
 
         var value = _result.Rows[_currentRowIndex][ordinal];
-        return value ?? DBNull.Value;
+
+        if (value is null)
+        {
+            return DBNull.Value;
+        }
+
+        // Handle JsonElement conversions for types that need special handling
+        if (value is System.Text.Json.JsonElement jsonElement)
+        {
+            var columnType = _result.ColumnTypes[ordinal];
+
+            // Convert Base64 string to byte[] for BLOB columns (matches .NET 6+ convention)
+            if (jsonElement.ValueKind == System.Text.Json.JsonValueKind.String)
+            {
+                var str = jsonElement.GetString();
+
+                if (str is not null && columnType == "BLOB")
+                {
+                    // Decode Base64 for BLOB columns
+                    try
+                    {
+                        return System.Convert.FromBase64String(str);
+                    }
+                    catch
+                    {
+                        // Not Base64, return the string value
+                    }
+                }
+            }
+        }
+
+        return value;
     }
 
     public override int GetValues(object[] values)

@@ -10,6 +10,7 @@ public class TodoDbContext : DbContext
     }
 
     public DbSet<TodoItem> TodoItems { get; set; }
+    public DbSet<TypeTestEntity> TypeTests { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
