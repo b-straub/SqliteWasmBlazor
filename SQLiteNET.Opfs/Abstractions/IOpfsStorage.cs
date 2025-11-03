@@ -23,6 +23,13 @@ public interface IOpfsStorage
     bool ForceFullSync { get; set; }
 
     /// <summary>
+    /// Control logging verbosity for OPFS operations.
+    /// Default: Warning (only errors and warnings).
+    /// Set to Info or Debug for more detailed output.
+    /// </summary>
+    OpfsLogLevel LogLevel { get; set; }
+
+    /// <summary>
     /// Initialize OPFS storage. Can be called multiple times safely.
     /// </summary>
     Task<bool> InitializeAsync();

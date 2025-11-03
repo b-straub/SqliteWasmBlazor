@@ -74,6 +74,9 @@ class OpfsSAHPool {
   #apBody = new Uint8Array(HEADER_CORPUS_SIZE);
   #dvBody = null;
 
+  // Log level (matches OpfsLogLevel enum: None=0, Error=1, Warning=2, Info=3, Debug=4)
+  logLevel = 2;  // Default: Warning
+
   vfsDir = null;
 
   constructor(options = {}) {
@@ -90,15 +93,21 @@ class OpfsSAHPool {
   }
 
   log(...args) {
-    console.log('[OpfsSAHPool]', ...args);
+    if (this.logLevel >= 3) {  // Info level
+      console.log('[OpfsSAHPool]', ...args);
+    }
   }
 
   warn(...args) {
-    console.warn('[OpfsSAHPool]', ...args);
+    if (this.logLevel >= 2) {  // Warning level
+      console.warn('[OpfsSAHPool]', ...args);
+    }
   }
 
   error(...args) {
-    console.error('[OpfsSAHPool]', ...args);
+    if (this.logLevel >= 1) {  // Error level
+      console.error('[OpfsSAHPool]', ...args);
+    }
   }
 
   getCapacity() {
@@ -417,7 +426,13 @@ class OpfsSAHPool {
       }
 
       if (!sah) {
-        this.error(`File not found: ${path}`);
+        // Only log as error if CREATE flag was set (unexpected failure)
+        // For READONLY opens, file not found is normal on first run
+        if (flags & SQLITE_OPEN_CREATE) {
+          this.error(`File not found: ${path}`);
+        } else {
+          this.log(`File not found (READONLY open): ${path}`);
+        }
         return -1;
       }
 

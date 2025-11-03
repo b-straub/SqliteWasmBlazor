@@ -5,6 +5,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <WasmBuildNative>true</WasmBuildNative>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
 
@@ -23,5 +24,28 @@
   <ItemGroup>
     <NativeFileReference Include="Native\lib\e_sqlite3.a" />
   </ItemGroup>
+
+  <!-- Automatic TypeScript compilation -->
+  <PropertyGroup>
+    <TypeScriptDir>$(MSBuildThisFileDirectory)Typescript</TypeScriptDir>
+    <TypeScriptNodeModulesExists Condition="Exists('$(TypeScriptDir)\node_modules')">true</TypeScriptNodeModulesExists>
+  </PropertyGroup>
+
+  <Target Name="CompileTypeScript" BeforeTargets="BeforeBuild">
+    <Message Importance="high" Text="[TypeScript] Checking TypeScript compilation..." />
+
+    <!-- Install npm packages if node_modules doesn't exist -->
+    <Exec Condition="'$(TypeScriptNodeModulesExists)' != 'true'"
+          Command="npm install"
+          WorkingDirectory="$(TypeScriptDir)"
+          ConsoleToMSBuild="true" />
+
+    <!-- Compile TypeScript -->
+    <Exec Command="npm run build"
+          WorkingDirectory="$(TypeScriptDir)"
+          ConsoleToMSBuild="true" />
+
+    <Message Importance="high" Text="[TypeScript] Compilation complete" />
+  </Target>
 
 </Project>

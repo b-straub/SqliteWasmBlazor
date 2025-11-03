@@ -2,6 +2,8 @@
 // Main thread wrapper for OPFS Worker
 // Handles communication with opfs-worker.js for file I/O
 
+import { logger } from './opfs-logger';
+
 interface InitializeResult {
     success: boolean;
     message: string;
@@ -50,7 +52,7 @@ export async function initialize(): Promise<InitializeResult> {
     }
 
     try {
-        console.log('[OPFS Initializer] Creating worker...');
+        logger.debug('OPFS Initializer', 'Creating worker...');
 
         // Create worker from bundled worker file
         worker = new Worker(
@@ -80,7 +82,7 @@ export async function initialize(): Promise<InitializeResult> {
                     // Send synchronous cleanup message (best effort)
                     worker.postMessage({ id: -1, type: 'cleanup' });
                 } catch (e) {
-                    console.warn('[OPFS Initializer] Could not send cleanup message:', e);
+                    logger.warn('OPFS Initializer', 'Could not send cleanup message:', e);
                 }
             }
         });
@@ -102,7 +104,7 @@ export async function initialize(): Promise<InitializeResult> {
             });
         });
 
-        console.log('[OPFS Initializer] Worker ready, getting capacity...');
+        logger.debug('OPFS Initializer', 'Worker ready, getting capacity...');
 
         // Get initial capacity and file count
         const capacityResult = await sendMessage('getCapacity');
@@ -110,7 +112,12 @@ export async function initialize(): Promise<InitializeResult> {
 
         isInitialized = true;
 
-        console.log('[OPFS Initializer] Initialization complete');
+        logger.debug('OPFS Initializer', 'Initialization complete');
+
+        // Expose sendMessage globally for use by other modules (opfs-interop.ts)
+        // This ensures they use the same worker instance
+        (window as any).__opfsSendMessage = sendMessage;
+        (window as any).__opfsIsInitialized = () => isInitialized;
 
         return {
             success: true,
@@ -119,7 +126,7 @@ export async function initialize(): Promise<InitializeResult> {
             fileCount: fileListResult.files.length
         };
     } catch (error) {
-        console.error('[OPFS Initializer] Failed to initialize:', error);
+        logger.error('OPFS Initializer', 'Failed to initialize:', error);
         return {
             success: false,
             message: error instanceof Error ? error.message : 'Unknown error'
@@ -166,7 +173,7 @@ export async function addCapacity(count: number): Promise<number> {
  * Reads the file from native WASM memory and stores it in OPFS.
  */
 export async function persist(filename: string): Promise<void> {
-    console.log('[OPFS Persist] Starting persist for:', filename);
+    logger.debug('OPFS Persist', 'Starting persist for:', filename);
 
     // Check if file exists in Emscripten MEMFS
     if (!(window as any).Blazor?.runtime?.Module?.FS) {
@@ -177,7 +184,7 @@ export async function persist(filename: string): Promise<void> {
     const filePath = `/${filename}`;
 
     const pathInfo = fs.analyzePath(filePath);
-    console.log('[OPFS Persist] File exists in MEMFS:', pathInfo.exists);
+    logger.debug('OPFS Persist', 'File exists in MEMFS:', pathInfo.exists);
 
     if (!pathInfo.exists) {
         throw new Error(`Database file ${filename} not found in MEMFS`);
@@ -185,7 +192,7 @@ export async function persist(filename: string): Promise<void> {
 
     // Read from MEMFS
     const data = fs.readFile(filePath);
-    console.log('[OPFS Persist] Read from MEMFS:', data.length, 'bytes');
+    logger.debug('OPFS Persist', 'Read from MEMFS:', data.length, 'bytes');
 
     // Write to OPFS via worker
     await sendMessage('writeFile', {
@@ -193,7 +200,7 @@ export async function persist(filename: string): Promise<void> {
         data: Array.from(data)
     });
 
-    console.log('[OPFS Persist] Written to OPFS:', filename);
+    logger.info('OPFS Persist', 'Written to OPFS:', filename);
 }
 
 /**
@@ -201,7 +208,7 @@ export async function persist(filename: string): Promise<void> {
  * Used by VFS tracking for efficient partial updates.
  */
 export async function persistDirtyPages(filename: string, pages: any[]): Promise<void> {
-    console.log('[OPFS Persist Dirty] Starting incremental persist for:', filename, '-', pages.length, 'pages');
+    logger.debug('OPFS Persist Dirty', 'Starting incremental persist for:', filename, '-', pages.length, 'pages');
 
     // Send dirty pages to worker for partial write
     const result = await sendMessage('persistDirtyPages', {
@@ -209,7 +216,7 @@ export async function persistDirtyPages(filename: string, pages: any[]): Promise
         pages
     });
 
-    console.log('[OPFS Persist Dirty] Written', result.pagesWritten, 'pages (', result.bytesWritten, 'bytes)');
+    logger.info('OPFS Persist Dirty', 'Written', result.pagesWritten, 'pages (', result.bytesWritten, 'bytes)');
 }
 
 /**
@@ -217,7 +224,7 @@ export async function persistDirtyPages(filename: string, pages: any[]): Promise
  * Reads the file from OPFS and writes it to native WASM memory.
  */
 export async function load(filename: string): Promise<void> {
-    console.log('[OPFS Load] Starting load for:', filename);
+    logger.debug('OPFS Load', 'Starting load for:', filename);
 
     if (!(window as any).Blazor?.runtime?.Module?.FS) {
         throw new Error('Emscripten FS not available. Ensure WasmBuildNative=true is enabled.');
@@ -229,29 +236,42 @@ export async function load(filename: string): Promise<void> {
     try {
         // Read from OPFS via worker
         const result = await sendMessage('readFile', { filename });
-        console.log('[OPFS Load] Read from OPFS:', result.data?.length || 0, 'bytes');
+        logger.debug('OPFS Load', 'Read from OPFS:', result.data?.length || 0, 'bytes');
 
         if (result.data && result.data.length > 0) {
             // Write to MEMFS
             fs.writeFile(filePath, new Uint8Array(result.data));
-            console.log('[OPFS Load] Written to MEMFS:', filename);
+            logger.info('OPFS Load', 'Written to MEMFS:', filename);
         }
     } catch (error) {
         // Database doesn't exist in OPFS yet - this is okay (will be created)
-        console.log(`[OPFS Load] Database ${filename} not found in OPFS (will be created on first use)`);
+        logger.info('OPFS Load', `Database ${filename} not found in OPFS (will be created on first use)`);
     }
 }
 
 export async function cleanup(): Promise<void> {
     if (worker) {
-        console.log('[OPFS Initializer] Requesting cleanup...');
+        logger.debug('OPFS Initializer', 'Requesting cleanup...');
         try {
             await sendMessage('cleanup');
-            console.log('[OPFS Initializer] Cleanup complete');
+            logger.info('OPFS Initializer', 'Cleanup complete');
         } catch (e) {
-            console.warn('[OPFS Initializer] Cleanup failed:', e);
+            logger.warn('OPFS Initializer', 'Cleanup failed:', e);
         }
     }
 }
 
-console.log('[OPFS Initializer] Module loaded');
+/**
+ * Send a message to the OPFS worker.
+ * Exported for use by opfs-interop.ts (JSImport optimizations).
+ */
+export async function sendMessageToWorker(type: string, args?: any): Promise<any> {
+    // Ensure worker is initialized
+    if (!isInitialized) {
+        await initialize();
+    }
+
+    return sendMessage(type, args);
+}
+
+logger.debug('OPFS Initializer', 'Module loaded');

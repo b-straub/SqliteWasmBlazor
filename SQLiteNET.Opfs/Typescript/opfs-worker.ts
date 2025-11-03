@@ -17,12 +17,23 @@ interface WorkerResponse {
     error?: string;
 }
 
+// Simple logger for worker context (matches OpfsLogLevel enum)
+enum LogLevel { None = 0, Error = 1, Warning = 2, Info = 3, Debug = 4 }
+let workerLogLevel = LogLevel.Warning; // Default
+
+const log = {
+    debug: (...args: any[]) => workerLogLevel >= LogLevel.Debug && console.log('[OPFS Worker]', ...args),
+    info: (...args: any[]) => workerLogLevel >= LogLevel.Info && console.log('[OPFS Worker] ✓', ...args),
+    warn: (...args: any[]) => workerLogLevel >= LogLevel.Warning && console.warn('[OPFS Worker] ⚠', ...args),
+    error: (...args: any[]) => workerLogLevel >= LogLevel.Error && console.error('[OPFS Worker] ❌', ...args)
+};
+
 // Wait for OPFS SAHPool to initialize
 opfsSAHPool.isReady.then(() => {
-    console.log('[OPFS Worker] SAHPool initialized, sending ready signal');
+    log.info('SAHPool initialized, sending ready signal');
     self.postMessage({ type: 'ready' });
 }).catch((error) => {
-    console.error('[OPFS Worker] SAHPool initialization failed:', error);
+    log.error('SAHPool initialization failed:', error);
     self.postMessage({ type: 'error', error: error.message });
 });
 
@@ -34,11 +45,19 @@ self.onmessage = async (event: MessageEvent<WorkerMessage>) => {
         let result: any;
 
         switch (type) {
+            case 'setLogLevel':
+                // Configure log level for worker and SAHPool
+                workerLogLevel = args.level;
+                opfsSAHPool.logLevel = args.level;
+                log.info(`Log level set to ${args.level}`);
+                result = { success: true };
+                break;
+
             case 'cleanup':
                 // Release all OPFS handles before page unload
-                console.log('[OPFS Worker] Cleaning up handles before unload...');
+                log.info('Cleaning up handles before unload...');
                 opfsSAHPool.releaseAccessHandles();
-                console.log('[OPFS Worker] Cleanup complete');
+                log.info('Cleanup complete');
                 result = { success: true };
                 break;
 
@@ -64,7 +83,12 @@ self.onmessage = async (event: MessageEvent<WorkerMessage>) => {
                 // Read file from OPFS using SAHPool
                 const fileId = opfsSAHPool.xOpen(args.filename, 0x01); // READONLY
                 if (fileId < 0) {
-                    throw new Error(`File not found: ${args.filename}`);
+                    // File doesn't exist yet - this is normal on first run
+                    log.debug(`File not found in OPFS: ${args.filename} (will be created on first write)`);
+                    result = {
+                        data: [] // Return empty array to indicate file doesn't exist
+                    };
+                    break;
                 }
 
                 const size = opfsSAHPool.xFileSize(fileId);
@@ -121,17 +145,18 @@ self.onmessage = async (event: MessageEvent<WorkerMessage>) => {
                     break;
                 }
 
-                console.log(`[OPFS Worker] Persisting ${pages.length} dirty pages for ${filename}`);
+                log.info(`Persisting ${pages.length} dirty pages for ${filename}`);
 
                 const PAGE_SIZE = 4096;
                 const SQLITE_OK = 0;
                 const FLAGS_READWRITE = 0x02;
+                const FLAGS_CREATE = 0x04;
                 const FLAGS_MAIN_DB = 0x100;
 
-                // Open file for partial writes
+                // Open file for partial writes (create if it doesn't exist yet)
                 const partialFileId = opfsSAHPool.xOpen(
                     filename,
-                    FLAGS_READWRITE | FLAGS_MAIN_DB
+                    FLAGS_READWRITE | FLAGS_CREATE | FLAGS_MAIN_DB
                 );
 
                 if (partialFileId < 0) {
@@ -164,7 +189,7 @@ self.onmessage = async (event: MessageEvent<WorkerMessage>) => {
                     // Sync to ensure data is persisted
                     opfsSAHPool.xSync(partialFileId, 0);
 
-                    console.log(`[OPFS Worker] Successfully wrote ${pagesWritten} pages`);
+                    log.info(`Successfully wrote ${pagesWritten} pages`);
 
                 } finally {
                     // Always close the file
@@ -211,4 +236,4 @@ self.onmessage = async (event: MessageEvent<WorkerMessage>) => {
     }
 };
 
-console.log('[OPFS Worker] Worker script loaded, waiting for SAHPool initialization...');
+log.info('Worker script loaded, waiting for SAHPool initialization...');

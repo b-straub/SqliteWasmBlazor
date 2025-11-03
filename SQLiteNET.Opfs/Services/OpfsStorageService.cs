@@ -34,6 +34,45 @@ public class OpfsStorageService : IOpfsStorage, IAsyncDisposable
     /// </summary>
     public bool ForceFullSync { get; set; }
 
+    /// <summary>
+    /// Control logging verbosity for OPFS operations.
+    /// Default: Warning (only errors and warnings).
+    /// </summary>
+    public OpfsLogLevel LogLevel { get; set; } = OpfsLogLevel.Warning;
+
+    // Logging helper methods
+    private void LogDebug(string message)
+    {
+        if (LogLevel >= OpfsLogLevel.Debug)
+        {
+            Console.WriteLine($"[OpfsStorageService] {message}");
+        }
+    }
+
+    private void LogInfo(string message)
+    {
+        if (LogLevel >= OpfsLogLevel.Info)
+        {
+            Console.WriteLine($"[OpfsStorageService] {message}");
+        }
+    }
+
+    private void LogWarning(string message)
+    {
+        if (LogLevel >= OpfsLogLevel.Warning)
+        {
+            Console.WriteLine($"[OpfsStorageService] ⚠ {message}");
+        }
+    }
+
+    private void LogError(string message)
+    {
+        if (LogLevel >= OpfsLogLevel.Error)
+        {
+            Console.Error.WriteLine($"[OpfsStorageService] ❌ {message}");
+        }
+    }
+
     public async Task<bool> InitializeAsync()
     {
         if (IsReady)
@@ -43,7 +82,7 @@ public class OpfsStorageService : IOpfsStorage, IAsyncDisposable
 
         try
         {
-            Console.WriteLine("[OpfsStorageService] Starting initialization...");
+            LogDebug("Starting initialization...");
 
             // Import the OPFS initializer module
             _module = await _jsRuntime.InvokeAsync<IJSObjectReference>(
@@ -51,13 +90,39 @@ public class OpfsStorageService : IOpfsStorage, IAsyncDisposable
 
             // Initialize OPFS Worker
             var result = await _module.InvokeAsync<InitializeResult>("initialize");
-            Console.WriteLine($"[OpfsStorageService] Initialize result: Success={result.Success}, Message={result.Message}");
+            LogDebug($"Initialize result: Success={result.Success}, Message={result.Message}");
 
             if (result.Success)
             {
                 IsReady = true;
-                Console.WriteLine($"[OpfsStorageService] ✓ OPFS initialized: {result.Message}");
-                Console.WriteLine($"[OpfsStorageService] ✓ Capacity: {result.Capacity}, Files: {result.FileCount}");
+                LogInfo($"✓ OPFS initialized: {result.Message}");
+                LogInfo($"✓ Capacity: {result.Capacity}, Files: {result.FileCount}");
+
+                // Initialize JSImport for high-performance interop
+                try
+                {
+                    await OpfsJSInterop.InitializeAsync();
+
+                    // Configure JavaScript logging to match C# log level
+                    OpfsJSInterop.SetLogLevel(LogLevel);
+
+                    // Configure worker log level
+                    try
+                    {
+                        await _module.InvokeVoidAsync("sendMessageToWorker", "setLogLevel", new { level = (int)LogLevel });
+                        LogDebug($"Worker log level set to {LogLevel}");
+                    }
+                    catch (Exception workerEx)
+                    {
+                        LogWarning($"Failed to set worker log level: {workerEx.Message}");
+                    }
+
+                    LogInfo("✓ JSImport interop initialized");
+                }
+                catch (Exception ex)
+                {
+                    LogWarning($"JSImport init failed: {ex.Message}");
+                }
 
                 // Initialize VFS tracking for incremental sync
                 try
@@ -67,30 +132,30 @@ public class OpfsStorageService : IOpfsStorage, IAsyncDisposable
                     {
                         _vfsTrackingInitialized = true;
                         IsIncrementalSyncEnabled = true;
-                        Console.WriteLine($"[OpfsStorageService] ✓ VFS tracking initialized (page size: {PageSize} bytes)");
+                        LogInfo($"✓ VFS tracking initialized (page size: {PageSize} bytes)");
                     }
                     else
                     {
-                        Console.WriteLine($"[OpfsStorageService] ⚠ VFS tracking init failed (rc={rc}), using full sync");
+                        LogWarning($"VFS tracking init failed (rc={rc}), using full sync");
                         IsIncrementalSyncEnabled = false;
                     }
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"[OpfsStorageService] ⚠ VFS tracking unavailable: {ex.Message}");
-                    Console.WriteLine("[OpfsStorageService] Falling back to full sync mode");
+                    LogWarning($"VFS tracking unavailable: {ex.Message}");
+                    LogInfo("Falling back to full sync mode");
                     IsIncrementalSyncEnabled = false;
                 }
 
                 return true;
             }
 
-            await Console.Error.WriteLineAsync($"[OpfsStorageService] Initialization failed: {result.Message}");
+            LogError($"Initialization failed: {result.Message}");
             return false;
         }
         catch (Exception ex)
         {
-            await Console.Error.WriteLineAsync($"[OpfsStorageService] Initialization error: {ex.Message}");
+            LogError($"Initialization error: {ex.Message}");
             return false;
         }
     }
@@ -100,7 +165,7 @@ public class OpfsStorageService : IOpfsStorage, IAsyncDisposable
         if (_pausedFilesList is not null)
         {
             _pausedFilesList.Add(fileName);
-            Console.WriteLine($"[OpfsStorageService] Persist paused for: {fileName}");
+            LogDebug($"Persist paused for: {fileName}");
             return;
         }
 
@@ -118,9 +183,9 @@ public class OpfsStorageService : IOpfsStorage, IAsyncDisposable
         {
             // Fallback to full sync
             string reason = ForceFullSync ? "(forced)" : "(fallback)";
-            Console.WriteLine($"[OpfsStorageService] Persisting (full) {reason}: {fileName}");
+            LogDebug($"Persisting (full) {reason}: {fileName}");
             await _module.InvokeVoidAsync("persist", fileName);
-            Console.WriteLine($"[OpfsStorageService] Persisted: {fileName}");
+            LogDebug($"Persisted: {fileName}");
         }
     }
 
@@ -142,14 +207,14 @@ public class OpfsStorageService : IOpfsStorage, IAsyncDisposable
 
             if (rc != 0)  // Not SQLITE_OK
             {
-                Console.WriteLine($"[OpfsStorageService] ⚠ Failed to get dirty pages (rc={rc}), falling back to full sync");
+                LogWarning($"Failed to get dirty pages (rc={rc}), falling back to full sync");
                 await _module.InvokeVoidAsync("persist", fileName);
                 return;
             }
 
             if (pageCount == 0)
             {
-                Console.WriteLine($"[OpfsStorageService] No dirty pages for {fileName}, skipping persist");
+                LogDebug($"No dirty pages for {fileName}, skipping persist");
                 return;
             }
 
@@ -157,109 +222,64 @@ public class OpfsStorageService : IOpfsStorage, IAsyncDisposable
             uint[] dirtyPages = VfsInterop.MarshalPages(pagesPtr, pageCount);
             VfsInterop.FreePages(pagesPtr);
 
-            Console.WriteLine($"[OpfsStorageService] Persisting (incremental): {fileName} - {pageCount} dirty pages");
+            LogDebug($"Persisting (incremental): {fileName} - {pageCount} dirty pages");
 
-            // Read dirty pages from MEMFS
-            var pagesToWrite = await ReadDirtyPagesFromMemfs(fileName, dirtyPages);
+            // Convert uint[] to int[] for JSImport
+            int[] pageNumbersInt = Array.ConvertAll(dirtyPages, p => (int)p);
 
-            if (pagesToWrite.Count == 0)
+            // Use JSImport for high-performance zero-copy transfer (synchronous - no await needed)
+            using var readResult = OpfsJSInterop.ReadPagesFromMemfs(fileName, pageNumbersInt, (int)PageSize);
+
+            // Check success
+            bool success = readResult.GetPropertyAsBoolean("success");
+            if (!success)
             {
-                Console.WriteLine($"[OpfsStorageService] ⚠ No pages read from MEMFS, skipping");
+                string? error = readResult.GetPropertyAsString("error");
+                LogWarning($"Failed to read pages from MEMFS: {error}, skipping");
                 return;
             }
 
-            // Send to worker for partial write
-            await _module.InvokeVoidAsync("persistDirtyPages", fileName, pagesToWrite);
+            // Get pages array
+            using var pagesArray = readResult.GetPropertyAsJSObject("pages");
+            if (pagesArray is null)
+            {
+                LogWarning("No pages returned from MEMFS, skipping");
+                return;
+            }
+
+            // Send to worker for partial write (zero-copy via JSImport)
+            using var persistResult = await OpfsJSInterop.PersistDirtyPagesAsync(fileName, pagesArray);
+
+            // Check persist result
+            bool persistSuccess = persistResult.GetPropertyAsBoolean("success");
+            if (!persistSuccess)
+            {
+                string? error = persistResult.GetPropertyAsString("error");
+                LogWarning($"Failed to persist: {error}");
+                return;
+            }
+
+            int pagesWritten = persistResult.GetPropertyAsInt32("pagesWritten");
+            int bytesWritten = persistResult.GetPropertyAsInt32("bytesWritten");
+            LogDebug($"✓ JSImport: Written {pagesWritten} pages ({bytesWritten / 1024} KB)");
 
             // Reset dirty tracking after successful sync
             rc = VfsInterop.ResetDirty(fileName);
             if (rc != 0)
             {
-                Console.WriteLine($"[OpfsStorageService] ⚠ Failed to reset dirty pages (rc={rc})");
+                LogWarning($"Failed to reset dirty pages (rc={rc})");
             }
 
             // Calculate bandwidth savings
             long dirtyBytes = pageCount * PageSize;
-            Console.WriteLine($"[OpfsStorageService] ✓ Persisted {pageCount} pages ({dirtyBytes / 1024} KB)");
+            LogInfo($"✓ Persisted {pageCount} pages ({dirtyBytes / 1024} KB)");
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[OpfsStorageService] ⚠ Incremental sync failed: {ex.Message}");
-            Console.WriteLine("[OpfsStorageService] Falling back to full sync");
+            LogWarning($"Incremental sync failed: {ex.Message}");
+            LogInfo("Falling back to full sync");
             await _module.InvokeVoidAsync("persist", fileName);
         }
-    }
-
-    /// <summary>
-    /// Read specific pages from Emscripten MEMFS.
-    /// </summary>
-    private async Task<List<PageData>> ReadDirtyPagesFromMemfs(string fileName, uint[] pageNumbers)
-    {
-        var pages = new List<PageData>();
-
-        try
-        {
-            string filePath = $"/{fileName}";
-
-            // Check if file exists and read all pages in one JavaScript call
-            var result = await _jsRuntime.InvokeAsync<PageReadResultRaw>("eval",
-                $@"(() => {{
-                    const fs = window.Blazor?.runtime?.Module?.FS;
-                    if (!fs) {{
-                        return {{ success: false, error: 'FS not available' }};
-                    }}
-
-                    try {{
-                        const fileData = fs.readFile('{filePath}');
-                        const pageSize = {PageSize};
-                        const pageNumbers = {System.Text.Json.JsonSerializer.Serialize(pageNumbers)};
-                        const pages = [];
-
-                        for (const pageNum of pageNumbers) {{
-                            const offset = pageNum * pageSize;
-                            const end = Math.min(offset + pageSize, fileData.length);
-
-                            if (offset < fileData.length) {{
-                                pages.push({{
-                                    pageNumber: pageNum,
-                                    data: Array.from(fileData.subarray(offset, end))
-                                }});
-                            }}
-                        }}
-
-                        return {{ success: true, pages: pages }};
-                    }} catch (err) {{
-                        return {{ success: false, error: err.message }};
-                    }}
-                }})()");
-
-            if (!result.Success)
-            {
-                Console.WriteLine($"[OpfsStorageService] ⚠ Failed to read from MEMFS: {result.Error}");
-                return pages;
-            }
-
-            if (result.Pages != null)
-            {
-                foreach (var page in result.Pages)
-                {
-                    // Convert int array to byte array
-                    var data = page.Data?.Select(b => (byte)b).ToArray() ?? Array.Empty<byte>();
-
-                    pages.Add(new PageData
-                    {
-                        PageNumber = page.PageNumber,
-                        Data = data
-                    });
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"[OpfsStorageService] ⚠ Failed to access MEMFS: {ex.Message}");
-        }
-
-        return pages;
     }
 
     public async Task Load(string fileName)
@@ -352,11 +372,11 @@ public class OpfsStorageService : IOpfsStorage, IAsyncDisposable
             {
                 // Request worker to release all OPFS handles
                 await _module.InvokeVoidAsync("cleanup");
-                Console.WriteLine("[OpfsStorageService] Cleanup complete");
+                LogInfo("Cleanup complete");
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[OpfsStorageService] Cleanup failed: {ex.Message}");
+                LogWarning($"Cleanup failed: {ex.Message}");
             }
 
             await _module.DisposeAsync();
@@ -368,11 +388,11 @@ public class OpfsStorageService : IOpfsStorage, IAsyncDisposable
             try
             {
                 VfsInterop.Shutdown();
-                Console.WriteLine("[OpfsStorageService] VFS tracking shutdown complete");
+                LogInfo("VFS tracking shutdown complete");
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[OpfsStorageService] VFS tracking shutdown failed: {ex.Message}");
+                LogWarning($"VFS tracking shutdown failed: {ex.Message}");
             }
         }
     }
@@ -383,33 +403,5 @@ public class OpfsStorageService : IOpfsStorage, IAsyncDisposable
         public string Message { get; init; } = string.Empty;
         public int Capacity { get; init; }
         public int FileCount { get; init; }
-    }
-
-    /// <summary>
-    /// Represents a single database page for incremental persistence.
-    /// </summary>
-    private class PageData
-    {
-        public uint PageNumber { get; init; }
-        public byte[] Data { get; init; } = Array.Empty<byte>();
-    }
-
-    /// <summary>
-    /// Raw page data from JavaScript (uses int array instead of byte array for JSON deserialization).
-    /// </summary>
-    private class PageDataRaw
-    {
-        public uint PageNumber { get; init; }
-        public int[]? Data { get; init; }
-    }
-
-    /// <summary>
-    /// Result from reading pages from MEMFS (raw format with int arrays).
-    /// </summary>
-    private class PageReadResultRaw
-    {
-        public bool Success { get; init; }
-        public string? Error { get; init; }
-        public List<PageDataRaw>? Pages { get; init; }
     }
 }
