@@ -1,8 +1,8 @@
 // System.Data.SQLite.Wasm - Minimal EF Core compatible provider
 // MIT License
 
-using System.Data;
 using System.Data.Common;
+using System.Diagnostics.CodeAnalysis;
 using System.Runtime.Versioning;
 
 namespace System.Data.SQLite.Wasm;
@@ -27,10 +27,11 @@ public sealed class SqliteWasmConnection : DbConnection
         _connectionString = connectionString;
     }
 
+    [AllowNull]
     public override string ConnectionString
     {
         get => _connectionString;
-        set => _connectionString = value;
+        set => _connectionString = value ?? string.Empty;
     }
 
     public override string Database => GetDatabaseName();
@@ -121,7 +122,15 @@ public sealed class SqliteWasmConnection : DbConnection
 
     protected override DbTransaction BeginDbTransaction(IsolationLevel isolationLevel)
     {
-        return new SqliteWasmTransaction(this, isolationLevel);
+        throw new NotSupportedException(
+            "Synchronous transactions are not supported in WebAssembly. Use BeginTransactionAsync instead.");
+    }
+
+    protected override async ValueTask<DbTransaction> BeginDbTransactionAsync(
+        IsolationLevel isolationLevel,
+        CancellationToken cancellationToken = default)
+    {
+        return await SqliteWasmTransaction.CreateAsync(this, isolationLevel, cancellationToken);
     }
 
     public override void ChangeDatabase(string databaseName)

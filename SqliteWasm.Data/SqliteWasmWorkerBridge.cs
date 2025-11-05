@@ -106,6 +106,25 @@ public sealed partial class SqliteWasmWorkerBridge
     }
 
     /// <summary>
+    /// Check if a database exists in OPFS SAHPool storage.
+    /// </summary>
+    public async Task<bool> ExistsDatabaseAsync(string database, CancellationToken cancellationToken = default)
+    {
+        await EnsureInitializedAsync(cancellationToken);
+
+        var request = new
+        {
+            type = "exists",
+            database = database
+        };
+
+        var result = await SendRequestAsync(request, cancellationToken);
+
+        // Worker returns exists: true/false in the response
+        return result.RowsAffected > 0;
+    }
+
+    /// <summary>
     /// Delete a database from OPFS SAHPool storage.
     /// </summary>
     public async Task DeleteDatabaseAsync(string database, CancellationToken cancellationToken = default)

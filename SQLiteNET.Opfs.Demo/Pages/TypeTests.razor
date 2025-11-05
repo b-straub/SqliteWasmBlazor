@@ -59,6 +59,7 @@
                     <MudTh>Guid</MudTh>
                     <MudTh>Enum</MudTh>
                     <MudTh>Nullable Int</MudTh>
+                    <MudTh>IntList (JSON)</MudTh>
                 </HeaderContent>
                 <RowTemplate>
                     <MudTd DataLabel="ID">@context.Id</MudTd>
@@ -71,6 +72,7 @@
                     <MudTd DataLabel="Guid">@context.GuidValue.ToString()[..8]...</MudTd>
                     <MudTd DataLabel="Enum">@context.EnumValue</MudTd>
                     <MudTd DataLabel="Nullable Int">@(context.NullableIntValue?.ToString() ?? "NULL")</MudTd>
+                    <MudTd DataLabel="IntList (JSON)">[@string.Join(", ", context.IntList)]</MudTd>
                 </RowTemplate>
             </MudTable>
         </MudPaper>
@@ -146,7 +148,10 @@
 
                 // Char
                 CharValue = 'A',
-                NullableCharValue = null
+                NullableCharValue = null,
+
+                // Collection (JSON)
+                IntList = new List<int> { 1, 2, 3, 42, 100 }
             };
 
             results.Add("✓ Created test entity with all types");
@@ -186,7 +191,8 @@
                 ("EnumValue", retrieved.EnumValue == testEntity.EnumValue),
                 ("NullableEnumValue", retrieved.NullableEnumValue == testEntity.NullableEnumValue),
                 ("CharValue", retrieved.CharValue == testEntity.CharValue),
-                ("NullableCharValue (null)", retrieved.NullableCharValue == testEntity.NullableCharValue)
+                ("NullableCharValue (null)", retrieved.NullableCharValue == testEntity.NullableCharValue),
+                ("IntList (JSON collection)", retrieved.IntList.SequenceEqual(testEntity.IntList))
             };
 
             var failedVerifications = verifications.Where(v => !v.Pass).ToList();
@@ -232,15 +238,22 @@
     {
         try
         {
+            // Delete and recreate database to handle schema changes
+            await System.Data.SQLite.Wasm.SqliteWasmWorkerBridge.Instance.DeleteDatabaseAsync("TodoDb.db");
+
+            // Recreate database schema
             await using var context = await DbContextFactory.CreateDbContextAsync();
-            await context.Database.ExecuteSqlRawAsync("DELETE FROM TypeTests");
+            await context.Database.EnsureCreatedAsync();
+
             _testEntries.Clear();
-            _testResults = "✓ Test data cleared";
+            _testResults = "✓ Database rebuilt with new schema";
             _testSeverity = Severity.Info;
-            Snackbar.Add("Test data cleared", Severity.Info);
+            Snackbar.Add("Database rebuilt successfully", Severity.Success);
         }
         catch (Exception ex)
         {
+            _testResults = $"❌ Clear failed: {ex.Message}";
+            _testSeverity = Severity.Error;
             Snackbar.Add($"Clear failed: {ex.Message}", Severity.Error);
         }
     }

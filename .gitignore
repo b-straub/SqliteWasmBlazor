@@ -62,3 +62,4 @@ Thumbs.db
 # Temporary files
 *.tmp
 *.temp
+SqliteWasm.Data/wwwroot/sqlite-wasm-worker.js

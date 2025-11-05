@@ -1,0 +1,11 @@
+@page "/Tests"
+@page "/Tests/{TestName}"
+
+<PageTitle>Tests</PageTitle>
+
+<SqliteWasmTests TestName="@TestName"></SqliteWasmTests>
+
+@code {
+    [Parameter]
+    public string? TestName { get; set; }
+}

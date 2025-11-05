@@ -1,8 +1,9 @@
 // System.Data.SQLite.Wasm - Minimal EF Core compatible provider
 // MIT License
 
+using System.Runtime.Versioning;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Storage;
 
 namespace System.Data.SQLite.Wasm;
 
@@ -17,6 +18,7 @@ public static class SqliteWasmDbContextOptionsExtensions
     /// <param name="optionsBuilder">The builder being used to configure the context</param>
     /// <param name="connection">The SqliteWasmConnection to use</param>
     /// <returns>The options builder for chaining</returns>
+    [SupportedOSPlatform("browser")]
     public static DbContextOptionsBuilder UseSqliteWasm(
         this DbContextOptionsBuilder optionsBuilder,
         SqliteWasmConnection connection)
@@ -26,7 +28,13 @@ public static class SqliteWasmDbContextOptionsExtensions
 
         // Use the standard EF Core Sqlite provider with our custom connection
         // The connection handles all the worker bridge communication
-        return optionsBuilder.UseSqlite(connection);
+        optionsBuilder.UseSqlite(connection);
+
+        // Replace the database creator to handle OPFS storage
+        // This enables EnsureDeletedAsync/EnsureCreatedAsync to work with OPFS
+        optionsBuilder.ReplaceService<IRelationalDatabaseCreator, SqliteWasmDatabaseCreator>();
+
+        return optionsBuilder;
     }
 
     /// <summary>
@@ -35,6 +43,7 @@ public static class SqliteWasmDbContextOptionsExtensions
     /// <param name="optionsBuilder">The builder being used to configure the context</param>
     /// <param name="connectionString">The connection string (e.g., "Data Source=MyDb.db")</param>
     /// <returns>The options builder for chaining</returns>
+    [SupportedOSPlatform("browser")]
     public static DbContextOptionsBuilder UseSqliteWasm(
         this DbContextOptionsBuilder optionsBuilder,
         string connectionString)

@@ -1,0 +1,55 @@
+using Microsoft.EntityFrameworkCore;
+using SQLiteNET.Opfs.TestApp.Data;
+using SQLiteNET.Opfs.TestApp.TestInfrastructure.Tests;
+using SQLiteNET.Opfs.TestApp.TestInfrastructure.Tests.CRUD;
+using SQLiteNET.Opfs.TestApp.TestInfrastructure.Tests.JsonCollections;
+using SQLiteNET.Opfs.TestApp.TestInfrastructure.Tests.Transactions;
+using SQLiteNET.Opfs.TestApp.TestInfrastructure.Tests.TypeMarshalling;
+
+namespace SQLiteNET.Opfs.TestApp.TestInfrastructure;
+
+internal class TestFactory
+{
+    private readonly List<(string Category, SqliteWasmTest Test)> _tests = [];
+
+    public TestFactory(IDbContextFactory<TodoDbContext> factory)
+    {
+        PopulateTests(factory);
+    }
+
+    public IEnumerable<(string Category, SqliteWasmTest Test)> GetTests(string? testName = null)
+    {
+        var tests = Enumerable.Empty<(string Category, SqliteWasmTest Test)>();
+
+        tests = testName is null ? _tests : _tests.Where(t => t.Test.Name == testName);
+
+        return tests.Any() ? tests : Enumerable.Empty<(string Category, SqliteWasmTest Test)>();
+    }
+
+    private void PopulateTests(IDbContextFactory<TodoDbContext> factory)
+    {
+        // Type Marshalling Tests
+        _tests.Add(("Type Marshalling", new AllTypesRoundTripTest(factory)));
+        _tests.Add(("Type Marshalling", new IntegerTypesBoundariesTest(factory)));
+        _tests.Add(("Type Marshalling", new NullableTypesAllNullTest(factory)));
+        _tests.Add(("Type Marshalling", new BinaryDataLargeBlobTest(factory)));
+        _tests.Add(("Type Marshalling", new StringValueUnicodeTest(factory)));
+
+        // JSON Collection Tests
+        _tests.Add(("JSON Collections", new IntListRoundTripTest(factory)));
+        _tests.Add(("JSON Collections", new IntListEmptyTest(factory)));
+        _tests.Add(("JSON Collections", new IntListLargeCollectionTest(factory)));
+
+        // CRUD Tests
+        _tests.Add(("CRUD", new CreateSingleEntityTest(factory)));
+        _tests.Add(("CRUD", new ReadByIdTest(factory)));
+        _tests.Add(("CRUD", new UpdateModifyPropertyTest(factory)));
+        _tests.Add(("CRUD", new DeleteSingleEntityTest(factory)));
+        _tests.Add(("CRUD", new BulkInsert100EntitiesTest(factory)));
+
+        // Transaction Tests
+        _tests.Add(("Transactions", new TransactionCommitTest(factory)));
+        _tests.Add(("Transactions", new TransactionRollbackTest(factory)));
+    }
+}
+

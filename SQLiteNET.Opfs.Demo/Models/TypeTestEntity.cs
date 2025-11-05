@@ -55,6 +55,9 @@ public class TypeTestEntity
     // Char (stored as string in SQLite)
     public char CharValue { get; set; }
     public char? NullableCharValue { get; set; }
+
+    // Collection (stored as JSON TEXT)
+    public List<int> IntList { get; set; } = new();
 }
 
 public enum TestEnum

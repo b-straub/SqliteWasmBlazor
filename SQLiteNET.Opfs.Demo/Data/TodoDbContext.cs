@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using SqliteWasm.Demo.Models;
+using System.Text.Json;
 
 namespace SqliteWasm.Demo.Data;
 
@@ -22,6 +23,16 @@ public class TodoDbContext : DbContext
             entity.Property(e => e.Title).IsRequired().HasMaxLength(200);
             entity.Property(e => e.Description).HasMaxLength(1000);
             entity.Property(e => e.CreatedAt).IsRequired();
+        });
+
+        modelBuilder.Entity<TypeTestEntity>(entity =>
+        {
+            // Configure JSON serialization for List<int>
+            entity.Property(e => e.IntList)
+                .HasConversion(
+                    v => JsonSerializer.Serialize(v, (JsonSerializerOptions?)null),
+                    v => JsonSerializer.Deserialize<List<int>>(v, (JsonSerializerOptions?)null) ?? new List<int>()
+                );
         });
     }
 }

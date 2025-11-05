@@ -5,6 +5,7 @@ using MudBlazor.Services;
 using SqliteWasm.Demo;
 using SqliteWasm.Demo.Data;
 using System.Data.SQLite.Wasm;
+using System.Runtime.Versioning;
 
 var builder = WebAssemblyHostBuilder.CreateDefault(args);
 
@@ -35,20 +36,35 @@ await SqliteWasmWorkerBridge.Instance.InitializeAsync();
 // Use SqliteWasmLogLevel.Debug for detailed SQL execution logs
 SqliteWasmLogger.SetLogLevel(SqliteWasmLogLevel.Warning);
 
-// Initialize database - check if tables exist before creating schema
+// Initialize database - create if it doesn't exist
 using (var scope = host.Services.CreateScope())
 {
     var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<TodoDbContext>>();
     await using var dbContext = await factory.CreateDbContextAsync();
 
-    // EnsureCreatedIfNeededAsync will:
-    // 1. Check if tables exist by querying sqlite_master
-    // 2. Only call EnsureCreatedAsync if no tables found
-    // 3. Handle the case where database doesn't exist yet
-    var wasCreated = await dbContext.Database.EnsureCreatedIfNeededAsync();
+    // Use standard EF Core method - it checks if database exists and creates it if needed
+    var wasCreated = await dbContext.Database.EnsureCreatedAsync();
     Console.WriteLine(wasCreated
         ? "[Startup] Database schema created"
         : "[Startup] Database schema already exists, skipping creation");
+
+    // Diagnostic: Test if we can query the database
+    try
+    {
+        var todoCount = await dbContext.TodoItems.CountAsync();
+        Console.WriteLine($"[Startup] Database connection verified - {todoCount} todos found");
+
+        var typeTestCount = await dbContext.TypeTests.CountAsync();
+        Console.WriteLine($"[Startup] Database connection verified - {typeTestCount} type tests found");
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"[Startup] ERROR querying database: {ex.GetType().Name}: {ex.Message}");
+        Console.WriteLine($"[Startup] Stack: {ex.StackTrace}");
+    }
 }
 
 await host.RunAsync();
+
+[SupportedOSPlatform("browser")]
+partial class Program { }

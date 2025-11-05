@@ -175,6 +175,9 @@ async function handleRequest(data: WorkerRequest['data']) {
         case 'close':
             return await closeDatabase(database!);
 
+        case 'exists':
+            return await checkDatabaseExists(database!);
+
         case 'delete':
             return await deleteDatabase(database!);
 
@@ -249,8 +252,17 @@ async function executeSql(dbName: string, sql: string, parameters: Record<string
     }
 
     try {
-        // Bind parameters (convert object to array)
-        const paramArray = Object.entries(parameters).map(([_, value]) => value);
+        // Bind parameters (convert object to array in correct order)
+        // EF Core uses named parameters like @p0, @p1, @p2
+        // SQLite expects positional binding, so we need to sort by parameter index
+        const paramArray = Object.entries(parameters)
+            .sort(([nameA], [nameB]) => {
+                // Extract numeric suffix from @p0, @p1, etc.
+                const indexA = parseInt(nameA.replace(/\D/g, ''), 10) || 0;
+                const indexB = parseInt(nameB.replace(/\D/g, ''), 10) || 0;
+                return indexA - indexB;
+            })
+            .map(([_, value]) => value);
 
         logger.debug(MODULE_NAME, 'Executing SQL:', sql.substring(0, 100));
 
@@ -331,8 +343,33 @@ async function executeSql(dbName: string, sql: string, parameters: Record<string
             sql.trim().toUpperCase().startsWith('UPDATE') ||
             sql.trim().toUpperCase().startsWith('DELETE') ||
             sql.trim().toUpperCase().startsWith('CREATE')) {
-            rowsAffected = db.changes();
+
+            // Check if statement has RETURNING clause
+            // When RETURNING is used, db.changes() doesn't work correctly because
+            // SQLite treats it as a SELECT-like operation
+            const hasReturning = sql.toUpperCase().includes('RETURNING');
+
+            if (hasReturning && result && result.length > 0) {
+                // For UPDATE/DELETE with RETURNING, the presence of a result row means success
+                rowsAffected = result.length;
+            }
+            else {
+                // For INSERT without RETURNING, or any statement without RETURNING
+                rowsAffected = db.changes();
+            }
+
             lastInsertId = db.lastInsertRowId;
+
+            // DEBUG: Log UPDATE operations specifically
+            if (sql.trim().toUpperCase().startsWith('UPDATE')) {
+                console.log(`[SQLite Worker] UPDATE executed:`, sql);
+                console.log(`[SQLite Worker] Parameters (sorted):`, paramArray);
+                console.log(`[SQLite Worker] Has RETURNING:`, hasReturning);
+                console.log(`[SQLite Worker] Result rows:`, result?.length || 0);
+                console.log(`[SQLite Worker] Result values:`, result);
+                console.log(`[SQLite Worker] db.changes():`, db.changes());
+                console.log(`[SQLite Worker] Final rowsAffected:`, rowsAffected);
+            }
         }
 
         return {
@@ -357,6 +394,43 @@ async function closeDatabase(dbName: string) {
         console.log(`[SQLite Worker] Closed database: ${dbName}`);
     }
     return { success: true };
+}
+
+async function checkDatabaseExists(dbName: string) {
+    if (!sqlite3 || !poolUtil) {
+        throw new Error('SQLite not initialized');
+    }
+
+    try {
+        // Check if database is currently open
+        if (openDatabases.has(dbName)) {
+            return { rowsAffected: 1 };  // exists
+        }
+
+        // Check if database file exists in OPFS SAHPool
+        const dbPath = `/databases/${dbName}`;
+
+        // Try to check file existence using poolUtil's file list
+        // The poolUtil exposes information about stored databases
+        if (poolUtil.getFileNames) {
+            const files = await poolUtil.getFileNames();
+            const exists = files.includes(dbPath);
+            return { rowsAffected: exists ? 1 : 0 };
+        }
+
+        // Fallback: try to open database to check if it exists
+        try {
+            const testDb = new poolUtil.OpfsSAHPoolDb(dbPath);
+            testDb.close();
+            return { rowsAffected: 1 };  // exists
+        } catch {
+            return { rowsAffected: 0 };  // doesn't exist
+        }
+    } catch (error) {
+        console.error(`[SQLite Worker] Failed to check database ${dbName}:`, error);
+        // On error, assume it doesn't exist
+        return { rowsAffected: 0 };
+    }
 }
 
 async function deleteDatabase(dbName: string) {

@@ -1,7 +1,6 @@
 // System.Data.SQLite.Wasm - Minimal EF Core compatible provider
 // MIT License
 
-using System.Data;
 using System.Data.Common;
 using System.Runtime.Versioning;
 
@@ -17,13 +16,20 @@ public sealed class SqliteWasmTransaction : DbTransaction
     private readonly IsolationLevel _isolationLevel;
     private bool _completed;
 
-    internal SqliteWasmTransaction(SqliteWasmConnection connection, IsolationLevel isolationLevel)
+    private SqliteWasmTransaction(SqliteWasmConnection connection, IsolationLevel isolationLevel)
     {
         _connection = connection ?? throw new ArgumentNullException(nameof(connection));
         _isolationLevel = isolationLevel;
+    }
 
-        // Start transaction
-        ExecuteNonQuery(GetBeginSql(isolationLevel));
+    internal static async Task<SqliteWasmTransaction> CreateAsync(
+        SqliteWasmConnection connection,
+        IsolationLevel isolationLevel,
+        CancellationToken cancellationToken = default)
+    {
+        var transaction = new SqliteWasmTransaction(connection, isolationLevel);
+        await transaction.ExecuteNonQueryAsync(GetBeginSql(isolationLevel), cancellationToken);
+        return transaction;
     }
 
     public override IsolationLevel IsolationLevel => _isolationLevel;
@@ -52,6 +58,28 @@ public sealed class SqliteWasmTransaction : DbTransaction
         _completed = true;
     }
 
+    public override async Task CommitAsync(CancellationToken cancellationToken = default)
+    {
+        if (_completed)
+        {
+            throw new InvalidOperationException("Transaction has already been committed or rolled back.");
+        }
+
+        await ExecuteNonQueryAsync("COMMIT", cancellationToken);
+        _completed = true;
+    }
+
+    public override async Task RollbackAsync(CancellationToken cancellationToken = default)
+    {
+        if (_completed)
+        {
+            throw new InvalidOperationException("Transaction has already been committed or rolled back.");
+        }
+
+        await ExecuteNonQueryAsync("ROLLBACK", cancellationToken);
+        _completed = true;
+    }
+
     protected override void Dispose(bool disposing)
     {
         if (disposing && !_completed)
@@ -73,6 +101,13 @@ public sealed class SqliteWasmTransaction : DbTransaction
         using var command = _connection.CreateCommand();
         command.CommandText = sql;
         command.ExecuteNonQuery();
+    }
+
+    private async Task ExecuteNonQueryAsync(string sql, CancellationToken cancellationToken)
+    {
+        await using var command = _connection.CreateCommand();
+        command.CommandText = sql;
+        await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
     private static string GetBeginSql(IsolationLevel isolationLevel)

@@ -23,17 +23,18 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.0-*" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.0-*" />
+    <PackageReference Include="SQLitePCLRaw.core" Version="2.1.11" />
+    <!-- Exclude packaged native library - using custom minimal stub -->
+    <PackageReference Include="SQLitePCLRaw.lib.e_sqlite3" Version="2.1.11" ExcludeAssets="native;buildTransitive" />
   </ItemGroup>
 
-  <!-- Exclude reference files and obsolete files -->
+  <!-- Custom SQLite minimal stub library (8KB, replaces packaged e_sqlite3.a) -->
   <ItemGroup>
-    <Compile Remove="_Reference/**/*.cs" />
-    <Compile Remove="SqliteWasmInterop.cs" />
-    <Compile Remove="SqliteWasmHandles.cs" />
+    <NativeFileReference Include="native/lib/e_sqlite3.a" />
   </ItemGroup>
 
   <!-- Build TypeScript very early, before static web assets are discovered -->
-  <Target Name="BuildTypeScript" BeforeTargets="BeforeCompile">
+  <Target Name="BuildTypeScript" BeforeTargets="BeforeCompile;ResolveStaticWebAssetsInputs">
     <Exec WorkingDirectory="TypeScript" Command="npm run build" Condition="Exists('TypeScript/package.json')" />
   </Target>
 

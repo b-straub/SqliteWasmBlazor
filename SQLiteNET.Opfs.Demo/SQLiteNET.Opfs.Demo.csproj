@@ -6,6 +6,9 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>SqliteWasm.Demo</RootNamespace>
     <OverrideHtmlAssetPlaceholders>true</OverrideHtmlAssetPlaceholders>
+    <!-- Suppress WASM0001: varargs functions in stub are not called at runtime -->
+    <!-- Suppress CA1416: Blazor WASM apps are always browser-only -->
+    <NoWarn>$(NoWarn);WASM0001;CA1416</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
@@ -14,12 +17,17 @@
     <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.0-rc.2.25502.107" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.0-rc.2.25502.107" />
     <PackageReference Include="MudBlazor" Version="8.13.0" />
-    <!-- Include SQLite native library to prevent initialization errors -->
-    <PackageReference Include="SQLitePCLRaw.lib.e_sqlite3" Version="2.1.11" />
+    <!-- Exclude packaged native library - using custom minimal stub -->
+    <PackageReference Include="SQLitePCLRaw.lib.e_sqlite3" Version="2.1.11" ExcludeAssets="native;buildTransitive" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\SqliteWasm.Data\SqliteWasm.Data.csproj" />
+  </ItemGroup>
+
+  <!-- Custom SQLite minimal stub library (8KB, replaces packaged e_sqlite3.a) -->
+  <ItemGroup>
+    <NativeFileReference Include="..\SqliteWasm.Data\native\lib\e_sqlite3.a" />
   </ItemGroup>
 
 </Project>

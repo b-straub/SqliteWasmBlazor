@@ -1,8 +1,8 @@
 // System.Data.SQLite.Wasm - Minimal EF Core compatible provider
 // MIT License
 
-using System.Data;
 using System.Data.Common;
+using System.Diagnostics.CodeAnalysis;
 using System.Runtime.Versioning;
 
 namespace System.Data.SQLite.Wasm;
@@ -21,10 +21,11 @@ public sealed class SqliteWasmCommand : DbCommand
         _parameters = new SqliteWasmParameterCollection();
     }
 
+    [AllowNull]
     public override string CommandText
     {
         get => _commandText;
-        set => _commandText = value;
+        set => _commandText = value ?? string.Empty;
     }
 
     public override int CommandTimeout { get; set; } = 30;
@@ -67,11 +68,25 @@ public sealed class SqliteWasmCommand : DbCommand
         ValidateConnection();
 
         var bridge = SqliteWasmWorkerBridge.Instance;
+
+        // DEBUG: Log UPDATE operations
+        if (_commandText.TrimStart().StartsWith("UPDATE", StringComparison.OrdinalIgnoreCase))
+        {
+            Console.WriteLine($"[SqliteWasmCommand] Executing UPDATE: {_commandText}");
+            Console.WriteLine($"[SqliteWasmCommand] Parameters: {string.Join(", ", _parameters.GetParameterValues().Select((v, i) => $"${i}={v}"))}");
+        }
+
         var result = await bridge.ExecuteSqlAsync(
             Connection!.Database,
             _commandText,
             _parameters.GetParameterValues(),
             cancellationToken);
+
+        // DEBUG: Log result of UPDATE operations
+        if (_commandText.TrimStart().StartsWith("UPDATE", StringComparison.OrdinalIgnoreCase))
+        {
+            Console.WriteLine($"[SqliteWasmCommand] UPDATE result: RowsAffected={result.RowsAffected}");
+        }
 
         return result.RowsAffected;
     }

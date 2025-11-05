@@ -403,7 +403,7 @@
 
                 // Build multi-row INSERT statement
                 var valuesClauses = new List<string>();
-                var parameters = new List<object>();
+                var parameters = new List<object?>();
 
                 for (int j = 0; j < batch.Count; j++)
                 {
@@ -412,17 +412,17 @@
                     valuesClauses.Add($"({{{baseIndex}}}, {{{baseIndex + 1}}}, {{{baseIndex + 2}}}, {{{baseIndex + 3}}}, {{{baseIndex + 4}}})");
 
                     parameters.Add(item.Title);
-                    parameters.Add(item.Description ?? string.Empty);
+                    parameters.Add(item.Description);
                     parameters.Add(item.CreatedAt);
                     parameters.Add(item.IsCompleted ? 1 : 0);
-                    parameters.Add(item.CompletedAt?.ToString("O"));
+                    parameters.Add((object?)item.CompletedAt?.ToString("O"));
                 }
 
                 var sql = $@"
                     INSERT INTO TodoItems (Title, Description, CreatedAt, IsCompleted, CompletedAt)
                     VALUES {string.Join(", ", valuesClauses)}";
 
-                await context.Database.ExecuteSqlRawAsync(sql, parameters.ToArray());
+                await context.Database.ExecuteSqlRawAsync(sql, parameters.ToArray()!);
                 batchCount++;
             }
 

@@ -1,8 +1,8 @@
 // System.Data.SQLite.Wasm - Minimal EF Core compatible provider
 // MIT License
 
-using System.Data;
 using System.Data.Common;
+using System.Diagnostics.CodeAnalysis;
 using System.Runtime.Versioning;
 
 namespace System.Data.SQLite.Wasm;
@@ -16,6 +16,7 @@ public sealed class SqliteWasmParameter : DbParameter
     private string _parameterName = string.Empty;
     private object? _value;
     private DbType _dbType = DbType.Object;
+    private string _sourceColumn = string.Empty;
 
     public SqliteWasmParameter()
     {
@@ -43,15 +44,21 @@ public sealed class SqliteWasmParameter : DbParameter
 
     public override bool IsNullable { get; set; }
 
+    [AllowNull]
     public override string ParameterName
     {
         get => _parameterName;
-        set => _parameterName = value;
+        set => _parameterName = value ?? string.Empty;
     }
 
     public override int Size { get; set; }
 
-    public override string SourceColumn { get; set; } = string.Empty;
+    [AllowNull]
+    public override string SourceColumn
+    {
+        get => _sourceColumn;
+        set => _sourceColumn = value ?? string.Empty;
+    }
 
     public override bool SourceColumnNullMapping { get; set; }
 
@@ -77,7 +84,7 @@ public sealed class SqliteWasmParameterCollection : DbParameterCollection
 
     public override int Count => _parameters.Count;
 
-    public override object SyncRoot => ((System.Collections.ICollection)_parameters).SyncRoot;
+    public override object SyncRoot => ((Collections.ICollection)_parameters).SyncRoot;
 
     public override int Add(object value)
     {
@@ -122,12 +129,12 @@ public sealed class SqliteWasmParameterCollection : DbParameterCollection
 
     public override void CopyTo(Array array, int index)
     {
-        ((System.Collections.ICollection)_parameters).CopyTo(array, index);
+        ((Collections.ICollection)_parameters).CopyTo(array, index);
     }
 
-    public override System.Collections.IEnumerator GetEnumerator()
+    public override Collections.IEnumerator GetEnumerator()
     {
-        return ((System.Collections.IEnumerable)_parameters).GetEnumerator();
+        return ((Collections.IEnumerable)_parameters).GetEnumerator();
     }
 
     public override int IndexOf(object value)

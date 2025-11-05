@@ -2,7 +2,6 @@
 // MIT License
 
 using System.Collections;
-using System.Data;
 using System.Data.Common;
 using System.Runtime.Versioning;
 
@@ -37,7 +36,7 @@ public sealed class SqliteWasmDataReader : DbDataReader
         if (typeof(T) == typeof(TimeSpan))
         {
             var value = GetValue(ordinal);
-            if (value is System.Text.Json.JsonElement jsonElement && jsonElement.ValueKind == System.Text.Json.JsonValueKind.String)
+            if (value is Text.Json.JsonElement jsonElement && jsonElement.ValueKind == Text.Json.JsonValueKind.String)
             {
                 var str = jsonElement.GetString();
                 if (str is not null)
@@ -69,10 +68,10 @@ public sealed class SqliteWasmDataReader : DbDataReader
     public override bool GetBoolean(int ordinal)
     {
         var value = GetValue(ordinal);
-        if (value is System.Text.Json.JsonElement jsonElement)
+        if (value is Text.Json.JsonElement jsonElement)
         {
             // SQLite stores booleans as INTEGER (0 or 1), so handle both number and boolean
-            if (jsonElement.ValueKind == System.Text.Json.JsonValueKind.Number)
+            if (jsonElement.ValueKind == Text.Json.JsonValueKind.Number)
             {
                 return jsonElement.GetInt32() != 0;
             }
@@ -84,7 +83,7 @@ public sealed class SqliteWasmDataReader : DbDataReader
     public override byte GetByte(int ordinal)
     {
         var value = GetValue(ordinal);
-        if (value is System.Text.Json.JsonElement jsonElement)
+        if (value is Text.Json.JsonElement jsonElement)
         {
             return jsonElement.GetByte();
         }
@@ -96,15 +95,15 @@ public sealed class SqliteWasmDataReader : DbDataReader
         var value = GetValue(ordinal);
         byte[] bytes;
 
-        if (value is System.Text.Json.JsonElement jsonElement)
+        if (value is Text.Json.JsonElement jsonElement)
         {
             // Convert Base64 string to byte[]
-            if (jsonElement.ValueKind == System.Text.Json.JsonValueKind.String)
+            if (jsonElement.ValueKind == Text.Json.JsonValueKind.String)
             {
                 var str = jsonElement.GetString();
                 if (str is not null)
                 {
-                    bytes = System.Convert.FromBase64String(str);
+                    bytes = Convert.FromBase64String(str);
                 }
                 else
                 {
@@ -138,7 +137,7 @@ public sealed class SqliteWasmDataReader : DbDataReader
     public override char GetChar(int ordinal)
     {
         var value = GetValue(ordinal);
-        if (value is System.Text.Json.JsonElement jsonElement)
+        if (value is Text.Json.JsonElement jsonElement)
         {
             var str = jsonElement.GetString();
             if (str is not null && str.Length > 0)
@@ -171,15 +170,15 @@ public sealed class SqliteWasmDataReader : DbDataReader
     public override DateTime GetDateTime(int ordinal)
     {
         var value = GetValue(ordinal);
-        if (value is System.Text.Json.JsonElement jsonElement)
+        if (value is Text.Json.JsonElement jsonElement)
         {
             // SQLite stores dates as TEXT (ISO8601), so handle both string and datetime
-            if (jsonElement.ValueKind == System.Text.Json.JsonValueKind.String)
+            if (jsonElement.ValueKind == Text.Json.JsonValueKind.String)
             {
                 var str = jsonElement.GetString();
                 if (str is not null)
                 {
-                    return DateTime.Parse(str, null, System.Globalization.DateTimeStyles.RoundtripKind);
+                    return DateTime.Parse(str, null, Globalization.DateTimeStyles.RoundtripKind);
                 }
             }
             return jsonElement.GetDateTime();
@@ -190,15 +189,15 @@ public sealed class SqliteWasmDataReader : DbDataReader
     public DateTimeOffset GetDateTimeOffset(int ordinal)
     {
         var value = GetValue(ordinal);
-        if (value is System.Text.Json.JsonElement jsonElement)
+        if (value is Text.Json.JsonElement jsonElement)
         {
             // SQLite stores DateTimeOffset as TEXT (ISO8601 with offset)
-            if (jsonElement.ValueKind == System.Text.Json.JsonValueKind.String)
+            if (jsonElement.ValueKind == Text.Json.JsonValueKind.String)
             {
                 var str = jsonElement.GetString();
                 if (str is not null)
                 {
-                    return DateTimeOffset.Parse(str, null, System.Globalization.DateTimeStyles.RoundtripKind);
+                    return DateTimeOffset.Parse(str, null, Globalization.DateTimeStyles.RoundtripKind);
                 }
             }
             return jsonElement.GetDateTimeOffset();
@@ -217,15 +216,15 @@ public sealed class SqliteWasmDataReader : DbDataReader
     public override decimal GetDecimal(int ordinal)
     {
         var value = GetValue(ordinal);
-        if (value is System.Text.Json.JsonElement jsonElement)
+        if (value is Text.Json.JsonElement jsonElement)
         {
             // SQLite stores decimals as TEXT, so handle both string and number
-            if (jsonElement.ValueKind == System.Text.Json.JsonValueKind.String)
+            if (jsonElement.ValueKind == Text.Json.JsonValueKind.String)
             {
                 var str = jsonElement.GetString();
                 if (str is not null)
                 {
-                    return decimal.Parse(str, System.Globalization.CultureInfo.InvariantCulture);
+                    return decimal.Parse(str, Globalization.CultureInfo.InvariantCulture);
                 }
             }
             return jsonElement.GetDecimal();
@@ -236,7 +235,7 @@ public sealed class SqliteWasmDataReader : DbDataReader
     public override double GetDouble(int ordinal)
     {
         var value = GetValue(ordinal);
-        if (value is System.Text.Json.JsonElement jsonElement)
+        if (value is Text.Json.JsonElement jsonElement)
         {
             return jsonElement.GetDouble();
         }
@@ -258,7 +257,7 @@ public sealed class SqliteWasmDataReader : DbDataReader
     public override float GetFloat(int ordinal)
     {
         var value = GetValue(ordinal);
-        if (value is System.Text.Json.JsonElement jsonElement)
+        if (value is Text.Json.JsonElement jsonElement)
         {
             return jsonElement.GetSingle();
         }
@@ -268,10 +267,10 @@ public sealed class SqliteWasmDataReader : DbDataReader
     public override Guid GetGuid(int ordinal)
     {
         var value = GetValue(ordinal);
-        if (value is System.Text.Json.JsonElement jsonElement)
+        if (value is Text.Json.JsonElement jsonElement)
         {
             // SQLite stores GUIDs as TEXT
-            if (jsonElement.ValueKind == System.Text.Json.JsonValueKind.String)
+            if (jsonElement.ValueKind == Text.Json.JsonValueKind.String)
             {
                 var guidStr = jsonElement.GetString();
                 if (guidStr is not null)
@@ -294,7 +293,7 @@ public sealed class SqliteWasmDataReader : DbDataReader
     public override short GetInt16(int ordinal)
     {
         var value = GetValue(ordinal);
-        if (value is System.Text.Json.JsonElement jsonElement)
+        if (value is Text.Json.JsonElement jsonElement)
         {
             return jsonElement.GetInt16();
         }
@@ -304,7 +303,7 @@ public sealed class SqliteWasmDataReader : DbDataReader
     public override int GetInt32(int ordinal)
     {
         var value = GetValue(ordinal);
-        if (value is System.Text.Json.JsonElement jsonElement)
+        if (value is Text.Json.JsonElement jsonElement)
         {
             return jsonElement.GetInt32();
         }
@@ -314,10 +313,10 @@ public sealed class SqliteWasmDataReader : DbDataReader
     public override long GetInt64(int ordinal)
     {
         var value = GetValue(ordinal);
-        if (value is System.Text.Json.JsonElement jsonElement)
+        if (value is Text.Json.JsonElement jsonElement)
         {
             // Handle both number (for values within safe JS integer range) and string (for large int64)
-            if (jsonElement.ValueKind == System.Text.Json.JsonValueKind.String)
+            if (jsonElement.ValueKind == Text.Json.JsonValueKind.String)
             {
                 var str = jsonElement.GetString();
                 if (str is not null)
@@ -352,7 +351,7 @@ public sealed class SqliteWasmDataReader : DbDataReader
     public override string GetString(int ordinal)
     {
         var value = GetValue(ordinal);
-        if (value is System.Text.Json.JsonElement jsonElement)
+        if (value is Text.Json.JsonElement jsonElement)
         {
             return jsonElement.GetString() ?? string.Empty;
         }
@@ -379,12 +378,12 @@ public sealed class SqliteWasmDataReader : DbDataReader
         }
 
         // Handle JsonElement conversions for types that need special handling
-        if (value is System.Text.Json.JsonElement jsonElement)
+        if (value is Text.Json.JsonElement jsonElement)
         {
             var columnType = _result.ColumnTypes[ordinal];
 
             // Convert Base64 string to byte[] for BLOB columns (matches .NET 6+ convention)
-            if (jsonElement.ValueKind == System.Text.Json.JsonValueKind.String)
+            if (jsonElement.ValueKind == Text.Json.JsonValueKind.String)
             {
                 var str = jsonElement.GetString();
 
@@ -393,7 +392,7 @@ public sealed class SqliteWasmDataReader : DbDataReader
                     // Decode Base64 for BLOB columns
                     try
                     {
-                        return System.Convert.FromBase64String(str);
+                        return Convert.FromBase64String(str);
                     }
                     catch
                     {
@@ -414,7 +413,7 @@ public sealed class SqliteWasmDataReader : DbDataReader
         }
 
         var count = Math.Min(values.Length, FieldCount);
-        for (int i = 0; i < count; i++)
+        for (var i = 0; i < count; i++)
         {
             values[i] = GetValue(i);
         }
@@ -424,7 +423,7 @@ public sealed class SqliteWasmDataReader : DbDataReader
     public override bool IsDBNull(int ordinal)
     {
         var value = GetValue(ordinal);
-        return value == null || value is DBNull;
+        return value is DBNull;
     }
 
     public override bool NextResult()
