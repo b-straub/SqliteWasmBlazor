@@ -35,6 +35,20 @@ public sealed partial class SqliteWasmWorkerBridge
     private int _nextRequestId;
     private bool _isInitialized;
 
+    private static readonly Lazy<JsonSerializerOptions> _deserializerOptions = new(() =>
+    {
+        var options = new JsonSerializerOptions
+        {
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+            PropertyNameCaseInsensitive = true
+        };
+        options.Converters.Add(new TypedRowDataConverter());
+        options.TypeInfoResolver = WorkerJsonContext.Default;
+        return options;
+    });
+
+    private static JsonSerializerOptions DeserializerOptions => _deserializerOptions.Value;
+
     private SqliteWasmWorkerBridge()
     {
     }
@@ -190,8 +204,8 @@ public sealed partial class SqliteWasmWorkerBridge
     {
         try
         {
-            // Single deserialization to typed wrapper (id + data)
-            var message = JsonSerializer.Deserialize(messageJson, WorkerJsonContext.Default.WorkerMessage);
+            // Single deserialization to typed wrapper (id + data) with custom converter
+            var message = JsonSerializer.Deserialize<WorkerMessage>(messageJson, DeserializerOptions);
 
             if (message is null)
             {
@@ -215,7 +229,7 @@ public sealed partial class SqliteWasmWorkerBridge
                 {
                     ColumnNames = response.ColumnNames ?? new List<string>(),
                     ColumnTypes = response.ColumnTypes ?? new List<string>(),
-                    Rows = response.Rows ?? new List<List<object?>>(),
+                    Rows = response.TypedRows?.Data ?? new List<List<object?>>(),
                     RowsAffected = response.RowsAffected,
                     LastInsertId = response.LastInsertId
                 };
@@ -254,7 +268,7 @@ internal sealed class WorkerResponse
     public string? Error { get; set; }
     public List<string>? ColumnNames { get; set; }
     public List<string>? ColumnTypes { get; set; }
-    public List<List<object?>>? Rows { get; set; }
+    public TypedRowData? TypedRows { get; set; }
     public int RowsAffected { get; set; }
     public long LastInsertId { get; set; }
 }
@@ -267,6 +281,7 @@ internal sealed class WorkerResponse
 [JsonSerializable(typeof(WorkerMessage))]
 [JsonSerializable(typeof(WorkerResponse))]
 [JsonSerializable(typeof(SqlQueryResult))]
+[JsonSerializable(typeof(TypedRowData))]
 internal partial class WorkerJsonContext : JsonSerializerContext
 {
 }

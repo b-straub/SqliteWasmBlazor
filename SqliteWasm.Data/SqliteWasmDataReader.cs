@@ -36,14 +36,6 @@ public sealed class SqliteWasmDataReader : DbDataReader
         if (typeof(T) == typeof(TimeSpan))
         {
             var value = GetValue(ordinal);
-            if (value is Text.Json.JsonElement jsonElement && jsonElement.ValueKind == Text.Json.JsonValueKind.String)
-            {
-                var str = jsonElement.GetString();
-                if (str is not null)
-                {
-                    return (T)(object)TimeSpan.Parse(str);
-                }
-            }
             return (T)(object)TimeSpan.Parse(Convert.ToString(value) ?? string.Empty);
         }
 
@@ -68,25 +60,12 @@ public sealed class SqliteWasmDataReader : DbDataReader
     public override bool GetBoolean(int ordinal)
     {
         var value = GetValue(ordinal);
-        if (value is Text.Json.JsonElement jsonElement)
-        {
-            // SQLite stores booleans as INTEGER (0 or 1), so handle both number and boolean
-            if (jsonElement.ValueKind == Text.Json.JsonValueKind.Number)
-            {
-                return jsonElement.GetInt32() != 0;
-            }
-            return jsonElement.GetBoolean();
-        }
         return Convert.ToBoolean(value);
     }
 
     public override byte GetByte(int ordinal)
     {
         var value = GetValue(ordinal);
-        if (value is Text.Json.JsonElement jsonElement)
-        {
-            return jsonElement.GetByte();
-        }
         return Convert.ToByte(value);
     }
 
@@ -95,27 +74,7 @@ public sealed class SqliteWasmDataReader : DbDataReader
         var value = GetValue(ordinal);
         byte[] bytes;
 
-        if (value is Text.Json.JsonElement jsonElement)
-        {
-            // Convert Base64 string to byte[]
-            if (jsonElement.ValueKind == Text.Json.JsonValueKind.String)
-            {
-                var str = jsonElement.GetString();
-                if (str is not null)
-                {
-                    bytes = Convert.FromBase64String(str);
-                }
-                else
-                {
-                    throw new InvalidCastException($"Column {ordinal} is not a byte array.");
-                }
-            }
-            else
-            {
-                throw new InvalidCastException($"Column {ordinal} is not a byte array.");
-            }
-        }
-        else if (value is byte[] byteArray)
+        if (value is byte[] byteArray)
         {
             bytes = byteArray;
         }
@@ -137,15 +96,6 @@ public sealed class SqliteWasmDataReader : DbDataReader
     public override char GetChar(int ordinal)
     {
         var value = GetValue(ordinal);
-        if (value is Text.Json.JsonElement jsonElement)
-        {
-            var str = jsonElement.GetString();
-            if (str is not null && str.Length > 0)
-            {
-                return str[0];
-            }
-            throw new InvalidCastException("Cannot convert empty string to char.");
-        }
         return Convert.ToChar(value);
     }
 
@@ -170,18 +120,9 @@ public sealed class SqliteWasmDataReader : DbDataReader
     public override DateTime GetDateTime(int ordinal)
     {
         var value = GetValue(ordinal);
-        if (value is Text.Json.JsonElement jsonElement)
+        if (value is string str)
         {
-            // SQLite stores dates as TEXT (ISO8601), so handle both string and datetime
-            if (jsonElement.ValueKind == Text.Json.JsonValueKind.String)
-            {
-                var str = jsonElement.GetString();
-                if (str is not null)
-                {
-                    return DateTime.Parse(str, null, Globalization.DateTimeStyles.RoundtripKind);
-                }
-            }
-            return jsonElement.GetDateTime();
+            return DateTime.Parse(str, null, Globalization.DateTimeStyles.RoundtripKind);
         }
         return Convert.ToDateTime(value);
     }
@@ -189,18 +130,9 @@ public sealed class SqliteWasmDataReader : DbDataReader
     public DateTimeOffset GetDateTimeOffset(int ordinal)
     {
         var value = GetValue(ordinal);
-        if (value is Text.Json.JsonElement jsonElement)
+        if (value is string str)
         {
-            // SQLite stores DateTimeOffset as TEXT (ISO8601 with offset)
-            if (jsonElement.ValueKind == Text.Json.JsonValueKind.String)
-            {
-                var str = jsonElement.GetString();
-                if (str is not null)
-                {
-                    return DateTimeOffset.Parse(str, null, Globalization.DateTimeStyles.RoundtripKind);
-                }
-            }
-            return jsonElement.GetDateTimeOffset();
+            return DateTimeOffset.Parse(str, null, Globalization.DateTimeStyles.RoundtripKind);
         }
         if (value is DateTimeOffset dto)
         {
@@ -216,18 +148,9 @@ public sealed class SqliteWasmDataReader : DbDataReader
     public override decimal GetDecimal(int ordinal)
     {
         var value = GetValue(ordinal);
-        if (value is Text.Json.JsonElement jsonElement)
+        if (value is string str)
         {
-            // SQLite stores decimals as TEXT, so handle both string and number
-            if (jsonElement.ValueKind == Text.Json.JsonValueKind.String)
-            {
-                var str = jsonElement.GetString();
-                if (str is not null)
-                {
-                    return decimal.Parse(str, Globalization.CultureInfo.InvariantCulture);
-                }
-            }
-            return jsonElement.GetDecimal();
+            return decimal.Parse(str, Globalization.CultureInfo.InvariantCulture);
         }
         return Convert.ToDecimal(value);
     }
@@ -235,10 +158,6 @@ public sealed class SqliteWasmDataReader : DbDataReader
     public override double GetDouble(int ordinal)
     {
         var value = GetValue(ordinal);
-        if (value is Text.Json.JsonElement jsonElement)
-        {
-            return jsonElement.GetDouble();
-        }
         return Convert.ToDouble(value);
     }
 
@@ -257,28 +176,12 @@ public sealed class SqliteWasmDataReader : DbDataReader
     public override float GetFloat(int ordinal)
     {
         var value = GetValue(ordinal);
-        if (value is Text.Json.JsonElement jsonElement)
-        {
-            return jsonElement.GetSingle();
-        }
         return Convert.ToSingle(value);
     }
 
     public override Guid GetGuid(int ordinal)
     {
         var value = GetValue(ordinal);
-        if (value is Text.Json.JsonElement jsonElement)
-        {
-            // SQLite stores GUIDs as TEXT
-            if (jsonElement.ValueKind == Text.Json.JsonValueKind.String)
-            {
-                var guidStr = jsonElement.GetString();
-                if (guidStr is not null)
-                {
-                    return Guid.Parse(guidStr);
-                }
-            }
-        }
         if (value is string str)
         {
             return Guid.Parse(str);
@@ -293,39 +196,18 @@ public sealed class SqliteWasmDataReader : DbDataReader
     public override short GetInt16(int ordinal)
     {
         var value = GetValue(ordinal);
-        if (value is Text.Json.JsonElement jsonElement)
-        {
-            return jsonElement.GetInt16();
-        }
         return Convert.ToInt16(value);
     }
 
     public override int GetInt32(int ordinal)
     {
         var value = GetValue(ordinal);
-        if (value is Text.Json.JsonElement jsonElement)
-        {
-            return jsonElement.GetInt32();
-        }
         return Convert.ToInt32(value);
     }
 
     public override long GetInt64(int ordinal)
     {
         var value = GetValue(ordinal);
-        if (value is Text.Json.JsonElement jsonElement)
-        {
-            // Handle both number (for values within safe JS integer range) and string (for large int64)
-            if (jsonElement.ValueKind == Text.Json.JsonValueKind.String)
-            {
-                var str = jsonElement.GetString();
-                if (str is not null)
-                {
-                    return long.Parse(str);
-                }
-            }
-            return jsonElement.GetInt64();
-        }
         return Convert.ToInt64(value);
     }
 
@@ -351,10 +233,6 @@ public sealed class SqliteWasmDataReader : DbDataReader
     public override string GetString(int ordinal)
     {
         var value = GetValue(ordinal);
-        if (value is Text.Json.JsonElement jsonElement)
-        {
-            return jsonElement.GetString() ?? string.Empty;
-        }
         return Convert.ToString(value) ?? string.Empty;
     }
 
@@ -375,31 +253,6 @@ public sealed class SqliteWasmDataReader : DbDataReader
         if (value is null)
         {
             return DBNull.Value;
-        }
-
-        // Handle JsonElement conversions for types that need special handling
-        if (value is Text.Json.JsonElement jsonElement)
-        {
-            var columnType = _result.ColumnTypes[ordinal];
-
-            // Convert Base64 string to byte[] for BLOB columns (matches .NET 6+ convention)
-            if (jsonElement.ValueKind == Text.Json.JsonValueKind.String)
-            {
-                var str = jsonElement.GetString();
-
-                if (str is not null && columnType == "BLOB")
-                {
-                    // Decode Base64 for BLOB columns
-                    try
-                    {
-                        return Convert.FromBase64String(str);
-                    }
-                    catch
-                    {
-                        // Not Base64, return the string value
-                    }
-                }
-            }
         }
 
         return value;

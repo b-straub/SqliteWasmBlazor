@@ -22,7 +22,10 @@ interface WorkerResponse {
         error?: string;
         columnNames?: string[];
         columnTypes?: string[];
-        rows?: any[][];
+        typedRows?: {
+            types: string[];
+            data: any[][];
+        };
         rowsAffected?: number;
         lastInsertId?: number;
     };
@@ -375,7 +378,10 @@ async function executeSql(dbName: string, sql: string, parameters: Record<string
         return {
             columnNames,
             columnTypes,
-            rows: convertBigIntToString(result || []),
+            typedRows: {
+                types: columnTypes,
+                data: convertBigIntToString(result || [])
+            },
             rowsAffected,
             lastInsertId: convertBigIntToString(lastInsertId)
         };
