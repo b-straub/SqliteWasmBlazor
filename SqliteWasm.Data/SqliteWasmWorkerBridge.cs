@@ -6,6 +6,8 @@ using System.Runtime.InteropServices.JavaScript;
 using System.Runtime.Versioning;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using MessagePack;
+using MessagePack.Resolvers;
 
 namespace System.Data.SQLite.Wasm;
 
@@ -14,9 +16,9 @@ namespace System.Data.SQLite.Wasm;
 /// </summary>
 public sealed class SqlQueryResult
 {
-    public List<string> ColumnNames { get; set; } = new();
-    public List<string> ColumnTypes { get; set; } = new();
-    public List<List<object?>> Rows { get; set; } = new();
+    public List<string> ColumnNames { get; set; } = [];
+    public List<string> ColumnTypes { get; set; } = [];
+    public List<List<object?>> Rows { get; set; } = [];
     public int RowsAffected { get; set; }
     public long LastInsertId { get; set; }
 }
@@ -42,12 +44,17 @@ public sealed partial class SqliteWasmWorkerBridge
             PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
             PropertyNameCaseInsensitive = true
         };
-        options.Converters.Add(new TypedRowDataConverter());
         options.TypeInfoResolver = WorkerJsonContext.Default;
         return options;
     });
 
     private static JsonSerializerOptions DeserializerOptions => _deserializerOptions.Value;
+
+    private static readonly Lazy<MessagePackSerializerOptions> _messagePackOptions = new(() =>
+        MessagePackSerializerOptions.Standard
+            .WithResolver(TypelessContractlessStandardResolver.Instance));
+
+    private static MessagePackSerializerOptions MessagePackOptions => _messagePackOptions.Value;
 
     private SqliteWasmWorkerBridge()
     {
@@ -224,12 +231,12 @@ public sealed partial class SqliteWasmWorkerBridge
                     return;
                 }
 
-                // Create SqlQueryResult directly - no re-serialization
+                // Create SqlQueryResult for non-execute operations (open, close, exists)
                 var result = new SqlQueryResult
                 {
-                    ColumnNames = response.ColumnNames ?? new List<string>(),
-                    ColumnTypes = response.ColumnTypes ?? new List<string>(),
-                    Rows = response.TypedRows?.Data ?? new List<List<object?>>(),
+                    ColumnNames = response.ColumnNames ?? [],
+                    ColumnTypes = response.ColumnTypes ?? [],
+                    Rows = [],
                     RowsAffected = response.RowsAffected,
                     LastInsertId = response.LastInsertId
                 };
@@ -241,6 +248,140 @@ public sealed partial class SqliteWasmWorkerBridge
         {
             Console.Error.WriteLine($"[Worker Bridge] Error processing worker response: {ex.Message}");
         }
+    }
+
+    /// <summary>
+    /// Callback for binary MessagePack responses from worker (execute operations).
+    /// Uint8Array is marshalled to byte array for MessagePack deserialization.
+    /// </summary>
+    [JSExport]
+    public static void OnWorkerResponseBinary(int requestId, byte[] messageData)
+    {
+        try
+        {
+            // Deserialize MessagePack binary data
+            var responseObj = MessagePackSerializer.Typeless.Deserialize(messageData, MessagePackOptions);
+
+            if (responseObj is null)
+            {
+                Console.Error.WriteLine("[Worker Bridge] Failed to deserialize MessagePack data");
+                return;
+            }
+
+            // MessagePack typeless API returns Dictionary<object, object>
+            var responseDict = (Dictionary<object, object>)responseObj;
+
+            // Extract fields
+            var columnNames = responseDict.TryGetValue("columnNames", out var value)
+                ? ((object[])value).Cast<string>().ToList()
+                : [];
+
+            var columnTypes = responseDict.TryGetValue("columnTypes", out var value1)
+                ? ((object[])value1).Cast<string>().ToList()
+                : [];
+
+            // Extract typed rows
+            List<List<object?>> rows = [];
+            if (responseDict.TryGetValue("typedRows", out var value2))
+            {
+                var typedRowsDict = (Dictionary<object, object>)value2;
+                if (typedRowsDict.TryGetValue("data", out var value3))
+                {
+                    var dataArray = (object[])value3;
+                    foreach (var rowObj in dataArray)
+                    {
+                        var row = ((object[])rowObj).Select(ConvertMessagePackValue).ToList();
+                        rows.Add(row);
+                    }
+                }
+            }
+
+            var rowsAffected = responseDict.TryGetValue("rowsAffected", out var value4)
+                ? ConvertToInt32(value4)
+                : 0;
+
+            var lastInsertId = responseDict.TryGetValue("lastInsertId", out var value5)
+                ? ConvertToInt64(value5)
+                : 0L;
+
+            // Complete the pending request
+            if (Instance._pendingRequests.TryRemove(requestId, out var tcs))
+            {
+                var result = new SqlQueryResult
+                {
+                    ColumnNames = columnNames,
+                    ColumnTypes = columnTypes,
+                    Rows = rows,
+                    RowsAffected = rowsAffected,
+                    LastInsertId = lastInsertId
+                };
+
+                tcs.TrySetResult(result);
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[Worker Bridge] MessagePack deserialization failed: {ex}");
+            if (Instance._pendingRequests.TryRemove(requestId, out var tcs))
+            {
+                tcs.TrySetException(ex);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Convert MessagePack deserialized values to expected C# types.
+    /// </summary>
+    private static object? ConvertMessagePackValue(object? value)
+    {
+        return value switch
+        {
+            null => null,
+            byte[] bytes => bytes,           // BLOB (stays binary!)
+            string s => s,                   // TEXT
+            bool b => b ? 1L : 0L,           // BOOLEAN → INTEGER (SQLite stores as 0/1)
+            long l => l,                     // INTEGER
+            int i => (long)i,                // INTEGER (ensure long)
+            double d => d,                   // REAL
+            float f => (double)f,            // REAL (ensure double)
+            byte by => (long)by,             // BYTE → INTEGER
+            short sh => (long)sh,            // SHORT → INTEGER
+            _ => value.ToString()            // Fallback to string
+        };
+    }
+
+    /// <summary>
+    /// Safely convert MessagePack numeric value to Int32.
+    /// </summary>
+    private static int ConvertToInt32(object? value)
+    {
+        return value switch
+        {
+            int i => i,
+            long l => (int)l,
+            float f => (int)f,
+            double d => (int)d,
+            byte b => b,
+            short s => s,
+            _ => 0
+        };
+    }
+
+    /// <summary>
+    /// Safely convert MessagePack numeric value to Int64.
+    /// </summary>
+    private static long ConvertToInt64(object? value)
+    {
+        return value switch
+        {
+            long l => l,
+            int i => i,
+            float f => (long)f,
+            double d => (long)d,
+            byte b => b,
+            short s => s,
+            _ => 0L
+        };
     }
 
     [JSImport("sendToWorker", "sqliteWasmWorker")]
@@ -261,6 +402,7 @@ internal sealed class WorkerMessage
 
 /// <summary>
 /// Worker response structure (matches JavaScript response format).
+/// Used only for JSON error messages - execute responses use MessagePack binary format.
 /// </summary>
 internal sealed class WorkerResponse
 {
@@ -268,7 +410,6 @@ internal sealed class WorkerResponse
     public string? Error { get; set; }
     public List<string>? ColumnNames { get; set; }
     public List<string>? ColumnTypes { get; set; }
-    public TypedRowData? TypedRows { get; set; }
     public int RowsAffected { get; set; }
     public long LastInsertId { get; set; }
 }
@@ -276,12 +417,12 @@ internal sealed class WorkerResponse
 /// <summary>
 /// Source-generated JSON serialization context for efficient, zero-allocation serialization.
 /// Uses Web defaults for camelCase and other web-friendly settings.
+/// Used only for error messages - execute responses use MessagePack binary format.
 /// </summary>
 [JsonSourceGenerationOptions(JsonSerializerDefaults.Web)]
 [JsonSerializable(typeof(WorkerMessage))]
 [JsonSerializable(typeof(WorkerResponse))]
 [JsonSerializable(typeof(SqlQueryResult))]
-[JsonSerializable(typeof(TypedRowData))]
 internal partial class WorkerJsonContext : JsonSerializerContext
 {
 }

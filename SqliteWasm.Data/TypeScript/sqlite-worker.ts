@@ -4,6 +4,7 @@
 
 import sqlite3InitModule from '@sqlite.org/sqlite-wasm';
 import { logger } from './sqlite-logger';
+import { pack } from 'msgpackr';
 
 interface WorkerRequest {
     id: number;
@@ -44,7 +45,9 @@ const MODULE_NAME = 'SQLite Worker';
 // BigInts within safe integer range (±2^53-1) are converted to number for efficiency
 // Larger BigInts are converted to string to preserve precision
 // Uint8Arrays are converted to Base64 strings (matches .NET 6+ JSInterop convention)
-function convertBigIntToString(value: any): any {
+// Convert BigInt values for MessagePack serialization
+// MessagePack natively handles Uint8Array, so no Base64 conversion needed
+function convertBigInt(value: any): any {
     if (typeof value === 'bigint') {
         // Check if BigInt fits in JavaScript's safe integer range
         if (value >= Number.MIN_SAFE_INTEGER && value <= Number.MAX_SAFE_INTEGER) {
@@ -52,22 +55,13 @@ function convertBigIntToString(value: any): any {
         }
         return value.toString();  // Convert to string to preserve precision
     }
-    if (value instanceof Uint8Array) {
-        // Convert Uint8Array to Base64 string (matches .NET 6+ convention)
-        // Use btoa() with binary string conversion
-        let binaryString = '';
-        for (let i = 0; i < value.length; i++) {
-            binaryString += String.fromCharCode(value[i]);
-        }
-        return btoa(binaryString);
-    }
     if (Array.isArray(value)) {
-        return value.map(convertBigIntToString);
+        return value.map(convertBigInt);
     }
-    if (value && typeof value === 'object') {
+    if (value && typeof value === 'object' && !(value instanceof Uint8Array)) {
         const converted: any = {};
         for (const key in value) {
-            converted[key] = convertBigIntToString(value[key]);
+            converted[key] = convertBigInt(value[key]);
         }
         return converted;
     }
@@ -143,15 +137,24 @@ self.onmessage = async (event: MessageEvent<WorkerRequest | { type: 'setLogLevel
     try {
         const result = await handleRequest(data);
 
-        const response: WorkerResponse = {
-            id,
-            data: {
-                success: true,
-                ...result
-            }
-        };
-
-        self.postMessage(response);
+        // Check if result is MessagePack binary (Uint8Array)
+        if (result instanceof Uint8Array) {
+            self.postMessage({
+                id,
+                binary: true,
+                data: result
+            });
+        } else {
+            // JSON response for non-execute operations
+            const response: WorkerResponse = {
+                id,
+                data: {
+                    success: true,
+                    ...result
+                }
+            };
+            self.postMessage(response);
+        }
     } catch (error) {
         const response: WorkerResponse = {
             id,
@@ -375,16 +378,18 @@ async function executeSql(dbName: string, sql: string, parameters: Record<string
             }
         }
 
-        return {
+        const response = {
             columnNames,
             columnTypes,
             typedRows: {
                 types: columnTypes,
-                data: convertBigIntToString(result || [])
+                data: convertBigInt(result || [])
             },
             rowsAffected,
-            lastInsertId: convertBigIntToString(lastInsertId)
+            lastInsertId: Number(lastInsertId)
         };
+
+        return pack(response);
     } catch (error) {
         console.error(`[SQLite Worker] SQL execution failed:`, error);
         console.error(`SQL: ${sql}`);

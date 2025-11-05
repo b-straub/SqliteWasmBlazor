@@ -80,7 +80,7 @@ public sealed class SqliteWasmParameter : DbParameter
 [SupportedOSPlatform("browser")]
 public sealed class SqliteWasmParameterCollection : DbParameterCollection
 {
-    private readonly List<SqliteWasmParameter> _parameters = new();
+    private readonly List<SqliteWasmParameter> _parameters = [];
 
     public override int Count => _parameters.Count;
 

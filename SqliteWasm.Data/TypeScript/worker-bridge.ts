@@ -30,13 +30,23 @@ let readyCallback: (() => void) | null = null;
 
             // Forward response to C# via JSExport method
             if (event.data.id !== undefined) {
-                // Serialize to JSON once, C# deserializes with source-generated context
-                const messageJson = JSON.stringify(event.data);
                 try {
                     const exports = await (globalThis as any).getDotnetRuntime(0).getAssemblyExports("System.Data.SQLite.Wasm.dll");
-                    exports.System.Data.SQLite.Wasm.SqliteWasmWorkerBridge.OnWorkerResponse(messageJson);
+
+                    // Check if binary MessagePack data
+                    if (event.data.binary && event.data.data instanceof Uint8Array) {
+                        // Zero-copy binary path: Uint8Array → Span<byte>
+                        exports.System.Data.SQLite.Wasm.SqliteWasmWorkerBridge.OnWorkerResponseBinary(
+                            event.data.id,
+                            event.data.data
+                        );
+                    } else {
+                        // JSON fallback for non-execute operations and errors
+                        const messageJson = JSON.stringify(event.data);
+                        exports.System.Data.SQLite.Wasm.SqliteWasmWorkerBridge.OnWorkerResponse(messageJson);
+                    }
                 } catch (error) {
-                    console.error('[Worker Bridge] Failed to call C# OnWorkerResponse:', error);
+                    console.error('[Worker Bridge] Failed to call C# callback:', error);
                 }
             }
         };
