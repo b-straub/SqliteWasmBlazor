@@ -3,6 +3,7 @@ using SQLiteNET.Opfs.TestApp.Data;
 using SQLiteNET.Opfs.TestApp.TestInfrastructure.Tests;
 using SQLiteNET.Opfs.TestApp.TestInfrastructure.Tests.CRUD;
 using SQLiteNET.Opfs.TestApp.TestInfrastructure.Tests.JsonCollections;
+using SQLiteNET.Opfs.TestApp.TestInfrastructure.Tests.Relationships;
 using SQLiteNET.Opfs.TestApp.TestInfrastructure.Tests.Transactions;
 using SQLiteNET.Opfs.TestApp.TestInfrastructure.Tests.TypeMarshalling;
 
@@ -50,6 +51,14 @@ internal class TestFactory
         // Transaction Tests
         _tests.Add(("Transactions", new TransactionCommitTest(factory)));
         _tests.Add(("Transactions", new TransactionRollbackTest(factory)));
+
+        // Relationship Tests (binary(16) Guid keys + one-to-many)
+        _tests.Add(("Relationships", new TodoListCreateWithGuidKeyTest(factory)));
+        _tests.Add(("Relationships", new TodoCreateWithForeignKeyTest(factory)));
+        _tests.Add(("Relationships", new TodoListIncludeNavigationTest(factory)));
+        _tests.Add(("Relationships", new TodoListCascadeDeleteTest(factory)));
+        _tests.Add(("Relationships", new TodoComplexQueryWithJoinTest(factory)));
+        _tests.Add(("Relationships", new TodoNullableDateTimeTest(factory)));
     }
 }
 

@@ -37,6 +37,13 @@ public abstract class SqliteWasmTestBase(IWAFixture fixture) : IAsyncLifetime
     // Transaction Tests
     [InlineData("Transaction_Commit")]
     [InlineData("Transaction_Rollback")]
+    // Relationship Tests
+    [InlineData("TodoList_CreateWithGuidKey")]
+    [InlineData("Todo_CreateWithForeignKey")]
+    [InlineData("TodoList_IncludeNavigation")]
+    [InlineData("TodoList_CascadeDelete")]
+    [InlineData("Todo_ComplexQueryWithJoin")]
+    [InlineData("Todo_NullableDateTime")]
     public async Task TestCase(string name)
     {
         Assert.NotNull(_fixture.Page);

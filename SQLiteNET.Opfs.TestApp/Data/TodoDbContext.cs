@@ -12,6 +12,8 @@ public class TodoDbContext : DbContext
 
     public DbSet<TodoItem> TodoItems { get; set; }
     public DbSet<TypeTestEntity> TypeTests { get; set; }
+    public DbSet<TodoList> TodoLists { get; set; }
+    public DbSet<Todo> Todos { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -33,6 +35,30 @@ public class TodoDbContext : DbContext
                     v => JsonSerializer.Serialize(v, (JsonSerializerOptions?)null),
                     v => JsonSerializer.Deserialize<List<int>>(v, (JsonSerializerOptions?)null) ?? new List<int>()
                 );
+        });
+
+        modelBuilder.Entity<TodoList>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Title).IsRequired().HasMaxLength(255);
+            entity.Property(e => e.IsActive).IsRequired();
+            entity.Property(e => e.CreatedAt).IsRequired();
+
+            // Configure one-to-many relationship
+            entity.HasMany(e => e.Todos)
+                .WithOne(e => e.TodoList)
+                .HasForeignKey(e => e.TodoListId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<Todo>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Title).IsRequired().HasMaxLength(255);
+            entity.Property(e => e.Description).HasMaxLength(255);
+            entity.Property(e => e.TodoListId).IsRequired();
+            entity.Property(e => e.Completed).IsRequired();
+            entity.Property(e => e.Priority).IsRequired();
         });
     }
 }
