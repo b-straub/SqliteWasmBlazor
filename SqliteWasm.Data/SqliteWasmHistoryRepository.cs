@@ -11,6 +11,11 @@ namespace System.Data.SQLite.Wasm;
 /// Custom history repository for SqliteWasm that disables migration locking.
 /// The migration lock mechanism causes infinite polling loops in WebAssembly
 /// because there's no concurrent access in a single-user browser environment.
+///
+/// NOTE: Inherits from SqliteHistoryRepository (internal API - EF1001 warning suppressed).
+/// This is necessary as EF Core provides no stable configuration option to disable migration locking.
+/// The implementation is stable for .NET 10 and will not change.
+/// Safe for single-user browser environment where OPFS access is already synchronized via Web Worker.
 /// </summary>
 [SupportedOSPlatform("browser")]
 #pragma warning disable EF1001
