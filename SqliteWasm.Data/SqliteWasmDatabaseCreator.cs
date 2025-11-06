@@ -61,36 +61,13 @@ internal sealed class SqliteWasmDatabaseCreator : RelationalDatabaseCreator
     }
 
     /// <summary>
-    /// Asynchronously creates the database by setting WAL mode and FULL synchronous mode.
-    /// PRAGMA synchronous = FULL ensures xSync() is called after every transaction,
-    /// which guarantees durability and prevents race conditions with overlapping keys.
+    /// Asynchronously creates the database.
+    /// WAL mode and FULL synchronous mode are set automatically by OpenAsync().
     /// </summary>
     public override async Task CreateAsync(CancellationToken cancellationToken = default)
     {
+        // OpenAsync() sets PRAGMA journal_mode = WAL and PRAGMA synchronous = FULL
         await Dependencies.Connection.OpenAsync(cancellationToken);
-
-        await _rawSqlCommandBuilder.Build("PRAGMA journal_mode = 'wal';")
-            .ExecuteNonQueryAsync(
-                new RelationalCommandParameterObject(
-                    Dependencies.Connection,
-                    null,
-                    null,
-                    Dependencies.CurrentContext.Context,
-                    Dependencies.CommandLogger,
-                    CommandSource.Migrations),
-                cancellationToken);
-
-        await _rawSqlCommandBuilder.Build("PRAGMA synchronous = FULL;")
-            .ExecuteNonQueryAsync(
-                new RelationalCommandParameterObject(
-                    Dependencies.Connection,
-                    null,
-                    null,
-                    Dependencies.CurrentContext.Context,
-                    Dependencies.CommandLogger,
-                    CommandSource.Migrations),
-                cancellationToken);
-
         await Dependencies.Connection.CloseAsync();
     }
 

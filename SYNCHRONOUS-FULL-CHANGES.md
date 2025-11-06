@@ -18,28 +18,55 @@ OPFS SAH only allows **ONE handle per file at a time**, so proper cleanup is ess
 
 ## Changes Made
 
-### 1. SqliteWasmDatabaseCreator.cs
-**Added**: `PRAGMA synchronous = FULL` during database creation
+### 1. SqliteWasmConnection.cs - OpenAsync()
+**Added**: `PRAGMA synchronous = FULL` and `PRAGMA journal_mode = WAL` on every connection open
+
+```csharp
+public override async Task OpenAsync(CancellationToken cancellationToken)
+{
+    if (_state == ConnectionState.Open)
+    {
+        return;
+    }
+
+    _state = ConnectionState.Connecting;
+
+    try
+    {
+        await _bridge.OpenDatabaseAsync(Database, cancellationToken);
+
+        // Set WAL mode and FULL synchronous mode for every connection
+        // This ensures xSync() is called after every transaction, preventing race conditions
+        await _bridge.ExecuteSqlAsync(Database, "PRAGMA journal_mode = WAL;", new Dictionary<string, object?>(), cancellationToken);
+        await _bridge.ExecuteSqlAsync(Database, "PRAGMA synchronous = FULL;", new Dictionary<string, object?>(), cancellationToken);
+
+        _state = ConnectionState.Open;
+    }
+    catch
+    {
+        _state = ConnectionState.Broken;
+        throw;
+    }
+}
+```
+
+**Why**: Ensures xSync() is called after EVERY transaction, making all EF Core operations predictable and safe. Setting on OpenAsync() ensures it applies to all connections, not just during initial database creation.
+
+### 2. SqliteWasmDatabaseCreator.cs - CreateAsync()
+**Simplified**: Removed redundant PRAGMA commands (now handled by OpenAsync())
 
 ```csharp
 public override async Task CreateAsync(CancellationToken cancellationToken = default)
 {
+    // OpenAsync() sets PRAGMA journal_mode = WAL and PRAGMA synchronous = FULL
     await Dependencies.Connection.OpenAsync(cancellationToken);
-
-    await _rawSqlCommandBuilder.Build("PRAGMA journal_mode = 'wal';")
-        .ExecuteNonQueryAsync(...);
-
-    // NEW: Force xSync() on every transaction
-    await _rawSqlCommandBuilder.Build("PRAGMA synchronous = FULL;")
-        .ExecuteNonQueryAsync(...);
-
     await Dependencies.Connection.CloseAsync();
 }
 ```
 
-**Why**: Ensures xSync() is called after EVERY transaction, making all EF Core operations predictable and safe.
+**Why**: PRAGMAs are now set by OpenAsync(), so no need to duplicate them here.
 
-### 2. SqliteWasmConnection.cs
+### 3. SqliteWasmConnection.cs - CloseAsync()
 **Added**: `CloseAsync()` method that properly closes database in worker
 
 ```csharp

@@ -35,6 +35,7 @@ interface WorkerResponse {
 let sqlite3: any;
 let poolUtil: any;
 const openDatabases = new Map<string, any>();
+const pragmasSet = new Set<string>(); // Track which databases have PRAGMAs configured
 
 // Cache table schemas: Map<tableName, Map<columnName, columnType>>
 const schemaCache = new Map<string, Map<string, string>>();
@@ -197,21 +198,30 @@ async function openDatabase(dbName: string) {
         throw new Error('SQLite not initialized');
     }
 
-    if (openDatabases.has(dbName)) {
-        return { success: true };
+    // Check if database needs to be opened
+    let db = openDatabases.get(dbName);
+    if (!db) {
+        try {
+            // Use OpfsSAHPoolDb from the pool utility
+            db = new poolUtil.OpfsSAHPoolDb(`/databases/${dbName}`);
+            openDatabases.set(dbName, db);
+            console.log(`[SQLite Worker] Opened database: ${dbName} with OPFS SAHPool`);
+        } catch (error) {
+            console.error(`[SQLite Worker] Failed to open database ${dbName}:`, error);
+            throw error;
+        }
     }
 
-    try {
-        // Use OpfsSAHPoolDb from the pool utility
-        const db = new poolUtil.OpfsSAHPoolDb(`/databases/${dbName}`);
-        openDatabases.set(dbName, db);
-
-        console.log(`[SQLite Worker] Opened database: ${dbName} with OPFS SAHPool`);
-        return { success: true };
-    } catch (error) {
-        console.error(`[SQLite Worker] Failed to open database ${dbName}:`, error);
-        throw error;
+    // Always check if PRAGMAs need to be set (even if database was already open)
+    // This handles the case where database was closed and reopened
+    if (!pragmasSet.has(dbName)) {
+        db.exec("PRAGMA journal_mode = WAL;");
+        db.exec("PRAGMA synchronous = FULL;");
+        pragmasSet.add(dbName);
+        console.log(`[SQLite Worker] Set PRAGMAs for ${dbName} (journal_mode=WAL, synchronous=FULL)`);
     }
+
+    return { success: true };
 }
 
 // Get schema info for a table by querying PRAGMA table_info
@@ -402,6 +412,7 @@ async function closeDatabase(dbName: string) {
     if (db) {
         db.close();
         openDatabases.delete(dbName);
+        pragmasSet.delete(dbName); // Clear PRAGMA tracking when database is closed
         console.log(`[SQLite Worker] Closed database: ${dbName}`);
     }
     return { success: true };

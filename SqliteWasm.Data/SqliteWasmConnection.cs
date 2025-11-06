@@ -67,9 +67,8 @@ public sealed class SqliteWasmConnection : DbConnection
 
     public override void Open()
     {
-        // EF Core's SqliteDatabaseCreator calls synchronous Open()
-        // We can't block in WebAssembly, but we can set state optimistically
-        // Actual opening will happen on first command execution
+        // EF Core's EnsureCreatedAsync may call synchronous Open() in some paths
+        // We can't await in WebAssembly, but we can fire-and-forget the async operation
         if (_state == ConnectionState.Open)
         {
             return;
@@ -77,9 +76,8 @@ public sealed class SqliteWasmConnection : DbConnection
 
         _state = ConnectionState.Open;
 
-        // Queue async open in background (fire and forget is safe here since
-        // commands will await the worker bridge initialization)
-        _ = _bridge.OpenDatabaseAsync(Database);
+        // Fire and forget - reuse OpenAsync logic
+        _ = OpenAsync(CancellationToken.None);
     }
 
     public override async Task OpenAsync(CancellationToken cancellationToken)
@@ -94,6 +92,11 @@ public sealed class SqliteWasmConnection : DbConnection
         try
         {
             await _bridge.OpenDatabaseAsync(Database, cancellationToken);
+
+            // PRAGMAs are set by the worker on first database open
+            // This ensures they apply to the actual worker-side connection and persist
+            // for the lifetime of the cached database instance
+
             _state = ConnectionState.Open;
         }
         catch
