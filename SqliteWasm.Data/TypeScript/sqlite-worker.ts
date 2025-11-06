@@ -205,7 +205,7 @@ async function openDatabase(dbName: string) {
             // Use OpfsSAHPoolDb from the pool utility
             db = new poolUtil.OpfsSAHPoolDb(`/databases/${dbName}`);
             openDatabases.set(dbName, db);
-            console.log(`[SQLite Worker] Opened database: ${dbName} with OPFS SAHPool`);
+            console.debug(`[SQLite Worker] Opened database: ${dbName} with OPFS SAHPool`);
         } catch (error) {
             console.error(`[SQLite Worker] Failed to open database ${dbName}:`, error);
             throw error;
@@ -218,7 +218,7 @@ async function openDatabase(dbName: string) {
         db.exec("PRAGMA journal_mode = WAL;");
         db.exec("PRAGMA synchronous = FULL;");
         pragmasSet.add(dbName);
-        console.log(`[SQLite Worker] Set PRAGMAs for ${dbName} (journal_mode=WAL, synchronous=FULL)`);
+        console.debug(`[SQLite Worker] Set PRAGMAs for ${dbName} (journal_mode=WAL, synchronous=FULL)`);
     }
 
     return { success: true };
@@ -413,7 +413,7 @@ async function closeDatabase(dbName: string) {
         db.close();
         openDatabases.delete(dbName);
         pragmasSet.delete(dbName); // Clear PRAGMA tracking when database is closed
-        console.log(`[SQLite Worker] Closed database: ${dbName}`);
+        console.debug(`[SQLite Worker] Closed database: ${dbName}`);
     }
     return { success: true };
 }
@@ -470,7 +470,7 @@ async function deleteDatabase(dbName: string) {
         // Use the pool utility's wipeFiles method to delete the database
         if (poolUtil.wipeFiles) {
             await poolUtil.wipeFiles(dbPath);
-            console.log(`[SQLite Worker] Deleted database: ${dbName}`);
+            console.debug(`[SQLite Worker] Deleted database: ${dbName}`);
         } else {
             console.warn(`[SQLite Worker] wipeFiles not available, database may persist`);
         }
