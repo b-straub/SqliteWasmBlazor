@@ -1,7 +1,7 @@
 using Microsoft.AspNetCore.Components.Web;
 using Microsoft.AspNetCore.Components.WebAssembly.Hosting;
 using SQLiteNET.Opfs.TestApp;
-using SQLiteNET.Opfs.TestApp.Data;
+using SqliteWasm.Data.Models;
 using System.Data.SQLite.Wasm;
 using Microsoft.EntityFrameworkCore;
 
@@ -31,11 +31,12 @@ using (var scope = host.Services.CreateScope())
     var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<TodoDbContext>>();
     await using var dbContext = await factory.CreateDbContextAsync();
 
-    // Use standard EF Core methods - they now work with OPFS via SqliteWasmDatabaseCreator
+    // Use EF Core migrations with custom SqliteWasmHistoryRepository
+    // The custom history repository disables the infinite polling lock mechanism
     await dbContext.Database.EnsureDeletedAsync();
-    await dbContext.Database.EnsureCreatedAsync();
+    await dbContext.Database.MigrateAsync();
 
-    Console.WriteLine("[TestApp] Database deleted and recreated");
+    Console.WriteLine("[TestApp] Database deleted and migrated");
 }
 
 await host.RunAsync();

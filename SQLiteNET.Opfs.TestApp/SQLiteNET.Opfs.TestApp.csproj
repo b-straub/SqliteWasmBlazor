@@ -18,13 +18,18 @@
     <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly" Version="10.0.0-rc.2.25502.107" />
     <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.DevServer" Version="10.0.0-rc.2.25502.107" PrivateAssets="all" />
     <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.0-rc.2.25502.107" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.0-rc.2.25502.107">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
     <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.0-rc.2.25502.107" />
     <!-- Exclude packaged native library - using custom minimal stub -->
     <PackageReference Include="SQLitePCLRaw.lib.e_sqlite3" Version="2.1.11" ExcludeAssets="native;buildTransitive" />
   </ItemGroup>
-
+  
   <ItemGroup>
     <ProjectReference Include="../SqliteWasm.Data/SqliteWasm.Data.csproj" />
+    <ProjectReference Include="..\SqliteWasm.Data.Models\SqliteWasm.Data.Models.csproj" />
   </ItemGroup>
 
   <!-- Custom SQLite minimal stub library (8KB, replaces packaged e_sqlite3.a) -->

@@ -5,7 +5,7 @@ using Microsoft.Playwright;
 
 namespace SqliteWasm.Data.Tests.Infrastructure;
 
-public class WAFixtureBase(int port) : WebApplicationFactory<Program>
+public class WaFixtureBase(int port) : WebApplicationFactory<Program>
 {
     public IPage? Page { get; private set; }
 
@@ -14,7 +14,7 @@ public class WAFixtureBase(int port) : WebApplicationFactory<Program>
     private IBrowserContext? _browserContext;
     private readonly int _port = port;
 
-    protected async Task InitializeAsync(IWAFixture.BrowserType browserType, bool onePass, bool headless)
+    protected async Task InitializeAsync(IWaFixture.BrowserType browserType, bool onePass, bool headless)
     {
         CreateDefaultClient();
 
@@ -32,17 +32,17 @@ public class WAFixtureBase(int port) : WebApplicationFactory<Program>
 
         _browser = browserType switch
         {
-            IWAFixture.BrowserType.Chromium => await _playwright.Chromium.LaunchAsync(new BrowserTypeLaunchOptions
+            IWaFixture.BrowserType.CHROMIUM => await _playwright.Chromium.LaunchAsync(new BrowserTypeLaunchOptions
             {
                 Headless = headless,
                 Args = new[] { "--ignore-certificate-errors" }
             }),
-            IWAFixture.BrowserType.Firefox => await _playwright.Firefox.LaunchAsync(new BrowserTypeLaunchOptions
+            IWaFixture.BrowserType.FIREFOX => await _playwright.Firefox.LaunchAsync(new BrowserTypeLaunchOptions
             {
                 Headless = headless,
                 FirefoxUserPrefs = new Dictionary<string, object>() { { "security.enterprise_roots.enabled", false } }
             }),
-            IWAFixture.BrowserType.Webkit => await _playwright.Webkit.LaunchAsync(new BrowserTypeLaunchOptions
+            IWaFixture.BrowserType.WEBKIT => await _playwright.Webkit.LaunchAsync(new BrowserTypeLaunchOptions
             {
                 Headless = headless
             }),
@@ -57,9 +57,9 @@ public class WAFixtureBase(int port) : WebApplicationFactory<Program>
         {
             var timeout = browserType switch
             {
-                IWAFixture.BrowserType.Chromium => 100000,
-                IWAFixture.BrowserType.Firefox => 300000,
-                IWAFixture.BrowserType.Webkit => 300000,
+                IWaFixture.BrowserType.CHROMIUM => 100000,
+                IWaFixture.BrowserType.FIREFOX => 300000,
+                IWaFixture.BrowserType.WEBKIT => 300000,
                 _ => throw new ArgumentOutOfRangeException(nameof(browserType))
             };
 

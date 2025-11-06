@@ -62,8 +62,8 @@ public sealed class SqliteWasmCommand : DbCommand
         // This is primarily called during schema checks where return value isn't critical
         return 0;
     }
-
-    public override async Task<int> ExecuteNonQueryAsync(CancellationToken cancellationToken = default)
+    
+    public override async Task<int> ExecuteNonQueryAsync(CancellationToken cancellationToken)
     {
         ValidateConnection();
 
@@ -98,7 +98,7 @@ public sealed class SqliteWasmCommand : DbCommand
         return null;
     }
 
-    public override async Task<object?> ExecuteScalarAsync(CancellationToken cancellationToken = default)
+    public override async Task<object?> ExecuteScalarAsync(CancellationToken cancellationToken)
     {
         ValidateConnection();
 
@@ -122,12 +122,12 @@ public sealed class SqliteWasmCommand : DbCommand
         // Synchronous execution not supported in WebAssembly
         // Return empty reader as EF Core will use async methods for actual work
         var result = new SqlQueryResult();
-        return new SqliteWasmDataReader(result, this);
+        return new SqliteWasmDataReader(result);
     }
 
     protected override async Task<DbDataReader> ExecuteDbDataReaderAsync(
         CommandBehavior behavior,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken)
     {
         ValidateConnection();
 
@@ -138,7 +138,7 @@ public sealed class SqliteWasmCommand : DbCommand
             _parameters.GetParameterValues(),
             cancellationToken);
 
-        return new SqliteWasmDataReader(result, this);
+        return new SqliteWasmDataReader(result);
     }
 
     public override void Prepare()

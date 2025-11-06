@@ -1,3 +1,5 @@
+using System.ComponentModel.DataAnnotations;
+
 namespace SQLiteNET.Opfs.TestApp.Models;
 
 /// <summary>
@@ -30,7 +32,9 @@ public class TypeTestEntity
     public bool? NullableBoolValue { get; set; }
 
     // String
+    [MaxLength(255)]
     public string StringValue { get; set; } = string.Empty;
+    [MaxLength(255)]
     public string? NullableStringValue { get; set; }
 
     // DateTime types
@@ -62,8 +66,8 @@ public class TypeTestEntity
 
 public enum TestEnum
 {
-    None = 0,
-    First = 1,
-    Second = 2,
-    Third = 3
+    NONE = 0,
+    FIRST = 1,
+    SECOND = 2,
+    THIRD = 3
 }

@@ -1,9 +1,7 @@
 // System.Data.SQLite.Wasm - Minimal EF Core compatible provider
 // MIT License
 
-using System.Data;
 using System.Runtime.Versioning;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.EntityFrameworkCore.Storage;
 
@@ -140,8 +138,8 @@ internal sealed class SqliteWasmDatabaseCreator : RelationalDatabaseCreator
                 cancellationToken);
 
         // Handle JsonElement from worker bridge
-        if (result is System.Text.Json.JsonElement jsonElement &&
-            jsonElement.ValueKind == System.Text.Json.JsonValueKind.Number)
+        if (result is Text.Json.JsonElement jsonElement &&
+            jsonElement.ValueKind == Text.Json.JsonValueKind.Number)
         {
             return jsonElement.GetInt64() != 0;
         }

@@ -137,7 +137,7 @@
                 <MudTd DataLabel="Status">
                     <MudCheckBox T="bool"
                                  Value="@context.IsCompleted"
-                                 ValueChanged="async (value) => await ToggleCompleteAsync(context)"
+                                 ValueChanged="async (_) => await ToggleCompleteAsync(context)"
                                  Color="Color.Success" />
                 </MudTd>
                 <MudTd DataLabel="Title">
@@ -415,7 +415,7 @@
                     parameters.Add(item.Description);
                     parameters.Add(item.CreatedAt);
                     parameters.Add(item.IsCompleted ? 1 : 0);
-                    parameters.Add((object?)item.CompletedAt?.ToString("O"));
+                    parameters.Add(item.CompletedAt?.ToString("O"));
                 }
 
                 var sql = $@"
@@ -470,7 +470,7 @@
         stopwatch.Stop();
 
         await UpdateTotalCountAsync();
-        await Table!.ReloadServerData();
+        await Table.ReloadServerData();
         _performanceInfo = $"All data cleared in {stopwatch.ElapsedMilliseconds}ms";
         Snackbar.Add($"All todos deleted in {stopwatch.ElapsedMilliseconds}ms", Severity.Warning);
     }
@@ -491,7 +491,7 @@
             stopwatch.Stop();
 
             await UpdateTotalCountAsync();
-            await Table!.ReloadServerData();
+            await Table.ReloadServerData();
             _performanceInfo = $"Database reset in {stopwatch.ElapsedMilliseconds}ms";
             Snackbar.Add($"Database completely reset in {stopwatch.ElapsedMilliseconds}ms", Severity.Warning);
         }

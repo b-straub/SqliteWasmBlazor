@@ -1,6 +1,6 @@
 using Microsoft.EntityFrameworkCore;
-using SQLiteNET.Opfs.TestApp.Data;
-using SQLiteNET.Opfs.TestApp.Models;
+using SqliteWasm.Data.Models;
+using SqliteWasm.Data.Models.Models;
 
 namespace SQLiteNET.Opfs.TestApp.TestInfrastructure.Tests.JsonCollections;
 

@@ -1,5 +1,4 @@
 using SqliteWasm.Data.Tests.Infrastructure;
-using Xunit;
 
 namespace SqliteWasm.Data.Tests;
 

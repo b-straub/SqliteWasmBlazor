@@ -78,10 +78,10 @@ public sealed class SqliteWasmConnection : DbConnection
 
         // Queue async open in background (fire and forget is safe here since
         // commands will await the worker bridge initialization)
-        _ = _bridge.OpenDatabaseAsync(Database, CancellationToken.None);
+        _ = _bridge.OpenDatabaseAsync(Database);
     }
 
-    public override async Task OpenAsync(CancellationToken cancellationToken = default)
+    public override async Task OpenAsync(CancellationToken cancellationToken)
     {
         if (_state == ConnectionState.Open)
         {
@@ -104,11 +104,6 @@ public sealed class SqliteWasmConnection : DbConnection
 
     public override void Close()
     {
-        if (_state == ConnectionState.Closed)
-        {
-            return;
-        }
-
         _state = ConnectionState.Closed;
     }
 
@@ -128,7 +123,7 @@ public sealed class SqliteWasmConnection : DbConnection
 
     protected override async ValueTask<DbTransaction> BeginDbTransactionAsync(
         IsolationLevel isolationLevel,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken)
     {
         return await SqliteWasmTransaction.CreateAsync(this, isolationLevel, cancellationToken);
     }

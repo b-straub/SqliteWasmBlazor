@@ -2,15 +2,15 @@ using Microsoft.Playwright;
 
 namespace SqliteWasm.Data.Tests.Infrastructure;
 
-public interface IWAFixture
+public interface IWaFixture
 {
     public enum BrowserType
     {
-        None = 0,
-        Chromium = 1,
-        Firefox = 2,
-        Webkit = 4,
-        All = 7
+        NONE = 0,
+        CHROMIUM = 1,
+        FIREFOX = 2,
+        WEBKIT = 4,
+        ALL = 7
     }
 
     public Task InitializeAsync();

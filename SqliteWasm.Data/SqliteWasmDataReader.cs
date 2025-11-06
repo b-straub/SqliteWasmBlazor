@@ -14,14 +14,12 @@ namespace System.Data.SQLite.Wasm;
 public sealed class SqliteWasmDataReader : DbDataReader
 {
     private readonly SqlQueryResult _result;
-    private readonly SqliteWasmCommand _command;
     private int _currentRowIndex = -1;
     private bool _isClosed;
 
-    internal SqliteWasmDataReader(SqlQueryResult result, SqliteWasmCommand command)
+    internal SqliteWasmDataReader(SqlQueryResult result)
     {
         _result = result;
-        _command = command;
     }
 
     public override T GetFieldValue<T>(int ordinal)

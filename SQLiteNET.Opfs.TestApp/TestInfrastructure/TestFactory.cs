@@ -1,8 +1,9 @@
 using Microsoft.EntityFrameworkCore;
-using SQLiteNET.Opfs.TestApp.Data;
+using SqliteWasm.Data.Models;
 using SQLiteNET.Opfs.TestApp.TestInfrastructure.Tests;
 using SQLiteNET.Opfs.TestApp.TestInfrastructure.Tests.CRUD;
 using SQLiteNET.Opfs.TestApp.TestInfrastructure.Tests.JsonCollections;
+using SQLiteNET.Opfs.TestApp.TestInfrastructure.Tests.Migrations;
 using SQLiteNET.Opfs.TestApp.TestInfrastructure.Tests.Relationships;
 using SQLiteNET.Opfs.TestApp.TestInfrastructure.Tests.Transactions;
 using SQLiteNET.Opfs.TestApp.TestInfrastructure.Tests.TypeMarshalling;
@@ -20,11 +21,10 @@ internal class TestFactory
 
     public IEnumerable<(string Category, SqliteWasmTest Test)> GetTests(string? testName = null)
     {
-        var tests = Enumerable.Empty<(string Category, SqliteWasmTest Test)>();
+        var tests = testName is null ? _tests : _tests.Where(t => t.Test.Name == testName);
 
-        tests = testName is null ? _tests : _tests.Where(t => t.Test.Name == testName);
-
-        return tests.Any() ? tests : Enumerable.Empty<(string Category, SqliteWasmTest Test)>();
+        var valueTuples = tests as (string Category, SqliteWasmTest Test)[] ?? tests.ToArray();
+        return valueTuples.Length > 0 ? valueTuples : Enumerable.Empty<(string Category, SqliteWasmTest Test)>();
     }
 
     private void PopulateTests(IDbContextFactory<TodoDbContext> factory)
@@ -59,6 +59,14 @@ internal class TestFactory
         _tests.Add(("Relationships", new TodoListCascadeDeleteTest(factory)));
         _tests.Add(("Relationships", new TodoComplexQueryWithJoinTest(factory)));
         _tests.Add(("Relationships", new TodoNullableDateTimeTest(factory)));
+
+        // Migration Tests (EF Core migrations in WASM/OPFS)
+        _tests.Add(("Migrations", new FreshDatabaseMigrateTest(factory)));
+        _tests.Add(("Migrations", new ExistingDatabaseMigrateIdempotentTest(factory)));
+        _tests.Add(("Migrations", new MigrationHistoryTableTest(factory)));
+        _tests.Add(("Migrations", new GetAppliedMigrationsTest(factory)));
+        _tests.Add(("Migrations", new DatabaseExistsCheckTest(factory)));
+        _tests.Add(("Migrations", new EnsureCreatedVsMigrateConflictTest(factory)));
     }
 }
 

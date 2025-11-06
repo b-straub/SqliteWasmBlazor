@@ -13,15 +13,15 @@ namespace System.Data.SQLite.Wasm;
 public enum SqliteWasmLogLevel
 {
     /// <summary>No logging</summary>
-    None = 0,
+    NONE = 0,
     /// <summary>Only errors</summary>
-    Error = 1,
+    ERROR = 1,
     /// <summary>Errors and warnings</summary>
-    Warning = 2,
+    WARNING = 2,
     /// <summary>Errors, warnings, and info</summary>
-    Info = 3,
+    INFO = 3,
     /// <summary>All messages including debug</summary>
-    Debug = 4
+    DEBUG = 4
 }
 
 /// <summary>

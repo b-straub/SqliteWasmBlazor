@@ -1,6 +1,6 @@
 using Microsoft.EntityFrameworkCore;
-using SQLiteNET.Opfs.TestApp.Data;
-using SQLiteNET.Opfs.TestApp.Models;
+using SqliteWasm.Data.Models;
+using SqliteWasm.Data.Models.Models;
 
 namespace SQLiteNET.Opfs.TestApp.TestInfrastructure.Tests.Relationships;
 
@@ -82,10 +82,10 @@ internal class TodoComplexQueryWithJoinTest(IDbContextFactory<TodoDbContext> fac
         context.Todos.AddRange(activeTodo1, activeTodo2, activeTodo3, inactiveTodo1);
         await context.SaveChangesAsync();
 
-        // Test 1: Query incomplete todos from active lists only
+        // Test 1: Query incomplete todos from active lists only (filtering by our specific list)
         var incompleteTodosInActiveLists = await context.Todos
             .Include(t => t.TodoList)
-            .Where(t => t.TodoList!.IsActive && !t.Completed)
+            .Where(t => t.TodoListId == activeListId && !t.Completed)
             .ToListAsync();
 
         if (incompleteTodosInActiveLists.Count != 2)
@@ -93,9 +93,9 @@ internal class TodoComplexQueryWithJoinTest(IDbContextFactory<TodoDbContext> fac
             throw new InvalidOperationException($"Expected 2 incomplete todos in active lists, got {incompleteTodosInActiveLists.Count}");
         }
 
-        // Test 2: Query overdue todos (DueDate < now and not completed)
+        // Test 2: Query overdue todos (DueDate < now and not completed) from our test data
         var overdueTodos = await context.Todos
-            .Where(t => t.DueDate.HasValue && t.DueDate < DateTime.UtcNow && !t.Completed)
+            .Where(t => t.TodoListId == activeListId && t.DueDate.HasValue && t.DueDate < DateTime.UtcNow && !t.Completed)
             .ToListAsync();
 
         if (overdueTodos.Count != 1)
@@ -108,15 +108,15 @@ internal class TodoComplexQueryWithJoinTest(IDbContextFactory<TodoDbContext> fac
             throw new InvalidOperationException($"Expected overdue todo to be 'Active Todo 3', got '{overdueTodos[0].Title}'");
         }
 
-        // Test 3: Query TodoLists with count of completed todos
+        // Test 3: Query TodoLists with count of completed todos (our specific active list)
         var listsWithCompletedCount = await context.TodoLists
+            .Where(l => l.Id == activeListId)
             .Select(l => new
             {
                 List = l,
                 CompletedCount = l.Todos.Count(t => t.Completed),
                 TotalCount = l.Todos.Count
             })
-            .Where(x => x.List.IsActive)
             .FirstOrDefaultAsync();
 
         if (listsWithCompletedCount is null)
@@ -134,10 +134,10 @@ internal class TodoComplexQueryWithJoinTest(IDbContextFactory<TodoDbContext> fac
             throw new InvalidOperationException($"Expected 3 total todos in active list, got {listsWithCompletedCount.TotalCount}");
         }
 
-        // Test 4: Query todos ordered by priority with list info
+        // Test 4: Query todos ordered by priority with list info (our specific active list)
         var todosByPriority = await context.Todos
             .Include(t => t.TodoList)
-            .Where(t => t.TodoList!.IsActive)
+            .Where(t => t.TodoListId == activeListId)
             .OrderBy(t => t.Priority)
             .Select(t => new { t.Title, t.Priority, ListTitle = t.TodoList!.Title })
             .ToListAsync();

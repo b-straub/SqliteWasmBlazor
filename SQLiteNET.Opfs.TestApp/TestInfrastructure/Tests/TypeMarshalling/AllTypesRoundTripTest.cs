@@ -1,6 +1,6 @@
 using Microsoft.EntityFrameworkCore;
-using SQLiteNET.Opfs.TestApp.Data;
-using SQLiteNET.Opfs.TestApp.Models;
+using SqliteWasm.Data.Models;
+using SqliteWasm.Data.Models.Models;
 
 namespace SQLiteNET.Opfs.TestApp.TestInfrastructure.Tests.TypeMarshalling;
 
@@ -27,7 +27,7 @@ internal class AllTypesRoundTripTest(IDbContextFactory<TodoDbContext> factory)
             DateTimeValue = DateTime.UtcNow,
             GuidValue = Guid.NewGuid(),
             BlobValue = new byte[] { 0x00, 0x01, 0x02, 0xFF, 0xFE, 0xFD },
-            EnumValue = TestEnum.Second,
+            EnumValue = TestEnum.SECOND,
             CharValue = 'A',
             IntList = new List<int> { 1, 2, 3, 42, 100 }
         };

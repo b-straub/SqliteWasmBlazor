@@ -34,7 +34,7 @@ await SqliteWasmWorkerBridge.Instance.InitializeAsync();
 
 // Configure logging - set to Warning to reduce chatty debug logs
 // Use SqliteWasmLogLevel.Debug for detailed SQL execution logs
-SqliteWasmLogger.SetLogLevel(SqliteWasmLogLevel.Warning);
+SqliteWasmLogger.SetLogLevel(SqliteWasmLogLevel.WARNING);
 
 // Initialize database - create if it doesn't exist
 using (var scope = host.Services.CreateScope())

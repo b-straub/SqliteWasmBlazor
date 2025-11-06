@@ -1,6 +1,6 @@
 using Microsoft.EntityFrameworkCore;
-using SQLiteNET.Opfs.TestApp.Data;
-using SQLiteNET.Opfs.TestApp.Models;
+using SqliteWasm.Data.Models;
+using SqliteWasm.Data.Models.Models;
 
 namespace SQLiteNET.Opfs.TestApp.TestInfrastructure.Tests.Relationships;
 
@@ -126,7 +126,7 @@ internal class TodoNullableDateTimeTest(IDbContextFactory<TodoDbContext> factory
         }
 
         // Test 4: Update null to value and vice versa
-        retrieved1!.DueDate = DateTime.UtcNow.AddDays(3);
+        retrieved1.DueDate = DateTime.UtcNow.AddDays(3);
         retrieved1.Completed = true;
         retrieved1.CompletedAt = DateTime.UtcNow;
         await context.SaveChangesAsync();

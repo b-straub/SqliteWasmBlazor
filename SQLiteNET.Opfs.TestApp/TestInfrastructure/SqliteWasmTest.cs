@@ -1,5 +1,5 @@
 using Microsoft.EntityFrameworkCore;
-using SQLiteNET.Opfs.TestApp.Data;
+using SqliteWasm.Data.Models;
 
 namespace SQLiteNET.Opfs.TestApp.TestInfrastructure;
 

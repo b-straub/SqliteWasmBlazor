@@ -3,6 +3,7 @@
 
 using System.Runtime.Versioning;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage;
 
 namespace System.Data.SQLite.Wasm;
@@ -33,6 +34,10 @@ public static class SqliteWasmDbContextOptionsExtensions
         // Replace the database creator to handle OPFS storage
         // This enables EnsureDeletedAsync/EnsureCreatedAsync to work with OPFS
         optionsBuilder.ReplaceService<IRelationalDatabaseCreator, SqliteWasmDatabaseCreator>();
+
+        // Replace the history repository to disable migration locking
+        // The EF Core migration lock mechanism causes infinite polling in WASM
+        optionsBuilder.ReplaceService<IHistoryRepository, SqliteWasmHistoryRepository>();
 
         return optionsBuilder;
     }

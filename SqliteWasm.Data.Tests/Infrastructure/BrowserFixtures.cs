@@ -1,8 +1,8 @@
 namespace SqliteWasm.Data.Tests.Infrastructure;
 
-public class ChromiumFixture : WAFixtureBase, IWAFixture
+public class ChromiumFixture : WaFixtureBase, IWaFixture
 {
-    public IWAFixture.BrowserType Type => IWAFixture.BrowserType.Chromium;
+    public IWaFixture.BrowserType Type => IWaFixture.BrowserType.CHROMIUM;
     public int Port => PortNumber;
     public bool OnePass => false;
     public bool Headless => true; // Set to false to see browser during tests
@@ -17,9 +17,9 @@ public class ChromiumFixture : WAFixtureBase, IWAFixture
     }
 }
 
-public class FirefoxFixture : WAFixtureBase, IWAFixture
+public class FirefoxFixture : WaFixtureBase, IWaFixture
 {
-    public IWAFixture.BrowserType Type => IWAFixture.BrowserType.Firefox;
+    public IWaFixture.BrowserType Type => IWaFixture.BrowserType.FIREFOX;
     public int Port => PortNumber;
     public bool OnePass => false;
     public bool Headless => true;
@@ -34,9 +34,9 @@ public class FirefoxFixture : WAFixtureBase, IWAFixture
     }
 }
 
-public class WebkitFixture : WAFixtureBase, IWAFixture
+public class WebkitFixture : WaFixtureBase, IWaFixture
 {
-    public IWAFixture.BrowserType Type => IWAFixture.BrowserType.Webkit;
+    public IWaFixture.BrowserType Type => IWaFixture.BrowserType.WEBKIT;
     public int Port => PortNumber;
     public bool OnePass => false;
     public bool Headless => false;

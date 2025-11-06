@@ -13,6 +13,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SQLiteNET.Opfs.TestHost", "
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SQLiteNET.Opfs.TestApp", "SQLiteNET.Opfs.TestApp\SQLiteNET.Opfs.TestApp.csproj", "{E54BBDED-664E-4FE5-B959-472363425FD4}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SqliteWasm.Data.Models", "SqliteWasm.Data.Models\SqliteWasm.Data.Models.csproj", "{4B6A9A2C-435E-44F5-A4C5-18332D02F2BC}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -83,6 +85,18 @@ Global
 		{E54BBDED-664E-4FE5-B959-472363425FD4}.Release|x64.Build.0 = Release|Any CPU
 		{E54BBDED-664E-4FE5-B959-472363425FD4}.Release|x86.ActiveCfg = Release|Any CPU
 		{E54BBDED-664E-4FE5-B959-472363425FD4}.Release|x86.Build.0 = Release|Any CPU
+		{4B6A9A2C-435E-44F5-A4C5-18332D02F2BC}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{4B6A9A2C-435E-44F5-A4C5-18332D02F2BC}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{4B6A9A2C-435E-44F5-A4C5-18332D02F2BC}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{4B6A9A2C-435E-44F5-A4C5-18332D02F2BC}.Debug|x64.Build.0 = Debug|Any CPU
+		{4B6A9A2C-435E-44F5-A4C5-18332D02F2BC}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{4B6A9A2C-435E-44F5-A4C5-18332D02F2BC}.Debug|x86.Build.0 = Debug|Any CPU
+		{4B6A9A2C-435E-44F5-A4C5-18332D02F2BC}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{4B6A9A2C-435E-44F5-A4C5-18332D02F2BC}.Release|Any CPU.Build.0 = Release|Any CPU
+		{4B6A9A2C-435E-44F5-A4C5-18332D02F2BC}.Release|x64.ActiveCfg = Release|Any CPU
+		{4B6A9A2C-435E-44F5-A4C5-18332D02F2BC}.Release|x64.Build.0 = Release|Any CPU
+		{4B6A9A2C-435E-44F5-A4C5-18332D02F2BC}.Release|x86.ActiveCfg = Release|Any CPU
+		{4B6A9A2C-435E-44F5-A4C5-18332D02F2BC}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

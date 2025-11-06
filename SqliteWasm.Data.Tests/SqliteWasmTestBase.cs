@@ -3,9 +3,9 @@ using SqliteWasm.Data.Tests.Infrastructure;
 
 namespace SqliteWasm.Data.Tests;
 
-public abstract class SqliteWasmTestBase(IWAFixture fixture) : IAsyncLifetime
+public abstract class SqliteWasmTestBase(IWaFixture fixture) : IAsyncLifetime
 {
-    private readonly IWAFixture _fixture = fixture;
+    private readonly IWaFixture _fixture = fixture;
 
     public Task DisposeAsync()
     {
@@ -44,7 +44,7 @@ public abstract class SqliteWasmTestBase(IWAFixture fixture) : IAsyncLifetime
     [InlineData("TodoList_CascadeDelete")]
     [InlineData("Todo_ComplexQueryWithJoin")]
     [InlineData("Todo_NullableDateTime")]
-    public async Task TestCase(string name)
+    public async Task TestCaseAsync(string name)
     {
         Assert.NotNull(_fixture.Page);
 
@@ -54,9 +54,9 @@ public abstract class SqliteWasmTestBase(IWAFixture fixture) : IAsyncLifetime
         {
             timeout = _fixture.Type switch
             {
-                IWAFixture.BrowserType.Chromium => 30000,  // 30 seconds for WASM initialization
-                IWAFixture.BrowserType.Firefox => 50000,
-                IWAFixture.BrowserType.Webkit => 30000,
+                IWaFixture.BrowserType.CHROMIUM => 30000,  // 30 seconds for WASM initialization
+                IWaFixture.BrowserType.FIREFOX => 50000,
+                IWaFixture.BrowserType.WEBKIT => 30000,
                 _ => throw new ArgumentOutOfRangeException(nameof(_fixture.Type), nameof(_fixture.Type))
             };
 

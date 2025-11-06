@@ -30,6 +30,7 @@ public sealed class SqlQueryResult
 [SupportedOSPlatform("browser")]
 public sealed partial class SqliteWasmWorkerBridge
 {
+    // ReSharper disable once InconsistentNaming
     private static readonly Lazy<SqliteWasmWorkerBridge> _instance = new(() => new SqliteWasmWorkerBridge());
     public static SqliteWasmWorkerBridge Instance => _instance.Value;
 
@@ -37,19 +38,21 @@ public sealed partial class SqliteWasmWorkerBridge
     private int _nextRequestId;
     private bool _isInitialized;
 
+    // ReSharper disable once InconsistentNaming
     private static readonly Lazy<JsonSerializerOptions> _deserializerOptions = new(() =>
     {
         var options = new JsonSerializerOptions
         {
             PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-            PropertyNameCaseInsensitive = true
+            PropertyNameCaseInsensitive = true,
+            TypeInfoResolver = WorkerJsonContext.Default
         };
-        options.TypeInfoResolver = WorkerJsonContext.Default;
         return options;
     });
 
     private static JsonSerializerOptions DeserializerOptions => _deserializerOptions.Value;
 
+    // ReSharper disable once InconsistentNaming
     private static readonly Lazy<MessagePackSerializerOptions> _messagePackOptions = new(() =>
         MessagePackSerializerOptions.Standard
             .WithResolver(TypelessContractlessStandardResolver.Instance));
@@ -63,18 +66,19 @@ public sealed partial class SqliteWasmWorkerBridge
     /// <summary>
     /// Initialize the worker and sqlite-wasm module.
     /// </summary>
-    public async Task InitializeAsync(CancellationToken cancellationToken = default)
+    public async Task InitializeAsync(CancellationToken? cancellationToken = null)
     {
         if (_isInitialized)
         {
             return;
         }
 
-        await JSHost.ImportAsync("sqliteWasmWorker", "/_content/System.Data.SQLite.Wasm/sqlite-wasm-bridge.js", cancellationToken);
+        await JSHost.ImportAsync("sqliteWasmWorker", "/_content/System.Data.SQLite.Wasm/sqlite-wasm-bridge.js", cancellationToken ?? CancellationToken.None);
 
         // Wait for worker to signal ready
         var tcs = new TaskCompletionSource<bool>();
-        await using var registration = cancellationToken.Register(() => tcs.TrySetCanceled());
+        var token = cancellationToken ?? CancellationToken.None;
+        await using var registration = token.Register(() => tcs.TrySetCanceled());
 
         SetReadyCallback(() => tcs.TrySetResult(true));
 
@@ -90,17 +94,16 @@ public sealed partial class SqliteWasmWorkerBridge
     /// <summary>
     /// Open a database connection in the worker.
     /// </summary>
-    public async Task OpenDatabaseAsync(string database, CancellationToken cancellationToken = default)
+    public async Task OpenDatabaseAsync(string database, CancellationToken? cancellationToken = null)
     {
         await EnsureInitializedAsync(cancellationToken);
 
         var request = new
         {
-            type = "open",
-            database = database
+            type = "open", database
         };
 
-        await SendRequestAsync(request, cancellationToken);
+        await SendRequestAsync(request, cancellationToken ?? CancellationToken.None);
     }
 
     /// <summary>
@@ -110,16 +113,16 @@ public sealed partial class SqliteWasmWorkerBridge
         string database,
         string sql,
         Dictionary<string, object?> parameters,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken)
     {
         await EnsureInitializedAsync(cancellationToken);
 
         var request = new
         {
             type = "execute",
-            database = database,
-            sql = sql,
-            parameters = parameters
+            database,
+            sql,
+            parameters
         };
 
         // SendRequestAsync now returns SqlQueryResult directly - no deserialization needed
@@ -129,17 +132,16 @@ public sealed partial class SqliteWasmWorkerBridge
     /// <summary>
     /// Check if a database exists in OPFS SAHPool storage.
     /// </summary>
-    public async Task<bool> ExistsDatabaseAsync(string database, CancellationToken cancellationToken = default)
+    public async Task<bool> ExistsDatabaseAsync(string database, CancellationToken? cancellationToken = null)
     {
         await EnsureInitializedAsync(cancellationToken);
 
         var request = new
         {
-            type = "exists",
-            database = database
+            type = "exists", database
         };
 
-        var result = await SendRequestAsync(request, cancellationToken);
+        var result = await SendRequestAsync(request, cancellationToken ?? CancellationToken.None);
 
         // Worker returns exists: true/false in the response
         return result.RowsAffected > 0;
@@ -148,20 +150,19 @@ public sealed partial class SqliteWasmWorkerBridge
     /// <summary>
     /// Delete a database from OPFS SAHPool storage.
     /// </summary>
-    public async Task DeleteDatabaseAsync(string database, CancellationToken cancellationToken = default)
+    public async Task DeleteDatabaseAsync(string database, CancellationToken? cancellationToken = null)
     {
         await EnsureInitializedAsync(cancellationToken);
 
         var request = new
         {
-            type = "delete",
-            database = database
+            type = "delete", database
         };
 
-        await SendRequestAsync(request, cancellationToken);
+        await SendRequestAsync(request, cancellationToken ?? CancellationToken.None);
     }
 
-    private async Task EnsureInitializedAsync(CancellationToken cancellationToken)
+    private async Task EnsureInitializedAsync(CancellationToken? cancellationToken)
     {
         if (!_isInitialized)
         {
