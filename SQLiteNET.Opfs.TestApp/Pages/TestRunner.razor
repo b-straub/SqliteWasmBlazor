@@ -1,6 +1,5 @@
 @page "/TestRunner"
 @using SqliteWasm.Data.Models
-@using SqliteWasm.Data.Models.Models
 @using SQLiteNET.Opfs.TestApp.TestInfrastructure
 @using Microsoft.EntityFrameworkCore
 @inject IDbContextFactory<TodoDbContext> DbContextFactory
@@ -51,11 +50,11 @@
 
         _totalTests = tests.Count;
 
-        foreach (var (category, test) in tests)
+        foreach (var (_, test) in tests)
         {
             await RunTestAsync(test.Name, async () =>
             {
-                var result = await test.RunTestAsync();
+                var result = await test.RunTestWithFreshDatabaseAsync();
                 if (result is not null && result != "OK")
                 {
                     throw new Exception(result);

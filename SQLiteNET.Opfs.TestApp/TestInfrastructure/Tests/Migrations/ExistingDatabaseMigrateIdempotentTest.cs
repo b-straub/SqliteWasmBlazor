@@ -13,12 +13,15 @@ internal class ExistingDatabaseMigrateIdempotentTest(IDbContextFactory<TodoDbCon
 {
     public override string Name => "Migration_ExistingDatabaseIdempotent";
 
+    // Must manage own lifecycle - needs database created via MigrateAsync, not EnsureCreated
+    protected override bool AutoCreateDatabase => false;
+
     public override async ValueTask<string?> RunTestAsync()
     {
         await using var context = await Factory.CreateDbContextAsync();
 
-        // Ensure database exists
-        await context.Database.EnsureCreatedAsync();
+        // Create database using MigrateAsync (not EnsureCreated)
+        await context.Database.MigrateAsync();
 
         // Add test data
         var item1 = new TodoItem

@@ -12,12 +12,12 @@ internal class DatabaseExistsCheckTest(IDbContextFactory<TodoDbContext> factory)
 {
     public override string Name => "Migration_DatabaseExistsCheck";
 
+    // Migration tests manage their own database lifecycle
+    protected override bool AutoCreateDatabase => false;
+
     public override async ValueTask<string?> RunTestAsync()
     {
         await using var context = await Factory.CreateDbContextAsync();
-
-        // Start fresh - delete database
-        await context.Database.EnsureDeletedAsync();
 
         // Verify database doesn't exist
         var canConnectBefore = await context.Database.CanConnectAsync();

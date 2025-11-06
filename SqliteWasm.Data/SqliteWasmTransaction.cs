@@ -45,6 +45,7 @@ public sealed class SqliteWasmTransaction : DbTransaction
 
         ExecuteNonQuery("COMMIT");
         _completed = true;
+        _connection.ClearCurrentTransaction(this);
     }
 
     public override void Rollback()
@@ -56,6 +57,7 @@ public sealed class SqliteWasmTransaction : DbTransaction
 
         ExecuteNonQuery("ROLLBACK");
         _completed = true;
+        _connection.ClearCurrentTransaction(this);
     }
 
     public override async Task CommitAsync(CancellationToken cancellationToken = default)
@@ -67,6 +69,7 @@ public sealed class SqliteWasmTransaction : DbTransaction
 
         await ExecuteNonQueryAsync("COMMIT", cancellationToken);
         _completed = true;
+        _connection.ClearCurrentTransaction(this);
     }
 
     public override async Task RollbackAsync(CancellationToken cancellationToken = default)
@@ -78,6 +81,7 @@ public sealed class SqliteWasmTransaction : DbTransaction
 
         await ExecuteNonQueryAsync("ROLLBACK", cancellationToken);
         _completed = true;
+        _connection.ClearCurrentTransaction(this);
     }
 
     protected override void Dispose(bool disposing)
@@ -91,6 +95,10 @@ public sealed class SqliteWasmTransaction : DbTransaction
             catch
             {
                 // Suppress exceptions during dispose
+            }
+            finally
+            {
+                _connection.ClearCurrentTransaction(this);
             }
         }
         base.Dispose(disposing);

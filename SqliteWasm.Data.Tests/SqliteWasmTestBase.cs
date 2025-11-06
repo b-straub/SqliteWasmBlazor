@@ -44,6 +44,9 @@ public abstract class SqliteWasmTestBase(IWaFixture fixture) : IAsyncLifetime
     [InlineData("TodoList_CascadeDelete")]
     [InlineData("Todo_ComplexQueryWithJoin")]
     [InlineData("Todo_NullableDateTime")]
+    // Race Condition Tests
+    [InlineData("RaceCondition_PurgeThenLoad")]
+    [InlineData("RaceCondition_PurgeThenLoadWithTransaction")]
     public async Task TestCaseAsync(string name)
     {
         Assert.NotNull(_fixture.Page);

@@ -12,12 +12,12 @@ internal class MigrationHistoryTableTest(IDbContextFactory<TodoDbContext> factor
 {
     public override string Name => "Migration_HistoryTableTracking";
 
+    // Migration tests manage their own database lifecycle
+    protected override bool AutoCreateDatabase => false;
+
     public override async ValueTask<string?> RunTestAsync()
     {
         await using var context = await Factory.CreateDbContextAsync();
-
-        // Ensure clean state
-        await context.Database.EnsureDeletedAsync();
 
         // Apply migrations
         await context.Database.MigrateAsync();

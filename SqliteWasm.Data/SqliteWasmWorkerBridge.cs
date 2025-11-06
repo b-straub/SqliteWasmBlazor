@@ -107,6 +107,24 @@ public sealed partial class SqliteWasmWorkerBridge
     }
 
     /// <summary>
+    /// Close a database connection in the worker, releasing the OPFS SAH.
+    /// </summary>
+    public async Task CloseDatabaseAsync(string database, CancellationToken? cancellationToken = null)
+    {
+        if (!_isInitialized)
+        {
+            return; // Worker not initialized, nothing to close
+        }
+
+        var request = new
+        {
+            type = "close", database
+        };
+
+        await SendRequestAsync(request, cancellationToken ?? CancellationToken.None);
+    }
+
+    /// <summary>
     /// Execute SQL in the worker and return results.
     /// </summary>
     public async Task<SqlQueryResult> ExecuteSqlAsync(

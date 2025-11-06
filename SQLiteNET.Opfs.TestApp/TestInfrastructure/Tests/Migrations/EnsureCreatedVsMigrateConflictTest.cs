@@ -13,12 +13,12 @@ internal class EnsureCreatedVsMigrateConflictTest(IDbContextFactory<TodoDbContex
 {
     public override string Name => "Migration_EnsureCreatedVsMigrateConflict";
 
+    // Migration tests manage their own database lifecycle
+    protected override bool AutoCreateDatabase => false;
+
     public override async ValueTask<string?> RunTestAsync()
     {
         await using var context = await Factory.CreateDbContextAsync();
-
-        // Start fresh
-        await context.Database.EnsureDeletedAsync();
 
         // Scenario 1: EnsureCreated first, then MigrateAsync
         var wasCreated = await context.Database.EnsureCreatedAsync();

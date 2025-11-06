@@ -4,6 +4,7 @@ using SQLiteNET.Opfs.TestApp.TestInfrastructure.Tests;
 using SQLiteNET.Opfs.TestApp.TestInfrastructure.Tests.CRUD;
 using SQLiteNET.Opfs.TestApp.TestInfrastructure.Tests.JsonCollections;
 using SQLiteNET.Opfs.TestApp.TestInfrastructure.Tests.Migrations;
+using SQLiteNET.Opfs.TestApp.TestInfrastructure.Tests.RaceConditions;
 using SQLiteNET.Opfs.TestApp.TestInfrastructure.Tests.Relationships;
 using SQLiteNET.Opfs.TestApp.TestInfrastructure.Tests.Transactions;
 using SQLiteNET.Opfs.TestApp.TestInfrastructure.Tests.TypeMarshalling;
@@ -67,6 +68,10 @@ internal class TestFactory
         _tests.Add(("Migrations", new GetAppliedMigrationsTest(factory)));
         _tests.Add(("Migrations", new DatabaseExistsCheckTest(factory)));
         _tests.Add(("Migrations", new EnsureCreatedVsMigrateConflictTest(factory)));
+
+        // Race Condition Tests (Concurrency and sync patterns)
+        _tests.Add(("Race Conditions", new PurgeThenLoadRaceConditionTest(factory)));
+        _tests.Add(("Race Conditions", new PurgeThenLoadWithTransactionTest(factory)));
     }
 }
 

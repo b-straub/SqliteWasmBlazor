@@ -13,6 +13,7 @@ namespace System.Data.SQLite.Wasm;
 /// because there's no concurrent access in a single-user browser environment.
 /// </summary>
 [SupportedOSPlatform("browser")]
+#pragma warning disable EF1001
 internal sealed class SqliteWasmHistoryRepository : SqliteHistoryRepository
 {
     public SqliteWasmHistoryRepository(HistoryRepositoryDependencies dependencies)
@@ -56,11 +57,15 @@ internal sealed class SqliteWasmHistoryRepository : SqliteHistoryRepository
 
         IHistoryRepository IMigrationsDatabaseLock.HistoryRepository => _historyRepository;
 
+        // ReSharper disable once UnusedMember.Local
+        // ReSharper disable once UnusedParameter.Local
         public void ReacquireLock(bool connectionReopened)
         {
             // No-op: no lock to reacquire
         }
 
+        // ReSharper disable once UnusedMember.Local
+        // ReSharper disable once UnusedParameter.Local
         public Task ReacquireLockAsync(bool connectionReopened, CancellationToken cancellationToken = default)
         {
             // No-op: no lock to reacquire
@@ -79,3 +84,4 @@ internal sealed class SqliteWasmHistoryRepository : SqliteHistoryRepository
         }
     }
 }
+#pragma warning restore EF1001

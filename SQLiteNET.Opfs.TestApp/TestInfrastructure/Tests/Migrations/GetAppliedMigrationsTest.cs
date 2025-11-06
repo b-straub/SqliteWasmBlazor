@@ -13,12 +13,12 @@ internal class GetAppliedMigrationsTest(IDbContextFactory<TodoDbContext> factory
 {
     public override string Name => "Migration_GetAppliedMigrations";
 
+    // Migration tests manage their own database lifecycle
+    protected override bool AutoCreateDatabase => false;
+
     public override async ValueTask<string?> RunTestAsync()
     {
         await using var context = await Factory.CreateDbContextAsync();
-
-        // Start fresh
-        await context.Database.EnsureDeletedAsync();
 
         // Before any migrations
         var migrationsBeforeCreate = await context.Database.GetAppliedMigrationsAsync();

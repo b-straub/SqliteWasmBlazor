@@ -13,12 +13,12 @@ internal class FreshDatabaseMigrateTest(IDbContextFactory<TodoDbContext> factory
 {
     public override string Name => "Migration_FreshDatabaseMigrate";
 
+    // Migration tests manage their own database lifecycle
+    protected override bool AutoCreateDatabase => false;
+
     public override async ValueTask<string?> RunTestAsync()
     {
         await using var context = await Factory.CreateDbContextAsync();
-
-        // Delete database to ensure fresh start
-        await context.Database.EnsureDeletedAsync();
 
         // Verify database doesn't exist by checking if we can query
         var canQueryBefore = await CanQueryDatabaseAsync(context);

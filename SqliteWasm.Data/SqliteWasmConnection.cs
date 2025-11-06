@@ -16,6 +16,7 @@ public sealed class SqliteWasmConnection : DbConnection
     private string _connectionString = string.Empty;
     private ConnectionState _state = ConnectionState.Closed;
     private readonly SqliteWasmWorkerBridge _bridge;
+    private SqliteWasmTransaction? _currentTransaction;
 
     public SqliteWasmConnection()
     {
@@ -104,7 +105,32 @@ public sealed class SqliteWasmConnection : DbConnection
 
     public override void Close()
     {
+        // Cannot call async operation from sync method in WebAssembly
+        // Fire and forget close operation - worker will clean up SAH
+        if (_state == ConnectionState.Open)
+        {
+            _ = CloseAsync();
+        }
         _state = ConnectionState.Closed;
+    }
+
+    public override async Task CloseAsync()
+    {
+        if (_state != ConnectionState.Open)
+        {
+            return;
+        }
+
+        try
+        {
+            await _bridge.CloseDatabaseAsync(Database);
+            _state = ConnectionState.Closed;
+        }
+        catch
+        {
+            _state = ConnectionState.Broken;
+            throw;
+        }
     }
 
     protected override DbCommand CreateDbCommand()
@@ -125,7 +151,22 @@ public sealed class SqliteWasmConnection : DbConnection
         IsolationLevel isolationLevel,
         CancellationToken cancellationToken)
     {
-        return await SqliteWasmTransaction.CreateAsync(this, isolationLevel, cancellationToken);
+        if (_currentTransaction is not null)
+        {
+            throw new InvalidOperationException("A transaction is already active on this connection.");
+        }
+
+        var transaction = await SqliteWasmTransaction.CreateAsync(this, isolationLevel, cancellationToken);
+        _currentTransaction = transaction;
+        return transaction;
+    }
+
+    internal void ClearCurrentTransaction(SqliteWasmTransaction transaction)
+    {
+        if (_currentTransaction == transaction)
+        {
+            _currentTransaction = null;
+        }
     }
 
     public override void ChangeDatabase(string databaseName)
