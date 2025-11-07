@@ -32,7 +32,15 @@ public sealed class SqliteWasmDataReader : DbDataReader
         if (typeof(T) == typeof(TimeSpan))
         {
             var value = GetValue(ordinal);
-            return (T)(object)TimeSpan.Parse(Convert.ToString(value) ?? string.Empty);
+            if (value is double ms)
+            {
+                return (T)(object)TimeSpan.FromMilliseconds(ms);
+            }
+            if (value is TimeSpan ts)
+            {
+                return (T)(object)ts;
+            }
+            throw new InvalidCastException($"Column {ordinal} is not a TimeSpan. Actual type: {value.GetType().Name}");
         }
 
         // Default behavior for all other types
@@ -43,7 +51,7 @@ public sealed class SqliteWasmDataReader : DbDataReader
 
     public override int FieldCount => _result.ColumnNames.Count;
 
-    public override bool HasRows => _result.Rows.Count > 0;
+    public override bool HasRows => _result.Rows.Length > 0;
 
     public override bool IsClosed => _isClosed;
 
@@ -116,20 +124,20 @@ public sealed class SqliteWasmDataReader : DbDataReader
     public override DateTime GetDateTime(int ordinal)
     {
         var value = GetValue(ordinal);
+        if (value is DateTime dt)
+        {
+            return dt;
+        }
         if (value is string str)
         {
             return DateTime.Parse(str, null, Globalization.DateTimeStyles.RoundtripKind);
         }
-        return Convert.ToDateTime(value);
+        throw new InvalidCastException($"Column {ordinal} is not a DateTime. Actual type: {value.GetType().Name}");
     }
 
     public DateTimeOffset GetDateTimeOffset(int ordinal)
     {
         var value = GetValue(ordinal);
-        if (value is string str)
-        {
-            return DateTimeOffset.Parse(str, null, Globalization.DateTimeStyles.RoundtripKind);
-        }
         if (value is DateTimeOffset dto)
         {
             return dto;
@@ -138,7 +146,7 @@ public sealed class SqliteWasmDataReader : DbDataReader
         {
             return new DateTimeOffset(dt);
         }
-        return DateTimeOffset.Parse(Convert.ToString(value) ?? string.Empty);
+        throw new InvalidCastException($"Column {ordinal} is not a DateTimeOffset or DateTime. Actual type: {value.GetType().Name}");
     }
 
     public override decimal GetDecimal(int ordinal)
@@ -159,7 +167,7 @@ public sealed class SqliteWasmDataReader : DbDataReader
 
     public override Type GetFieldType(int ordinal)
     {
-        if (_currentRowIndex < 0 || _currentRowIndex >= _result.Rows.Count)
+        if (_currentRowIndex < 0 || _currentRowIndex >= _result.Rows.Length)
         {
             // Return string as default if no data yet
             return typeof(string);
@@ -178,15 +186,19 @@ public sealed class SqliteWasmDataReader : DbDataReader
     public override Guid GetGuid(int ordinal)
     {
         var value = GetValue(ordinal);
+        if (value is Guid guid)
+        {
+            return guid;
+        }
         if (value is string str)
         {
             return Guid.Parse(str);
         }
-        if (value is byte[] bytes)
+        if (value is byte[] bytes && bytes.Length == 16)
         {
             return new Guid(bytes);
         }
-        throw new InvalidCastException($"Cannot convert column {ordinal} to Guid.");
+        throw new InvalidCastException($"Column {ordinal} is not a Guid. Actual type: {value.GetType().Name}");
     }
 
     public override short GetInt16(int ordinal)
@@ -234,12 +246,12 @@ public sealed class SqliteWasmDataReader : DbDataReader
 
     public override object GetValue(int ordinal)
     {
-        if (_currentRowIndex < 0 || _currentRowIndex >= _result.Rows.Count)
+        if (_currentRowIndex < 0 || _currentRowIndex >= _result.Rows.Length)
         {
             throw new InvalidOperationException("No current row.");
         }
 
-        if (ordinal < 0 || ordinal >= _result.Rows[_currentRowIndex].Count)
+        if (ordinal < 0 || ordinal >= _result.Rows[_currentRowIndex].Length)
         {
             throw new ArgumentOutOfRangeException(nameof(ordinal));
         }
@@ -256,7 +268,7 @@ public sealed class SqliteWasmDataReader : DbDataReader
 
     public override int GetValues(object[] values)
     {
-        if (_currentRowIndex < 0 || _currentRowIndex >= _result.Rows.Count)
+        if (_currentRowIndex < 0 || _currentRowIndex >= _result.Rows.Length)
         {
             throw new InvalidOperationException("No current row.");
         }
@@ -289,7 +301,7 @@ public sealed class SqliteWasmDataReader : DbDataReader
         }
 
         _currentRowIndex++;
-        return _currentRowIndex < _result.Rows.Count;
+        return _currentRowIndex < _result.Rows.Length;
     }
 
     public override IEnumerator GetEnumerator()

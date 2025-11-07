@@ -66,22 +66,23 @@ public sealed class SqliteWasmCommand : DbCommand
         ValidateConnection();
 
         var bridge = SqliteWasmWorkerBridge.Instance;
+        var sql = PreprocessSql(_commandText);
 
         // DEBUG: Log UPDATE operations
-        if (_commandText.TrimStart().StartsWith("UPDATE", StringComparison.OrdinalIgnoreCase))
+        if (sql.TrimStart().StartsWith("UPDATE", StringComparison.OrdinalIgnoreCase))
         {
-            Console.WriteLine($"[SqliteWasmCommand] Executing UPDATE: {_commandText}");
+            Console.WriteLine($"[SqliteWasmCommand] Executing UPDATE: {sql}");
             Console.WriteLine($"[SqliteWasmCommand] Parameters: {string.Join(", ", _parameters.GetParameterValues().Select((v, i) => $"${i}={v}"))}");
         }
 
         var result = await bridge.ExecuteSqlAsync(
             Connection!.Database,
-            _commandText,
+            sql,
             _parameters.GetParameterValues(),
             cancellationToken);
 
         // DEBUG: Log result of UPDATE operations
-        if (_commandText.TrimStart().StartsWith("UPDATE", StringComparison.OrdinalIgnoreCase))
+        if (sql.TrimStart().StartsWith("UPDATE", StringComparison.OrdinalIgnoreCase))
         {
             Console.WriteLine($"[SqliteWasmCommand] UPDATE result: RowsAffected={result.RowsAffected}");
         }
@@ -101,13 +102,14 @@ public sealed class SqliteWasmCommand : DbCommand
         ValidateConnection();
 
         var bridge = SqliteWasmWorkerBridge.Instance;
+        var sql = PreprocessSql(_commandText);
         var result = await bridge.ExecuteSqlAsync(
             Connection!.Database,
-            _commandText,
+            sql,
             _parameters.GetParameterValues(),
             cancellationToken);
 
-        if (result.Rows.Count > 0 && result.Rows[0].Count > 0)
+        if (result.Rows.Length > 0 && result.Rows[0].Length > 0)
         {
             return result.Rows[0][0];
         }
@@ -130,9 +132,10 @@ public sealed class SqliteWasmCommand : DbCommand
         ValidateConnection();
 
         var bridge = SqliteWasmWorkerBridge.Instance;
+        var sql = PreprocessSql(_commandText);
         var result = await bridge.ExecuteSqlAsync(
             Connection!.Database,
-            _commandText,
+            sql,
             _parameters.GetParameterValues(),
             cancellationToken);
 
@@ -165,6 +168,23 @@ public sealed class SqliteWasmCommand : DbCommand
         {
             throw new InvalidOperationException("CommandText has not been set.");
         }
+    }
+
+    /// <summary>
+    /// Preprocesses SQL to replace EF Core aggregate function names with native SQLite equivalents.
+    /// This allows leveraging SQLite's native, optimized aggregate implementations.
+    /// Arithmetic functions (ef_add, ef_multiply, etc.) are kept and handled by TypeScript.
+    /// </summary>
+    private static string PreprocessSql(string sql)
+    {
+        // Replace EF Core aggregate functions with native SQLite equivalents
+        // Native SQLite aggregates are optimized and don't require custom state management
+        sql = sql.Replace("ef_sum(", "sum(", StringComparison.OrdinalIgnoreCase);
+        sql = sql.Replace("ef_avg(", "avg(", StringComparison.OrdinalIgnoreCase);
+        sql = sql.Replace("ef_max(", "max(", StringComparison.OrdinalIgnoreCase);
+        sql = sql.Replace("ef_min(", "min(", StringComparison.OrdinalIgnoreCase);
+
+        return sql;
     }
 
     protected override void Dispose(bool disposing)

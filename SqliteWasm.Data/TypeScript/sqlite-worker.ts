@@ -5,6 +5,7 @@
 import sqlite3InitModule from '@sqlite.org/sqlite-wasm';
 import { logger } from './sqlite-logger';
 import { pack } from 'msgpackr';
+import { registerEFCoreFunctions } from './ef-core-functions';
 
 interface WorkerRequest {
     id: number;
@@ -219,6 +220,10 @@ async function openDatabase(dbName: string) {
         db.exec("PRAGMA synchronous = FULL;");
         pragmasSet.add(dbName);
         console.debug(`[SQLite Worker] Set PRAGMAs for ${dbName} (journal_mode=WAL, synchronous=FULL)`);
+
+        // Register EF Core scalar and aggregate functions for feature completeness
+        // These functions enable full decimal arithmetic and comparison support in EF Core queries
+        registerEFCoreFunctions(db, sqlite3);
     }
 
     return { success: true };
@@ -268,24 +273,12 @@ async function executeSql(dbName: string, sql: string, parameters: Record<string
     }
 
     try {
-        // Bind parameters (convert object to array in correct order)
-        // EF Core uses named parameters like @p0, @p1, @p2
-        // SQLite expects positional binding, so we need to sort by parameter index
-        const paramArray = Object.entries(parameters)
-            .sort(([nameA], [nameB]) => {
-                // Extract numeric suffix from @p0, @p1, etc.
-                const indexA = parseInt(nameA.replace(/\D/g, ''), 10) || 0;
-                const indexB = parseInt(nameB.replace(/\D/g, ''), 10) || 0;
-                return indexA - indexB;
-            })
-            .map(([_, value]) => value);
-
         logger.debug(MODULE_NAME, 'Executing SQL:', sql.substring(0, 100));
 
         // Execute SQL - use returnValue to get the result
         const result = db.exec({
             sql: sql,
-            bind: paramArray.length > 0 ? paramArray : undefined,
+            bind: Object.keys(parameters).length > 0 ? parameters : undefined,
             returnValue: 'resultRows',
             rowMode: 'array'
         });
@@ -379,7 +372,7 @@ async function executeSql(dbName: string, sql: string, parameters: Record<string
             // DEBUG: Log UPDATE operations specifically
             if (sql.trim().toUpperCase().startsWith('UPDATE')) {
                 console.log(`[SQLite Worker] UPDATE executed:`, sql);
-                console.log(`[SQLite Worker] Parameters (sorted):`, paramArray);
+                console.log(`[SQLite Worker] Parameters:`, parameters);
                 console.log(`[SQLite Worker] Has RETURNING:`, hasReturning);
                 console.log(`[SQLite Worker] Result rows:`, result?.length || 0);
                 console.log(`[SQLite Worker] Result values:`, result);

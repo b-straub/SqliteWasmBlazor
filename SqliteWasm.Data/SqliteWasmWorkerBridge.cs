@@ -12,12 +12,13 @@ namespace System.Data.SQLite.Wasm;
 
 /// <summary>
 /// Result from SQL query execution in worker.
+/// Deserialized using MessagePack typeless mode due to dynamic object?[][] data.
 /// </summary>
 public sealed class SqlQueryResult
 {
     public List<string> ColumnNames { get; set; } = [];
     public List<string> ColumnTypes { get; set; } = [];
-    public List<List<object?>> Rows { get; set; } = [];
+    public object?[][] Rows { get; set; } = [];
     public int RowsAffected { get; set; }
     public long LastInsertId { get; set; }
 }
@@ -270,6 +271,7 @@ public sealed partial class SqliteWasmWorkerBridge
     /// <summary>
     /// Callback for binary MessagePack responses from worker (execute operations).
     /// Uint8Array is marshalled to byte array for MessagePack deserialization.
+    /// Uses typeless deserialization due to dynamic object?[][] data types.
     /// </summary>
     [JSExport]
     public static void OnWorkerResponseBinary(int requestId, byte[] messageData)
@@ -286,39 +288,47 @@ public sealed partial class SqliteWasmWorkerBridge
             }
 
             // MessagePack typeless API returns Dictionary<object, object>
-            var responseDict = (Dictionary<object, object>)responseObj;
-
-            // Extract fields
-            var columnNames = responseDict.TryGetValue("columnNames", out var value)
-                ? ((object[])value).Cast<string>().ToList()
-                : [];
-
-            var columnTypes = responseDict.TryGetValue("columnTypes", out var value1)
-                ? ((object[])value1).Cast<string>().ToList()
-                : [];
-
-            // Extract typed rows
-            List<List<object?>> rows = [];
-            if (responseDict.TryGetValue("typedRows", out var value2))
+            if (responseObj is not Dictionary<object, object> responseDict)
             {
-                var typedRowsDict = (Dictionary<object, object>)value2;
-                if (typedRowsDict.TryGetValue("data", out var value3))
+                Console.Error.WriteLine($"[Worker Bridge] Unexpected response type: {responseObj.GetType().FullName}");
+                if (Instance._pendingRequests.TryRemove(requestId, out var errorTcs))
                 {
-                    var dataArray = (object[])value3;
-                    foreach (var rowObj in dataArray)
-                    {
-                        var row = ((object[])rowObj).Select(ConvertMessagePackValue).ToList();
-                        rows.Add(row);
-                    }
+                    errorTcs.TrySetException(new InvalidCastException($"Expected Dictionary<object, object> but got {responseObj.GetType().FullName}"));
+                }
+                return;
+            }
+
+            // Extract fields with type conversions
+            var columnNames = responseDict.TryGetValue("columnNames", out var cnValue)
+                ? ((object[])cnValue).Cast<string>().ToList()
+                : [];
+
+            var columnTypes = responseDict.TryGetValue("columnTypes", out var ctValue)
+                ? ((object[])ctValue).Cast<string>().ToList()
+                : [];
+
+            // Extract typed rows data
+            object?[][] rows = [];
+            if (responseDict.TryGetValue("typedRows", out var trValue))
+            {
+                var typedRowsDict = (Dictionary<object, object>)trValue;
+                if (typedRowsDict.TryGetValue("data", out var dataValue))
+                {
+                    var dataArray = (object[])dataValue;
+                    rows = dataArray
+                        .Select(rowObj => ((object[])rowObj)
+                            .Select(ConvertMessagePackValue)
+                            .ToArray())
+                        .ToArray();
                 }
             }
 
-            var rowsAffected = responseDict.TryGetValue("rowsAffected", out var value4)
-                ? ConvertToInt32(value4)
+            var rowsAffected = responseDict.TryGetValue("rowsAffected", out var raValue)
+                ? ConvertToInt32(raValue)
                 : 0;
 
-            var lastInsertId = responseDict.TryGetValue("lastInsertId", out var value5)
-                ? ConvertToInt64(value5)
+            var lastInsertId = responseDict.TryGetValue("lastInsertId", out var liiValue)
+                ? ConvertToInt64(liiValue)
                 : 0L;
 
             // Complete the pending request

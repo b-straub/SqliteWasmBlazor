@@ -8,6 +8,7 @@ using SQLiteNET.Opfs.TestApp.TestInfrastructure.Tests.RaceConditions;
 using SQLiteNET.Opfs.TestApp.TestInfrastructure.Tests.Relationships;
 using SQLiteNET.Opfs.TestApp.TestInfrastructure.Tests.Transactions;
 using SQLiteNET.Opfs.TestApp.TestInfrastructure.Tests.TypeMarshalling;
+using SQLiteNET.Opfs.TestApp.TestInfrastructure.Tests.EFCoreFunctions;
 
 namespace SQLiteNET.Opfs.TestApp.TestInfrastructure;
 
@@ -72,6 +73,13 @@ internal class TestFactory
         // Race Condition Tests (Concurrency and sync patterns)
         _tests.Add(("Race Conditions", new PurgeThenLoadRaceConditionTest(factory)));
         _tests.Add(("Race Conditions", new PurgeThenLoadWithTransactionTest(factory)));
+
+        // EF Core Functions Tests (ef_ scalar and aggregate functions)
+        _tests.Add(("EF Core Functions", new DecimalArithmeticTest(factory)));
+        _tests.Add(("EF Core Functions", new DecimalAggregatesTest(factory)));
+        _tests.Add(("EF Core Functions", new DecimalComparisonTest(factory)));
+        _tests.Add(("EF Core Functions", new RegexPatternTest(factory)));
+        _tests.Add(("EF Core Functions", new ComplexDecimalQueryTest(factory)));
     }
 }
 
