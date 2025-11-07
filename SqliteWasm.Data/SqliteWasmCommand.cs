@@ -10,7 +10,6 @@ namespace System.Data.SQLite.Wasm;
 /// <summary>
 /// Minimal SQLite command that sends SQL to worker for execution.
 /// </summary>
-[SupportedOSPlatform("browser")]
 public sealed class SqliteWasmCommand : DbCommand
 {
     private string _commandText = string.Empty;

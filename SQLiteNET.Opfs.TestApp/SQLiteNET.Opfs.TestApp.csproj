@@ -5,18 +5,12 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <OverrideHtmlAssetPlaceholders>true</OverrideHtmlAssetPlaceholders>
-    <!-- Reduce WASM heap for WebKit compatibility in Playwright tests -->
-    <EmccMaximumHeapSize>268435456</EmccMaximumHeapSize>
-    <!-- Use Workstation GC for lower memory overhead in tests -->
-    <ServerGarbageCollection>false</ServerGarbageCollection>
-    <!-- Suppress WASM0001: varargs functions in stub are not called at runtime -->
-    <!-- Suppress CA1416: Blazor WASM apps are always browser-only -->
-    <NoWarn>$(NoWarn);WASM0001;CA1416</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly" Version="10.0.0-rc.2.25502.107" />
     <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.DevServer" Version="10.0.0-rc.2.25502.107" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.Build.Tasks.Core" Version="17.14.28" />
     <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.0-rc.2.25502.107" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.0-rc.2.25502.107">
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>

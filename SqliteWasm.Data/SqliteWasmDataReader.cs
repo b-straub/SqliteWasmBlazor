@@ -10,7 +10,6 @@ namespace System.Data.SQLite.Wasm;
 /// <summary>
 /// DataReader that wraps results from sqlite-wasm worker.
 /// </summary>
-[SupportedOSPlatform("browser")]
 public sealed class SqliteWasmDataReader : DbDataReader
 {
     private readonly SqlQueryResult _result;

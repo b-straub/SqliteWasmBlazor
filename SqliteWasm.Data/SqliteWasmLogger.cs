@@ -27,7 +27,6 @@ public enum SqliteWasmLogLevel
 /// <summary>
 /// Configures logging for SQLite WASM worker.
 /// </summary>
-[SupportedOSPlatform("browser")]
 public static partial class SqliteWasmLogger
 {
     /// <summary>

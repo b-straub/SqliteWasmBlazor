@@ -17,7 +17,6 @@ namespace System.Data.SQLite.Wasm;
 /// The implementation is stable for .NET 10 and will not change.
 /// Safe for single-user browser environment where OPFS access is already synchronized via Web Worker.
 /// </summary>
-[SupportedOSPlatform("browser")]
 #pragma warning disable EF1001
 internal sealed class SqliteWasmHistoryRepository : SqliteHistoryRepository
 {

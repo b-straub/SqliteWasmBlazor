@@ -10,7 +10,6 @@ namespace System.Data.SQLite.Wasm;
 /// <summary>
 /// Minimal SQLite connection for EF Core using sqlite-wasm + OPFS.
 /// </summary>
-[SupportedOSPlatform("browser")]
 public sealed class SqliteWasmConnection : DbConnection
 {
     private string _connectionString = string.Empty;

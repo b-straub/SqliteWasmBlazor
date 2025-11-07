@@ -11,7 +11,6 @@ namespace System.Data.SQLite.Wasm;
 /// Database creator for SqliteWasm provider that uses OPFS storage via worker bridge.
 /// Overrides file operations to work with OPFS instead of Emscripten MEMFS.
 /// </summary>
-[SupportedOSPlatform("browser")]
 internal sealed class SqliteWasmDatabaseCreator : RelationalDatabaseCreator
 {
     private readonly IRawSqlCommandBuilder _rawSqlCommandBuilder;

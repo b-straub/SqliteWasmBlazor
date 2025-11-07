@@ -66,5 +66,4 @@ using (var scope = host.Services.CreateScope())
 
 await host.RunAsync();
 
-[SupportedOSPlatform("browser")]
 partial class Program { }

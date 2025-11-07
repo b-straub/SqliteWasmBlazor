@@ -27,7 +27,6 @@ public sealed class SqlQueryResult
 /// Bridge between C# and sqlite-wasm worker.
 /// Handles message passing and response coordination.
 /// </summary>
-[SupportedOSPlatform("browser")]
 public sealed partial class SqliteWasmWorkerBridge
 {
     // ReSharper disable once InconsistentNaming

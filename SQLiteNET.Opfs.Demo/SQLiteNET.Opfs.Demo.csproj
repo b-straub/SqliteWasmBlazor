@@ -6,9 +6,6 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>SqliteWasm.Demo</RootNamespace>
     <OverrideHtmlAssetPlaceholders>true</OverrideHtmlAssetPlaceholders>
-    <!-- Suppress WASM0001: varargs functions in stub are not called at runtime -->
-    <!-- Suppress CA1416: Blazor WASM apps are always browser-only -->
-    <NoWarn>$(NoWarn);WASM0001;CA1416</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>

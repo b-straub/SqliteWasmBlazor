@@ -1,0 +1,13 @@
+<Project>
+  <PropertyGroup>
+    <!-- Suppress WASM warnings globally for all projects in the solution -->
+
+    <!-- WASM0001: varargs functions in native libraries (SQLite sqlite3_config, MSBuild GetModuleFileName) -->
+    <!-- These are expected for native interop and don't affect runtime behavior -->
+
+    <!-- CA1416: Validate platform compatibility -->
+    <!-- Blazor WASM apps are always browser-only, platform checks are unnecessary -->
+
+    <NoWarn>$(NoWarn);WASM0001;WASM0060;WASM0062;CA1416</NoWarn>
+  </PropertyGroup>
+</Project>

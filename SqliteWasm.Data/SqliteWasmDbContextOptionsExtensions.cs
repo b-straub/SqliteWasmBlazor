@@ -19,7 +19,6 @@ public static class SqliteWasmDbContextOptionsExtensions
     /// <param name="optionsBuilder">The builder being used to configure the context</param>
     /// <param name="connection">The SqliteWasmConnection to use</param>
     /// <returns>The options builder for chaining</returns>
-    [SupportedOSPlatform("browser")]
     public static DbContextOptionsBuilder UseSqliteWasm(
         this DbContextOptionsBuilder optionsBuilder,
         SqliteWasmConnection connection)
@@ -48,7 +47,6 @@ public static class SqliteWasmDbContextOptionsExtensions
     /// <param name="optionsBuilder">The builder being used to configure the context</param>
     /// <param name="connectionString">The connection string (e.g., "Data Source=MyDb.db")</param>
     /// <returns>The options builder for chaining</returns>
-    [SupportedOSPlatform("browser")]
     public static DbContextOptionsBuilder UseSqliteWasm(
         this DbContextOptionsBuilder optionsBuilder,
         string connectionString)

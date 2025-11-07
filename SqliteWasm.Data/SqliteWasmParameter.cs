@@ -10,7 +10,6 @@ namespace System.Data.SQLite.Wasm;
 /// <summary>
 /// Represents a parameter to a SqliteWasmCommand.
 /// </summary>
-[SupportedOSPlatform("browser")]
 public sealed class SqliteWasmParameter : DbParameter
 {
     private string _parameterName = string.Empty;
@@ -77,7 +76,6 @@ public sealed class SqliteWasmParameter : DbParameter
 /// <summary>
 /// Collection of parameters for SqliteWasmCommand.
 /// </summary>
-[SupportedOSPlatform("browser")]
 public sealed class SqliteWasmParameterCollection : DbParameterCollection
 {
     private readonly List<SqliteWasmParameter> _parameters = [];

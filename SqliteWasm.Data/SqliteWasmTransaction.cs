@@ -9,7 +9,6 @@ namespace System.Data.SQLite.Wasm;
 /// <summary>
 /// Transaction that wraps BEGIN/COMMIT/ROLLBACK SQL commands.
 /// </summary>
-[SupportedOSPlatform("browser")]
 public sealed class SqliteWasmTransaction : DbTransaction
 {
     private readonly SqliteWasmConnection _connection;
