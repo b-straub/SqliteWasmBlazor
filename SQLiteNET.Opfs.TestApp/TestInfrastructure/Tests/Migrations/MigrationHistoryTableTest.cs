@@ -1,6 +1,5 @@
 using Microsoft.EntityFrameworkCore;
 using SqliteWasm.Data.Models;
-using SqliteWasm.Data.Models.Models;
 
 namespace SQLiteNET.Opfs.TestApp.TestInfrastructure.Tests.Migrations;
 

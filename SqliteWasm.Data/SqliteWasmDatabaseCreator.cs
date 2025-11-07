@@ -1,7 +1,6 @@
 // System.Data.SQLite.Wasm - Minimal EF Core compatible provider
 // MIT License
 
-using System.Runtime.Versioning;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.EntityFrameworkCore.Storage;
 

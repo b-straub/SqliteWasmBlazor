@@ -2,7 +2,6 @@
 // MIT License
 
 using System.Runtime.InteropServices.JavaScript;
-using System.Runtime.Versioning;
 
 namespace System.Data.SQLite.Wasm;
 

@@ -5,7 +5,7 @@ public class ChromiumFixture : WaFixtureBase, IWaFixture
     public IWaFixture.BrowserType Type => IWaFixture.BrowserType.CHROMIUM;
     public int Port => PortNumber;
     public bool OnePass => false;
-    public bool Headless => true; // Set to false to see browser during tests
+    public bool Headless => true;
 
     private static int PortNumber => 7051;
 
@@ -39,7 +39,7 @@ public class WebkitFixture : WaFixtureBase, IWaFixture
     public IWaFixture.BrowserType Type => IWaFixture.BrowserType.WEBKIT;
     public int Port => PortNumber;
     public bool OnePass => false;
-    public bool Headless => false;
+    public bool Headless => true;
 
     private static int PortNumber => 7053;
 

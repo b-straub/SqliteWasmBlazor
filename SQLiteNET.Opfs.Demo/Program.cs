@@ -5,7 +5,6 @@ using MudBlazor.Services;
 using SqliteWasm.Demo;
 using SqliteWasm.Demo.Data;
 using System.Data.SQLite.Wasm;
-using System.Runtime.Versioning;
 
 var builder = WebAssemblyHostBuilder.CreateDefault(args);
 

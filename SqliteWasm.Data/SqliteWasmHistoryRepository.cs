@@ -1,7 +1,6 @@
 // System.Data.SQLite.Wasm - Minimal EF Core compatible provider
 // MIT License
 
-using System.Runtime.Versioning;
 using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Sqlite.Migrations.Internal;
 
@@ -60,22 +59,7 @@ internal sealed class SqliteWasmHistoryRepository : SqliteHistoryRepository
         }
 
         IHistoryRepository IMigrationsDatabaseLock.HistoryRepository => _historyRepository;
-
-        // ReSharper disable once UnusedMember.Local
-        // ReSharper disable once UnusedParameter.Local
-        public void ReacquireLock(bool connectionReopened)
-        {
-            // No-op: no lock to reacquire
-        }
-
-        // ReSharper disable once UnusedMember.Local
-        // ReSharper disable once UnusedParameter.Local
-        public Task ReacquireLockAsync(bool connectionReopened, CancellationToken cancellationToken = default)
-        {
-            // No-op: no lock to reacquire
-            return Task.CompletedTask;
-        }
-
+        
         public void Dispose()
         {
             // No-op: nothing to release

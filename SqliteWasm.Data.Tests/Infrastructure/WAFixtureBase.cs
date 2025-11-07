@@ -12,7 +12,6 @@ public class WaFixtureBase(int port) : WebApplicationFactory<Program>
     private IPlaywright? _playwright;
     private IBrowser? _browser;
     private IBrowserContext? _browserContext;
-    private readonly int _port = port;
 
     protected async Task InitializeAsync(IWaFixture.BrowserType browserType, bool onePass, bool headless)
     {
@@ -35,7 +34,13 @@ public class WaFixtureBase(int port) : WebApplicationFactory<Program>
             IWaFixture.BrowserType.CHROMIUM => await _playwright.Chromium.LaunchAsync(new BrowserTypeLaunchOptions
             {
                 Headless = headless,
-                Args = new[] { "--ignore-certificate-errors" }
+                Args =
+                [
+                    "--ignore-certificate-errors",
+                    "--js-flags=--max-old-space-size=4096",      // 4GB heap for V8 JS engine
+                    "--disable-dev-shm-usage",                    // Use /tmp instead of /dev/shm (helps in constrained envs)
+                    "--disable-gpu-memory-buffer-video-frames"    // Reduce GPU memory pressure
+                ]
             }),
             IWaFixture.BrowserType.FIREFOX => await _playwright.Firefox.LaunchAsync(new BrowserTypeLaunchOptions
             {
@@ -55,32 +60,40 @@ public class WaFixtureBase(int port) : WebApplicationFactory<Program>
 
         if (onePass)
         {
-            var timeout = browserType switch
+            int timeout;
+            switch (browserType)
             {
-                IWaFixture.BrowserType.CHROMIUM => 100000,
-                IWaFixture.BrowserType.FIREFOX => 300000,
-                IWaFixture.BrowserType.WEBKIT => 300000,
-                _ => throw new ArgumentOutOfRangeException(nameof(browserType))
-            };
+                case IWaFixture.BrowserType.CHROMIUM:
+                    timeout = 100000;
+                    break;
+                case IWaFixture.BrowserType.FIREFOX:
+                case IWaFixture.BrowserType.WEBKIT:
+                    timeout = 300000;
+                    break;
+                case IWaFixture.BrowserType.NONE:
+                case IWaFixture.BrowserType.ALL:
+                default:
+                    throw new ArgumentOutOfRangeException(nameof(browserType));
+            }
 
             var waitForSelectorOptions = new PageWaitForSelectorOptions()
             {
                 Timeout = timeout
             };
 
-            await Page.GotoAsync($"https://localhost:{_port}/Tests");
+            await Page.GotoAsync($"https://localhost:{port}/Tests");
 
             await Page.WaitForSelectorAsync("text=All Tests Completed", waitForSelectorOptions);
         }
     }
 
-    public async override ValueTask DisposeAsync()
+    public override async ValueTask DisposeAsync()
     {
-        await DisposeAsyncCore().ConfigureAwait(false);
+        await DisposeAsyncCoreAsync().ConfigureAwait(false);
         GC.SuppressFinalize(this);
     }
 
-    protected virtual async ValueTask DisposeAsyncCore()
+    protected virtual async ValueTask DisposeAsyncCoreAsync()
     {
         if (_browserContext is not null)
         {
@@ -103,7 +116,7 @@ public class WaFixtureBase(int port) : WebApplicationFactory<Program>
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
-        builder.UseUrls($"https://localhost:{_port}");
+        builder.UseUrls($"https://localhost:{port}");
     }
 
     protected override IHost CreateHost(IHostBuilder builder)

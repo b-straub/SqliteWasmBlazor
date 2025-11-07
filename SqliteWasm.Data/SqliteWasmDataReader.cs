@@ -3,7 +3,6 @@
 
 using System.Collections;
 using System.Data.Common;
-using System.Runtime.Versioning;
 
 namespace System.Data.SQLite.Wasm;
 
