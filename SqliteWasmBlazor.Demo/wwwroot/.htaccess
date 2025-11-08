@@ -1,0 +1,67 @@
+# Blazor WebAssembly + OPFS Configuration for Apache
+# This file enables cross-origin isolation required for SharedArrayBuffer (OPFS SAHPool)
+
+# CRITICAL: Enable SharedArrayBuffer for OPFS/Web Workers
+<IfModule mod_headers.c>
+    Header set Cross-Origin-Opener-Policy "same-origin"
+    Header set Cross-Origin-Embedder-Policy "require-corp"
+
+    # Serve pre-compressed Brotli files
+    <FilesMatch "\.(js|css|wasm|dll|dat)\.br$">
+        Header append Content-Encoding br
+        Header append Vary Accept-Encoding
+    </FilesMatch>
+
+    # Serve pre-compressed Gzip files
+    <FilesMatch "\.(js|css|wasm|dll|dat)\.gz$">
+        Header append Content-Encoding gzip
+        Header append Vary Accept-Encoding
+    </FilesMatch>
+
+    # Cache control for versioned assets
+    <FilesMatch "\.[a-z0-9]{10}\.(js|css|wasm|dll|dat|br|gz)$">
+        Header set Cache-Control "public, max-age=31536000, immutable"
+    </FilesMatch>
+
+    # Don't cache index.html
+    <FilesMatch "index\.html$">
+        Header set Cache-Control "no-cache, no-store, must-revalidate"
+    </FilesMatch>
+</IfModule>
+
+# Prevent .br files from being treated as Brazilian Portuguese
+RemoveLanguage .br
+
+# MIME types for WebAssembly and Blazor
+<IfModule mod_mime.c>
+    AddType application/wasm .wasm
+    AddType application/octet-stream .dll
+    AddType application/octet-stream .dat
+    AddType application/octet-stream .blat
+    AddType application/octet-stream .webcil
+    AddType application/json .json
+    AddType font/woff .woff
+    AddType font/woff2 .woff2
+</IfModule>
+
+# Enable compression for uncompressed files (if mod_deflate is available)
+<IfModule mod_deflate.c>
+    AddOutputFilterByType DEFLATE text/html text/css text/javascript application/javascript
+    AddOutputFilterByType DEFLATE application/wasm application/octet-stream application/json
+</IfModule>
+
+# Client-side routing fallback for Blazor (base href="/dbTest/")
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteBase /dbTest/
+
+    # Don't rewrite files or directories that exist
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteCond %{REQUEST_FILENAME} !-d
+
+    # Fallback to index.html for client-side routing
+    RewriteRule ^ index.html [L]
+</IfModule>
+
+# Alternative: Use ErrorDocument if mod_rewrite is not available
+# ErrorDocument 404 /dbTest/index.html
