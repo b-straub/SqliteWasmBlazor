@@ -10,11 +10,14 @@ public class TodoList
     [Column(TypeName = "binary(16)")]
     public Guid Id { get; set; }
 
+    [Required]
     [MaxLength(255)]
     public required string Title { get; set; }
 
+    [Required]
     public bool IsActive { get; set; } = true;
 
+    [Required]
     public DateTime CreatedAt { get; set; }
 
     public ICollection<Todo> Todos { get; } = new List<Todo>();

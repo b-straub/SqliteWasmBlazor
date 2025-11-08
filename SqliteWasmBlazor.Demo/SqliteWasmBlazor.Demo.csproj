@@ -12,23 +12,20 @@
     <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly" Version="10.0.0-rc.2.25502.107" />
     <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.DevServer" Version="10.0.0-rc.2.25502.107" PrivateAssets="all" />
     <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.0-rc.2.25502.107" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.0-rc.2.25502.107" />
     <PackageReference Include="MudBlazor" Version="8.14.0" />
-    <!-- Exclude packaged native library - using custom minimal stub -->
-    <PackageReference Include="SQLitePCLRaw.lib.e_sqlite3" Version="2.1.11" ExcludeAssets="native;buildTransitive" />
+    <PackageReference Include="SqliteWasmBlazor" Version="0.5.5-pre" />
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\SqliteWasmBlazor.Models\SqliteWasmBlazor.Models.csproj" />
-    <ProjectReference Include="..\SqliteWasmBlazor\SqliteWasmBlazor.csproj" />
+    <Compile Include="..\SqliteWasmBlazor.Models\Migrations\**\*.cs">
+      <Link>Migrations\%(RecursiveDir)%(Filename)%(Extension)</Link>
+    </Compile>
+    <Compile Include="..\SqliteWasmBlazor.Models\DBContext\**\*.cs">
+      <Link>DBContext\%(RecursiveDir)%(Filename)%(Extension)</Link>
+    </Compile>
+    <Compile Include="..\SqliteWasmBlazor.Models\Models\**\*.cs">
+      <Link>Models\%(RecursiveDir)%(Filename)%(Extension)</Link>
+    </Compile>
   </ItemGroup>
-
-  <ItemGroup>
-    <NativeFileReference Include="..\SqliteWasmBlazor\native\lib\e_sqlite3.a">
-      <Link>lib\e_sqlite3.a</Link>
-    </NativeFileReference>
-  </ItemGroup>
-
-  <!-- Custom SQLite minimal stub library (8KB, replaces packaged e_sqlite3.a) -->
 
 </Project>

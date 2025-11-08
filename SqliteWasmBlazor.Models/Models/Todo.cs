@@ -10,6 +10,7 @@ public class Todo
     [Column(TypeName = "binary(16)")]
     public Guid Id { get; set; }
 
+    [Required]
     [MaxLength(255)]
     public required string Title { get; set; }
 
@@ -18,10 +19,13 @@ public class Todo
 
     public DateTime? DueDate { get; set; }
 
+    [Required]
     public bool Completed { get; set; } = false;
 
+    [Required]
     public int Priority { get; set; } = 0;
 
+    [Required]
     [Column(TypeName = "binary(16)")]
     public required Guid TodoListId { get; set; }
 

@@ -50,12 +50,13 @@ using (var scope = host.Services.CreateScope())
     var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<TodoDbContext>>();
     await using var dbContext = await factory.CreateDbContextAsync();
 
-    // Use standard EF Core method - it checks if database exists and creates it if needed
-    var wasCreated = await dbContext.Database.EnsureCreatedAsync();
-    Console.WriteLine(wasCreated
-        ? "[Startup] Database schema created"
-        : "[Startup] Database schema already exists, skipping creation");
-
+    // Apply pending migrations only (skip if database is already up to date)
+    //await dbContext.Database.EnsureDeletedAsync();
+    var pendingMigrations = await dbContext.Database.GetPendingMigrationsAsync();
+    if (pendingMigrations.Any())
+    {
+        await dbContext.Database.MigrateAsync();
+    }
     // Diagnostic: Test if we can query the database
     try
     {

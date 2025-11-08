@@ -4,13 +4,34 @@
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <Description>Minimal ADO.NET provider for SQLite via sqlite-wasm with OPFS persistence. Drop-in replacement for EF Core SQLite provider.</Description>
+
+    <!-- Package Metadata -->
     <PackageId>SqliteWasmBlazor</PackageId>
-    <Version>1.0.0</Version>
-    <Authors>SqliteWasm Contributors</Authors>
-    <Copyright>MIT License</Copyright>
+    <Version>0.5.5-pre</Version>
+    <Authors>bernisoft</Authors>
+    <Company>bernisoft</Company>
+    <Product>SqliteWasmBlazor</Product>
+    <Description>The first filesystem-backed SQLite database with full EF Core support for Blazor WebAssembly. Uses OPFS (Origin Private File System) with synchronous access handles for true persistence. Complete ADO.NET provider with migrations, relationships, and all LINQ operators. Drop-in replacement for EF Core InMemory provider.</Description>
+    <PackageTags>blazor;wasm;sqlite;efcore;opfs;database;entityframework;webassembly;offline;persistence</PackageTags>
+    <Copyright>Copyright (c) 2025 bernisoft</Copyright>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <RepositoryUrl>https://github.com/YourRepo/SqliteWasm.Data</RepositoryUrl>
+    <PackageProjectUrl>https://github.com/bernisoft/SqliteWasmBlazor</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/bernisoft/SqliteWasmBlazor</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageReleaseNotes>
+      v0.5.5 - Initial Release
+      - Full EF Core ADO.NET provider
+      - OPFS SAHPool persistence
+      - MessagePack binary protocol
+      - Complete migration support
+      - Custom EF Core decimal functions
+      - Dual SQLite instance architecture
+    </PackageReleaseNotes>
+    <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    <PackageOutputPath>..\.nuget</PackageOutputPath>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
@@ -19,23 +40,40 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.Build.Utilities.Core" Version="17.14.28" />
+    <None Include="../README.md" Pack="true" PackagePath="/" />
+    <None Include="../LICENSE" Pack="true" PackagePath="/" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Update="TypeScript/**" Pack="false" />
+  </ItemGroup>
+  
+  <ItemGroup>
     <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.0-rc.2.25502.107" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.0-rc.2.25502.107" />
     <PackageReference Include="SQLitePCLRaw.core" Version="3.0.2" />
-    <!-- Exclude packaged native library - using custom minimal stub -->
-    <PackageReference Include="SQLitePCLRaw.lib.e_sqlite3" Version="2.1.11" ExcludeAssets="native;buildTransitive" />
     <PackageReference Include="MessagePack" Version="3.1.4" />
+    <!-- Exclude packaged native library - using custom minimal stub -->
+    <PackageReference Include="SourceGear.sqlite3" Version="3.50.4.5" ExcludeAssets="native;buildTransitive" />
   </ItemGroup>
 
   <!-- Custom SQLite minimal stub library (8KB, replaces packaged e_sqlite3.a) -->
   <ItemGroup>
     <NativeFileReference Include="native/lib/e_sqlite3.a" />
   </ItemGroup>
+  <ItemGroup>
+    <Content Include="..\README.md">
+      <Link>README.md</Link>
+    </Content>
+  </ItemGroup>
 
   <!-- Build TypeScript very early, before static web assets are discovered -->
-  <Target Name="BuildTypeScript" BeforeTargets="BeforeCompile;ResolveStaticWebAssetsInputs">
+  <Target Name="BuildTypeScript" BeforeTargets="BeforeCompile;ResolveStaticWebAssetsInputs" Condition="'$(Configuration)' == 'Debug'">
     <Exec WorkingDirectory="TypeScript" Command="npm run build" Condition="Exists('TypeScript/package.json')" />
+  </Target>
+
+  <Target Name="BuildTypeScript" BeforeTargets="BeforeCompile;ResolveStaticWebAssetsInputs" Condition="'$(Configuration)' == 'Release'">
+    <Exec WorkingDirectory="TypeScript" Command="npm run build:release" Condition="Exists('TypeScript/package.json')" />
   </Target>
 
 </Project>

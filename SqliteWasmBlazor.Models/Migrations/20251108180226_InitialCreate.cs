@@ -3,7 +3,7 @@ using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
 
-namespace SqliteWasm.Data.Models.Migrations
+namespace SqliteWasmBlazor.Models.Migrations
 {
     /// <inheritdoc />
     public partial class InitialCreate : Migration

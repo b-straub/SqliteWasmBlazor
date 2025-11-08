@@ -3,12 +3,11 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
-using SqliteWasm.Data.Models;
 using SqliteWasmBlazor.Models;
 
 #nullable disable
 
-namespace SqliteWasm.Data.Models.Migrations
+namespace SqliteWasmBlazor.Models.Migrations
 {
     [DbContext(typeof(TodoDbContext))]
     partial class TodoDbContextModelSnapshot : ModelSnapshot

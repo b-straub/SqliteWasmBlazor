@@ -17,7 +17,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\SqliteWasmBlazor\SqliteWasmBlazor.csproj" />
+    <Folder Include="Migrations\" />
   </ItemGroup>
-
+  
 </Project>
