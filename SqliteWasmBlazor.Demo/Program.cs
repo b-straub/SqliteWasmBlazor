@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using MudBlazor.Services;
 using SqliteWasmBlazor;
 using SqliteWasmBlazor.Demo;
+using SqliteWasmBlazor.Demo.Services;
 using SqliteWasmBlazor.Models;
 using SqliteWasmLogger = SqliteWasmBlazor.SqliteWasmLogger;
 using SqliteWasmWorkerBridge = SqliteWasmBlazor.SqliteWasmWorkerBridge;
@@ -27,55 +28,73 @@ builder.Services.AddScoped(_ => new HttpClient { BaseAddress = new Uri(builder.H
 // Add MudBlazor services
 builder.Services.AddMudServices();
 
-// Add DbContext with our new SqliteWasmBlazor provider
-builder.Services.AddDbContextFactory<TodoDbContext>(options =>
+// Initialize sqlite-wasm worker
+string? errorMessage = null;
+
+try
 {
-    // Use our worker-based SqliteWasmConnection with OPFS storage
-    var connection = new SqliteWasmConnection("Data Source=TodoDb.db");
-    options.UseSqliteWasm(connection); // Uses custom database creator that handles OPFS
-});
+    await SqliteWasmWorkerBridge.Instance.InitializeAsync();
+}
+catch (Exception ex)
+{
+    errorMessage =
+"""
+Database is locked by another browser tab.
+This application uses OPFS (Origin Private File System) which only allows one tab to access the database at a time.
+Please close any other tabs running this application and refresh the page.
+""";
+}
+
+if (errorMessage is null)
+{
+    // Add DbContext with our new SqliteWasmBlazor provider
+    builder.Services.AddDbContextFactory<TodoDbContext>(options =>
+    {
+        // Use our worker-based SqliteWasmConnection with OPFS storage
+        var connection = new SqliteWasmConnection("Data Source=TodoDb.db");
+        options.UseSqliteWasm(connection); // Uses custom database creator that handles OPFS
+    });
+}
+
+builder.Services.AddSingleton(_ => new DBInitializationService(errorMessage));
 
 var host = builder.Build();
 
-// Initialize sqlite-wasm worker
-await SqliteWasmWorkerBridge.Instance.InitializeAsync();
-
-// Configure logging - set to Warning to reduce chatty debug logs
-// Use SqliteWasmLogLevel.Debug for detailed SQL execution logs
-SqliteWasmLogger.SetLogLevel(SqliteWasmLogLevel.WARNING);
-
-// Initialize database - create if it doesn't exist
-using (var scope = host.Services.CreateScope())
+if (errorMessage is null)
 {
+    // Initialize database - create if it doesn't exist
+    using var scope = host.Services.CreateScope();
     var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<TodoDbContext>>();
     await using var dbContext = await factory.CreateDbContextAsync();
 
-    // Apply pending migrations only (skip if database is already up to date)
-    //await dbContext.Database.EnsureDeletedAsync();
-    var pendingMigrations = await dbContext.Database.GetPendingMigrationsAsync();
-    if (pendingMigrations.Any())
-    {
-        await dbContext.Database.MigrateAsync();
-    }
-    // Diagnostic: Test if we can query the database
+    var initService = scope.ServiceProvider.GetRequiredService<DBInitializationService>();
     try
     {
-        var todoCount = await dbContext.TodoItems.CountAsync();
-        Console.WriteLine($"[Startup] Database connection verified - {todoCount} todos found");
-
-        var typeTestCount = await dbContext.TypeTests.CountAsync();
-        Console.WriteLine($"[Startup] Database connection verified - {typeTestCount} type tests found");
+        // Apply pending migrations only (skip if database is already up to date)
+        var pendingMigrations = await dbContext.Database.GetPendingMigrationsAsync();
+        if (pendingMigrations.Any())
+        {
+            await dbContext.Database.MigrateAsync();
+        }
+        
+        // Configure logging - set to Warning to reduce chatty debug logs
+        // Use SqliteWasmLogLevel.Debug for detailed SQL execution logs
+        SqliteWasmLogger.SetLogLevel(SqliteWasmLogLevel.WARNING);
+    }
+    catch (TimeoutException)
+    {
+        initService.ErrorMessage = 
+"""
+Database is locked by another browser tab.
+This application uses OPFS (Origin Private File System) which only allows one tab to access the database at a time.
+Please close any other tabs running this application and refresh the page.
+""";
     }
     catch (Exception ex)
     {
-        Console.WriteLine($"[Startup] ERROR querying database: {ex.GetType().Name}: {ex.Message}");
-        Console.WriteLine($"[Startup] Stack: {ex.StackTrace}");
+        initService.ErrorMessage = $"ERROR initializing database: {ex.GetType().Name}: {ex.Message}";
+        throw;
     }
 }
 
 await host.RunAsync();
-
-namespace SqliteWasmBlazor.Demo
-{
-    partial class Program { }
-}

@@ -1,7 +1,17 @@
 ﻿@page "/"
+@using SqliteWasmBlazor.Demo.Services
+@inject DBInitializationService DBInitializationService
 
-<PageTitle>Home</PageTitle>
+<PageTitle>SqliteWasmBlazor</PageTitle>
 
-<h1>Hello, world!</h1>
+<MudStack>
+    <MudText Typo="Typo.h5">SqliteWasmBlazor</MudText>
+    <MudText>The first known solution providing true filesystem-backed SQLite database with full EF Core support for
+        Blazor WebAssembly.
+    </MudText>
 
-Welcome to your new app.
+    @if (DBInitializationService.ErrorMessage is not null)
+    {
+        <MudText Color="Color.Error">@DBInitializationService.ErrorMessage</MudText>
+    }
+</MudStack>

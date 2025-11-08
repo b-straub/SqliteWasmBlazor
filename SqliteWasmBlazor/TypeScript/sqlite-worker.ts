@@ -213,7 +213,24 @@ async function openDatabase(dbName: string) {
     if (!db) {
         try {
             // Use OpfsSAHPoolDb from the pool utility
-            db = new poolUtil.OpfsSAHPoolDb(`/databases/${dbName}`);
+            // Wrap in timeout to detect multi-tab lock conflicts
+            const dbPath = `/databases/${dbName}`;
+            const openPromise = new Promise<any>((resolve, reject) => {
+                try {
+                    const database = new poolUtil.OpfsSAHPoolDb(dbPath);
+                    resolve(database);
+                } catch (error) {
+                    reject(error);
+                }
+            });
+
+            const timeoutPromise = new Promise<any>((_, reject) =>
+                setTimeout(() => reject(
+                    new Error(`Timeout opening database: ${dbName}`)
+                ), 4000)
+            );
+
+            db = await Promise.race([openPromise, timeoutPromise]);
             openDatabases.set(dbName, db);
             console.debug(`[SQLite Worker] Opened database: ${dbName} with OPFS SAHPool`);
         } catch (error) {

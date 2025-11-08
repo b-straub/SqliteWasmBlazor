@@ -13,7 +13,7 @@
     <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.DevServer" Version="10.0.0-rc.2.25502.107" PrivateAssets="all" />
     <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.0-rc.2.25502.107" />
     <PackageReference Include="MudBlazor" Version="8.14.0" />
-    <PackageReference Include="SqliteWasmBlazor" Version="0.5.5-pre" />
+    <PackageReference Include="SqliteWasmBlazor" Version="0.5.5-pre" Condition="'$(Configuration)' == 'Release'" />
   </ItemGroup>
 
   <ItemGroup>
@@ -26,6 +26,10 @@
     <Compile Include="..\SqliteWasmBlazor.Models\Models\**\*.cs">
       <Link>Models\%(RecursiveDir)%(Filename)%(Extension)</Link>
     </Compile>
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(Configuration)' == 'Debug'">
+    <ProjectReference Include="..\SqliteWasmBlazor\SqliteWasmBlazor.csproj" />
   </ItemGroup>
 
 </Project>

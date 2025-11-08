@@ -68,11 +68,11 @@
   </ItemGroup>
 
   <!-- Build TypeScript very early, before static web assets are discovered -->
-  <Target Name="BuildTypeScript" BeforeTargets="BeforeCompile;ResolveStaticWebAssetsInputs" Condition="'$(Configuration)' == 'Debug'">
+  <Target Name="BuildTypeScriptDebug" BeforeTargets="BeforeCompile;ResolveStaticWebAssetsInputs" Condition="'$(Configuration)' == 'Debug'">
     <Exec WorkingDirectory="TypeScript" Command="npm run build" Condition="Exists('TypeScript/package.json')" />
   </Target>
 
-  <Target Name="BuildTypeScript" BeforeTargets="BeforeCompile;ResolveStaticWebAssetsInputs" Condition="'$(Configuration)' == 'Release'">
+  <Target Name="BuildTypeScriptRelease" BeforeTargets="BeforeCompile;ResolveStaticWebAssetsInputs" Condition="'$(Configuration)' == 'Release'">
     <Exec WorkingDirectory="TypeScript" Command="npm run build:release" Condition="Exists('TypeScript/package.json')" />
   </Target>
 

@@ -2,7 +2,6 @@
 // Bridge between C# JSImport and Web Worker
 
 let worker: Worker | null = null;
-let readyCallback: (() => void) | null = null;
 
 // Initialize worker on first import
 (async () => {
@@ -17,14 +16,23 @@ let readyCallback: (() => void) | null = null;
         worker.onmessage = async (event) => {
             if (event.data.type === 'ready') {
                 console.log('[Worker Bridge] Worker ready');
-                if (readyCallback) {
-                    readyCallback();
+                try {
+                    const exports = await (globalThis as any).getDotnetRuntime(0).getAssemblyExports("SqliteWasmBlazor.dll");
+                    exports.SqliteWasmBlazor.SqliteWasmWorkerBridge.OnWorkerReady();
+                } catch (error) {
+                    console.error('[Worker Bridge] Failed to call OnWorkerReady:', error);
                 }
                 return;
             }
 
             if (event.data.type === 'error') {
                 console.error('[Worker Bridge] Worker error:', event.data.error);
+                try {
+                    const exports = await (globalThis as any).getDotnetRuntime(0).getAssemblyExports("SqliteWasmBlazor.dll");
+                    exports.SqliteWasmBlazor.SqliteWasmWorkerBridge.OnWorkerError(event.data.error || 'Unknown worker error');
+                } catch (error) {
+                    console.error('[Worker Bridge] Failed to call OnWorkerError:', error);
+                }
                 return;
             }
 
@@ -70,11 +78,6 @@ export function sendToWorker(messageJson: string): void {
     worker.postMessage(message);
 }
 
-// Called from C# to set ready callback
-export function setReadyCallback(callback: () => void): void {
-    readyCallback = callback;
-}
-
 // Logger API - matches C# SqliteWasmLogLevel enum
 export const logger = {
     setLogLevel(level: number): void {
@@ -92,8 +95,7 @@ export const logger = {
 
 // Make functions available to C# JSImport
 (globalThis as any).sqliteWasmWorker = {
-    sendToWorker,
-    setReadyCallback
+    sendToWorker
 };
 
 // Expose logger for C# JSImport

@@ -36,6 +36,7 @@ public sealed partial class SqliteWasmWorkerBridge
     private readonly ConcurrentDictionary<int, TaskCompletionSource<SqlQueryResult>> _pendingRequests = new();
     private int _nextRequestId;
     private bool _isInitialized;
+    private static TaskCompletionSource<bool>? _initializationTcs;
 
     // ReSharper disable once InconsistentNaming
     private static readonly Lazy<JsonSerializerOptions> _deserializerOptions = new(() =>
@@ -74,14 +75,13 @@ public sealed partial class SqliteWasmWorkerBridge
 
         await JSHost.ImportAsync("sqliteWasmWorker", "/_content/SqliteWasmBlazor/sqlite-wasm-bridge.js", cancellationToken ?? CancellationToken.None);
 
-        // Wait for worker to signal ready
-        var tcs = new TaskCompletionSource<bool>();
+        // Wait for worker to signal ready or error
+        _initializationTcs = new TaskCompletionSource<bool>();
         var token = cancellationToken ?? CancellationToken.None;
-        await using var registration = token.Register(() => tcs.TrySetCanceled());
+        await using var registration = token.Register(() => _initializationTcs.TrySetCanceled());
 
-        SetReadyCallback(() => tcs.TrySetResult(true));
-
-        var ready = await tcs.Task;
+        // Worker will call OnWorkerReady() or OnWorkerError() via JSExport
+        var ready = await _initializationTcs.Task;
         if (!ready)
         {
             throw new InvalidOperationException("Worker failed to initialize.");
@@ -210,7 +210,20 @@ public sealed partial class SqliteWasmWorkerBridge
 
             SendToWorker(requestJson);
 
-            return await tcs.Task;
+            // Add timeout to detect when another tab has the database locked
+            const int defaultTimeoutMs = 5000;
+            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeoutCts.CancelAfter(defaultTimeoutMs);
+
+            try
+            {
+                return await tcs.Task.WaitAsync(timeoutCts.Token);
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                // Timeout occurred (not user cancellation)
+                throw new TimeoutException("Database operation timed out after 5 seconds.");
+            }
         }
         catch
         {
@@ -411,11 +424,26 @@ public sealed partial class SqliteWasmWorkerBridge
         };
     }
 
+    /// <summary>
+    /// Called from JavaScript when worker signals ready.
+    /// </summary>
+    [JSExport]
+    public static void OnWorkerReady()
+    {
+        _initializationTcs?.TrySetResult(true);
+    }
+
+    /// <summary>
+    /// Called from JavaScript when worker initialization fails.
+    /// </summary>
+    [JSExport]
+    public static void OnWorkerError(string error)
+    {
+        _initializationTcs?.TrySetException(new InvalidOperationException($"Worker initialization failed: {error}"));
+    }
+
     [JSImport("sendToWorker", "sqliteWasmWorker")]
     private static partial void SendToWorker(string messageJson);
-
-    [JSImport("setReadyCallback", "sqliteWasmWorker")]
-    private static partial void SetReadyCallback([JSMarshalAs<JSType.Function>] Action callback);
 }
 
 /// <summary>
