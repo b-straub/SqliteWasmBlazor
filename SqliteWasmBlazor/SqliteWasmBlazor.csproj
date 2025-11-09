@@ -7,7 +7,7 @@
 
     <!-- Package Metadata -->
     <PackageId>SqliteWasmBlazor</PackageId>
-    <Version>0.5.5-pre</Version>
+    <Version>0.5.12-pre</Version>
     <Authors>bernisoft</Authors>
     <Company>bernisoft</Company>
     <Product>SqliteWasmBlazor</Product>
@@ -20,7 +20,7 @@
     <RepositoryType>git</RepositoryType>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageReleaseNotes>
-      v0.5.5 - Initial Release
+      v0.5.8 - Initial Release
       - Full EF Core ADO.NET provider
       - OPFS SAHPool persistence
       - MessagePack binary protocol
@@ -28,11 +28,12 @@
       - Custom EF Core decimal functions
       - Dual SQLite instance architecture
     </PackageReleaseNotes>
-    <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+    <GeneratePackageOnBuild Condition="'$(Configuration)' == 'Release'">true</GeneratePackageOnBuild>
     <IncludeSymbols>true</IncludeSymbols>
     <SymbolPackageFormat>snupkg</SymbolPackageFormat>
     <PackageOutputPath>..\.nuget</PackageOutputPath>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <NoWarn>$(NoWarn);NU5118</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
@@ -42,6 +43,7 @@
   <ItemGroup>
     <None Include="../README.md" Pack="true" PackagePath="/" />
     <None Include="../LICENSE" Pack="true" PackagePath="/" />
+    <None Include="build/SqliteWasmBlazor.targets" Pack="true" PackagePath="build" />
   </ItemGroup>
 
   <ItemGroup>
@@ -51,15 +53,16 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.0-rc.2.25502.107" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.0-rc.2.25502.107" />
-    <PackageReference Include="SQLitePCLRaw.core" Version="3.0.2" />
     <PackageReference Include="MessagePack" Version="3.1.4" />
-    <!-- Exclude packaged native library - using custom minimal stub -->
-    <PackageReference Include="SourceGear.sqlite3" Version="3.50.4.5" ExcludeAssets="native;buildTransitive" />
+    <PackageReference Include="SQLitePCLRaw.lib.e_sqlite3" Version="2.1.11" ExcludeAssets="all" PrivateAssets="all" />
   </ItemGroup>
-
+  
   <!-- Custom SQLite minimal stub library (8KB, replaces packaged e_sqlite3.a) -->
   <ItemGroup>
+    <!-- Link the stub in this project -->
     <NativeFileReference Include="native/lib/e_sqlite3.a" />
+    <!-- Include in NuGet package - targets file handles the NativeFileReference for consumers -->
+    <None Include="native/lib/e_sqlite3.a" Pack="true" PackagePath="native/lib" />
   </ItemGroup>
   <ItemGroup>
     <Content Include="..\README.md">
@@ -73,7 +76,7 @@
   </Target>
 
   <Target Name="BuildTypeScriptRelease" BeforeTargets="BeforeCompile;ResolveStaticWebAssetsInputs" Condition="'$(Configuration)' == 'Release'">
-    <Exec WorkingDirectory="TypeScript" Command="npm run build:release" Condition="Exists('TypeScript/package.json')" />
+    <Exec WorkingDirectory="TypeScript" Command="npm run build:release" Condition="Exists('TypeScript/package.json')"/>
   </Target>
-
+  
 </Project>

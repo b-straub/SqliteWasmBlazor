@@ -70,7 +70,17 @@
                           AdornmentIcon="@Icons.Material.Filled.Search"
                           Clearable="true" />
 
-            <MudStack Row="true" Spacing="2">
+            <MudStack Row="true" Spacing="2" AlignItems="AlignItems.End">
+                <MudSelect T="int"
+                           @bind-Value="_generatedFakeEntries"
+                           Label="Number of Entries"
+                           Variant="Variant.Outlined"
+                           Dense="true"
+                           Style="min-width: 180px;">
+                    <MudSelectItem Value="10000">10,000</MudSelectItem>
+                    <MudSelectItem Value="100000">100,000</MudSelectItem>
+                    <MudSelectItem Value="1000000">1,000,000</MudSelectItem>
+                </MudSelect>
                 <MudButton Variant="Variant.Filled"
                            Color="Color.Secondary"
                            OnClick="CreateTestDataAsync"
@@ -83,7 +93,7 @@
                     }
                     else
                     {
-                        @($"Generate {GeneratedFakeEntries} Entries")
+                        @($"Generate {_generatedFakeEntries:N0} Entries")
                     }
                 </MudButton>
                 <MudButton Variant="Variant.Outlined"
@@ -217,8 +227,6 @@
 </MudContainer>
 
 @code {
-    const double GeneratedFakeEntries = 10000.0;
-
     public required MudTable<TodoItem> Table;
     private int _totalCount;
     private string _newTitle = string.Empty;
@@ -226,6 +234,7 @@
     private string _searchString = string.Empty;
     private string _performanceInfo = string.Empty;
     private bool _isGenerating;
+    private int _generatedFakeEntries = 10000;
 
     private static readonly string[] TaskPrefixes = ["Task", "Work", "Project", "Meeting", "Call", "Email", "Review", "Plan", "Design", "Test"];
     private static readonly string[] TaskTypes = ["urgent", "important", "routine", "followup", "research", "development", "documentation", "deployment"];
@@ -376,7 +385,7 @@
 
         // Generate all items first
         var items = new List<TodoItem>();
-        for (int i = 0; i < GeneratedFakeEntries; i++)
+        for (int i = 0; i < _generatedFakeEntries; i++)
         {
             var prefix = TaskPrefixes[Random.Next(TaskPrefixes.Length)];
             var type = TaskTypes[Random.Next(TaskTypes.Length)];
@@ -431,13 +440,13 @@
 
             stopwatch.Stop();
 
-            var itemsPerSecond = GeneratedFakeEntries / stopwatch.Elapsed.TotalSeconds;
-            _performanceInfo = $"Generated {GeneratedFakeEntries} entries in {stopwatch.ElapsedMilliseconds}ms ({itemsPerSecond:F0} items/sec) - {batchCount} SQL batches";
+            var itemsPerSecond = _generatedFakeEntries / stopwatch.Elapsed.TotalSeconds;
+            _performanceInfo = $"Generated {_generatedFakeEntries:N0} entries in {stopwatch.ElapsedMilliseconds}ms ({itemsPerSecond:F0} items/sec) - {batchCount} SQL batches";
             _isGenerating = false;
 
             await Table.ReloadServerData();
             StateHasChanged();
-            Snackbar.Add($"Generated {GeneratedFakeEntries} entries in {stopwatch.ElapsedMilliseconds}ms ({batchCount} SQL batches)", Severity.Success);
+            Snackbar.Add($"Generated {_generatedFakeEntries:N0} entries in {stopwatch.ElapsedMilliseconds}ms ({batchCount} SQL batches)", Severity.Success);
         }
         catch (Exception ex)
         {

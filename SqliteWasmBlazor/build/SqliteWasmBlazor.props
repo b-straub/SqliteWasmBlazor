@@ -1,0 +1,9 @@
+<Project>
+  <!--
+    NOTE: Consumer projects must explicitly exclude SQLitePCLRaw.lib.e_sqlite3
+    to prevent the large (1.1MB) native library from being included.
+
+    Add this to your project:
+    <PackageReference Include="SQLitePCLRaw.lib.e_sqlite3" Version="2.1.11" ExcludeAssets="all" PrivateAssets="all" />
+  -->
+</Project>

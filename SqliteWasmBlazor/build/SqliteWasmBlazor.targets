@@ -1,0 +1,9 @@
+<Project>
+
+  <!-- Add minimal SQLite stub (9.8KB) to replace large SQLitePCLRaw library (1.1MB) -->
+  <!-- Consumer must exclude SQLitePCLRaw.lib.e_sqlite3 with ExcludeAssets="all" -->
+  <ItemGroup>
+    <NativeFileReference Include="$(MSBuildThisFileDirectory)../native/lib/e_sqlite3.a" />
+  </ItemGroup>
+
+</Project>

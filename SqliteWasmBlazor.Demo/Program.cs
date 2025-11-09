@@ -38,7 +38,8 @@ try
 catch (Exception ex)
 {
     errorMessage =
-"""
+$"""
+{ex.Message}
 Database is locked by another browser tab.
 This application uses OPFS (Origin Private File System) which only allows one tab to access the database at a time.
 Please close any other tabs running this application and refresh the page.
@@ -93,7 +94,8 @@ Please close any other tabs running this application and refresh the page.
     catch (Exception ex)
     {
         initService.ErrorMessage = $"ERROR initializing database: {ex.GetType().Name}: {ex.Message}";
-        throw;
+        initService.ErrorMessage += Environment.NewLine;
+        initService.ErrorMessage += $"{ex.StackTrace}";
     }
 }
 
