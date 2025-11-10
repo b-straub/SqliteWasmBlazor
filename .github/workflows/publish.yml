@@ -18,10 +18,34 @@ jobs:
       with:
         dotnet-version: '10.0.x'
 
+    - name: Install wasm-tools workload
+      run: dotnet workload install wasm-tools
+
     - name: Setup Node.js
       uses: actions/setup-node@v4
       with:
         node-version: '20'
+
+    - name: Setup Emscripten
+      uses: mymindstorm/setup-emsdk@v14
+      with:
+        version: '3.1.56'
+
+    - name: Build native stub
+      run: bash SqliteWasmBlazor/native/build_stub.sh
+
+    - name: Verify native stub was built
+      run: |
+        ls -lh SqliteWasmBlazor/native/lib/e_sqlite3.a
+        file SqliteWasmBlazor/native/lib/e_sqlite3.a
+
+    - name: Install npm dependencies
+      run: npm install
+      working-directory: SqliteWasmBlazor/TypeScript
+
+    - name: Extract version from tag
+      id: get_version
+      run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
 
     - name: Restore dependencies
       run: dotnet restore
@@ -31,10 +55,6 @@ jobs:
 
     - name: Test
       run: dotnet test --configuration Release --no-build --verbosity normal
-
-    - name: Extract version from tag
-      id: get_version
-      run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
 
     - name: Pack
       run: dotnet pack SqliteWasmBlazor/SqliteWasmBlazor.csproj --configuration Release --no-build --output ./artifacts /p:PackageVersion=${{ steps.get_version.outputs.VERSION }}

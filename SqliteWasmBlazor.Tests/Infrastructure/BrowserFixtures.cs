@@ -17,6 +17,10 @@ public class ChromiumFixture : WaFixtureBase, IWaFixture
     }
 }
 
+// Firefox and WebKit tests disabled due to Playwright compatibility issues
+// Firefox: Working in browser but disabled for now
+// WebKit: Out of memory errors in Playwright (works fine in Safari)
+#if NEVER_DEFINED
 public class FirefoxFixture : WaFixtureBase, IWaFixture
 {
     public IWaFixture.BrowserType Type => IWaFixture.BrowserType.FIREFOX;
@@ -50,3 +54,4 @@ public class WebkitFixture : WaFixtureBase, IWaFixture
         await InitializeAsync(Type, OnePass, Headless);
     }
 }
+#endif

@@ -1,11 +1,13 @@
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using Microsoft.Playwright;
+using Xunit.Abstractions;
 
 namespace SqliteWasmBlazor.Tests.Infrastructure;
 
-public class WaFixtureBase(int port) : WebApplicationFactory<TestHost.Program>
+public class WaFixtureBase(int port, ITestOutputHelper? output = null) : WebApplicationFactory<TestHost.Program>
 {
     public IPage? Page { get; private set; }
 
@@ -56,7 +58,32 @@ public class WaFixtureBase(int port) : WebApplicationFactory<TestHost.Program>
 
         _browserContext = await _browser.NewContextAsync(newContextOptions);
 
+        // Capture unhandled exceptions in the browser
+        _browserContext.WebError += (_, webError) =>
+        {
+            var message = $"[Browser WebError] {webError.Error}";
+            output?.WriteLine(message);
+            Console.Error.WriteLine(message);
+        };
+
         Page = await _browserContext.NewPageAsync();
+
+        // Capture all console messages from the browser
+        Page.Console += (_, msg) =>
+        {
+            var message = $"[Browser {msg.Type}] {msg.Text}";
+            output?.WriteLine(message);
+
+            // Also write to Console so it appears in CI logs even without ITestOutputHelper
+            if (msg.Type == "error")
+            {
+                Console.Error.WriteLine(message);
+            }
+            else
+            {
+                Console.WriteLine(message);
+            }
+        };
 
         if (onePass)
         {
@@ -117,6 +144,14 @@ public class WaFixtureBase(int port) : WebApplicationFactory<TestHost.Program>
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseUrls($"https://localhost:{port}");
+
+        // Suppress verbose logging during tests
+        builder.ConfigureLogging(logging =>
+        {
+            logging.ClearProviders();
+            logging.AddConsole();
+            logging.SetMinimumLevel(Microsoft.Extensions.Logging.LogLevel.Warning);
+        });
     }
 
     protected override IHost CreateHost(IHostBuilder builder)

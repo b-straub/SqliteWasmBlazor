@@ -18,7 +18,7 @@ To enable automatic NuGet publishing, you need to configure the following secret
 ## Workflows
 
 ### Build and Test (build.yml)
-- **Triggers**: Push to `main` or `develop` branches, pull requests
+- **Triggers**: Push to `master` or `develop` branches, pull requests
 - **Actions**: Restore, build, and test the project
 - **Purpose**: Continuous integration for all commits
 
@@ -33,7 +33,7 @@ To enable automatic NuGet publishing, you need to configure the following secret
 
 ## Creating a Release
 
-1. Ensure all tests pass on main branch
+1. Ensure all tests pass on master branch
 2. Update version in `SqliteWasmBlazor.csproj` if needed (optional, tag version takes precedence)
 3. Create and push a tag:
    ```bash

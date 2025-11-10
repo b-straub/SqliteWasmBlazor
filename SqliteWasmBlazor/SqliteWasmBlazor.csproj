@@ -7,7 +7,7 @@
 
     <!-- Package Metadata -->
     <PackageId>SqliteWasmBlazor</PackageId>
-    <Version>0.5.12-pre</Version>
+    <Version>0.5.13-pre</Version>
     <Authors>bernisoft</Authors>
     <Company>bernisoft</Company>
     <Product>SqliteWasmBlazor</Product>
@@ -20,7 +20,7 @@
     <RepositoryType>git</RepositoryType>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageReleaseNotes>
-      v0.5.8 - Initial Release
+      v0.5.13-pre - Initial Release
       - Full EF Core ADO.NET provider
       - OPFS SAHPool persistence
       - MessagePack binary protocol
@@ -30,11 +30,16 @@
     </PackageReleaseNotes>
     <GeneratePackageOnBuild Condition="'$(Configuration)' == 'Release'">true</GeneratePackageOnBuild>
     <IncludeSymbols>true</IncludeSymbols>
-    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
-    <PackageOutputPath>..\.nuget</PackageOutputPath>
+    <EmbedAllSources>true</EmbedAllSources>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <PackageOutputPath>$(MSBuildThisFileDirectory)../.nuget</PackageOutputPath>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <NoWarn>$(NoWarn);NU5118</NoWarn>
   </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.SourceLink.GitHub" Version="8.0.0" PrivateAssets="All"/>
+  </ItemGroup>
 
   <ItemGroup>
     <SupportedPlatform Include="browser" />

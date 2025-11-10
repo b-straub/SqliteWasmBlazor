@@ -7,6 +7,7 @@
         <OverrideHtmlAssetPlaceholders>false</OverrideHtmlAssetPlaceholders>
         <WasmFingerprintAssets>false</WasmFingerprintAssets>
         <ServiceWorkerAssetsManifest>service-worker-assets.js</ServiceWorkerAssetsManifest>
+        <WasmBuildNative>true</WasmBuildNative>
     </PropertyGroup>
 
     <ItemGroup>
@@ -14,7 +15,7 @@
         <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.DevServer" Version="10.0.0-rc.2.25502.107" PrivateAssets="all"/>
         <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.0-rc.2.25502.107"/>
         <PackageReference Include="MudBlazor" Version="8.14.0"/>
-        <PackageReference Include="SqliteWasmBlazor" Version="0.5.12-pre" Condition="'$(Configuration)' == 'Release'"/>
+        <PackageReference Include="SqliteWasmBlazor" Version="0.5.13-pre" Condition="'$(Configuration)' == 'Release'" />
         <!-- Exclude large (1.1MB) SQLitePCLRaw native library - SqliteWasmBlazor provides minimal (9.8KB) stub -->
         <PackageReference Include="SQLitePCLRaw.lib.e_sqlite3" Version="2.1.11" ExcludeAssets="all" PrivateAssets="all" Condition="'$(Configuration)' == 'Release'"/>
     </ItemGroup>

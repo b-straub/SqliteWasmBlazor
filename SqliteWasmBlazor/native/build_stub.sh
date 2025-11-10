@@ -5,19 +5,22 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 OUTPUT_DIR="${SCRIPT_DIR}/lib"
-EMSDK_PATH="/Users/berni/Projects/emsdk"
 
 echo "========================================="
 echo "Minimal SQLite Stub Build (Fast)"
 echo "========================================="
 echo ""
 
-# Source Emscripten
-if [ -f "${EMSDK_PATH}/emsdk_env.sh" ]; then
-    source "${EMSDK_PATH}/emsdk_env.sh" > /dev/null 2>&1
-else
-    echo "ERROR: Emscripten not found at ${EMSDK_PATH}"
-    exit 1
+# Check if emcc is already in PATH (e.g., from GitHub Actions)
+if ! command -v emcc &> /dev/null; then
+    # Try to source from local EMSDK
+    EMSDK_PATH="${EMSDK_PATH:-/Users/berni/Projects/emsdk}"
+    if [ -f "${EMSDK_PATH}/emsdk_env.sh" ]; then
+        source "${EMSDK_PATH}/emsdk_env.sh" > /dev/null 2>&1
+    else
+        echo "ERROR: Emscripten not found. Please install or set EMSDK_PATH"
+        exit 1
+    fi
 fi
 
 # Create output directory

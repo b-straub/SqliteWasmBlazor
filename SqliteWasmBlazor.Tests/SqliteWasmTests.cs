@@ -11,7 +11,7 @@ public class ChromiumCollection : ICollectionFixture<ChromiumFixture>
 }
 
 [Collection("Chromium")]
-public class ChromiumTest(ChromiumFixture fixture) : SqliteWasmTestBase(fixture)
+public class ChromiumTest(ChromiumFixture fixture, Xunit.Abstractions.ITestOutputHelper output) : SqliteWasmTestBase(fixture, output)
 {
 }
 

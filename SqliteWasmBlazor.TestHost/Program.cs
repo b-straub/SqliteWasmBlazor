@@ -1,5 +1,10 @@
 var builder = WebApplication.CreateBuilder(args);
 
+// Configure logging - suppress verbose output during tests
+builder.Logging.ClearProviders();
+builder.Logging.AddConsole();
+builder.Logging.SetMinimumLevel(LogLevel.Warning);
+
 // Add services to the container.
 builder.Services.AddRazorPages();
 

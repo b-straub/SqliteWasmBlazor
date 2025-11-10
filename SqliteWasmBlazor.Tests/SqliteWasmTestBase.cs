@@ -1,11 +1,13 @@
 using Microsoft.Playwright;
 using SqliteWasmBlazor.Tests.Infrastructure;
+using Xunit.Abstractions;
 
 namespace SqliteWasmBlazor.Tests;
 
-public abstract class SqliteWasmTestBase(IWaFixture fixture) : IAsyncLifetime
+public abstract class SqliteWasmTestBase(IWaFixture fixture, ITestOutputHelper output) : IAsyncLifetime
 {
     private readonly IWaFixture _fixture = fixture;
+    protected readonly ITestOutputHelper Output = output;
 
     public Task DisposeAsync()
     {

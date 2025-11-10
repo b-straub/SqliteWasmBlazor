@@ -2,9 +2,9 @@ name: Build and Test
 
 on:
   push:
-    branches: [ main, develop ]
+    branches: [ master, develop ]
   pull_request:
-    branches: [ main, develop ]
+    branches: [ master, develop ]
 
 jobs:
   build:
@@ -19,16 +19,64 @@ jobs:
       with:
         dotnet-version: '10.0.x'
 
+    - name: Install wasm-tools workload
+      run: dotnet workload install wasm-tools
+
     - name: Setup Node.js
       uses: actions/setup-node@v4
       with:
         node-version: '20'
 
-    - name: Restore dependencies
-      run: dotnet restore
+    - name: Setup Emscripten
+      uses: mymindstorm/setup-emsdk@v14
+      with:
+        version: '3.1.56'
 
-    - name: Build
-      run: dotnet build --configuration Release --no-restore
+    - name: Build native stub
+      run: bash SqliteWasmBlazor/native/build_stub.sh
+
+    - name: Verify native stub was built
+      run: |
+        ls -lh SqliteWasmBlazor/native/lib/e_sqlite3.a
+        file SqliteWasmBlazor/native/lib/e_sqlite3.a
+
+    - name: Install npm dependencies
+      run: npm install
+      working-directory: SqliteWasmBlazor/TypeScript
+
+    - name: Create local NuGet directory
+      run: mkdir -p .nuget
+
+    - name: Restore SqliteWasmBlazor dependencies
+      run: dotnet restore SqliteWasmBlazor/SqliteWasmBlazor.csproj
+
+    - name: Build SqliteWasmBlazor
+      run: dotnet build SqliteWasmBlazor/SqliteWasmBlazor.csproj --configuration Release --no-restore
+
+    - name: Pack SqliteWasmBlazor
+      run: dotnet pack SqliteWasmBlazor/SqliteWasmBlazor.csproj --configuration Release --no-build --output .nuget
+
+    - name: Clear NuGet cache
+      run: dotnet nuget locals all --clear
+
+    - name: Restore all dependencies
+      run: dotnet restore --force
+
+    - name: Build solution
+      run: dotnet build --configuration Release
 
     - name: Test
       run: dotnet test --configuration Release --no-build --verbosity normal
+
+    - name: List NuGet packages
+      if: success()
+      run: ls -lh .nuget/
+
+    - name: Upload NuGet packages
+      if: success()
+      uses: actions/upload-artifact@v4
+      with:
+        name: nuget-packages
+        path: |
+          .nuget/
+        retention-days: 2
