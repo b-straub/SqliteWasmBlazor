@@ -70,45 +70,56 @@
                           AdornmentIcon="@Icons.Material.Filled.Search"
                           Clearable="true" />
 
-            <MudStack Row="true" Spacing="2" AlignItems="AlignItems.End">
-                <MudSelect T="int"
-                           @bind-Value="_generatedFakeEntries"
-                           Label="Number of Entries"
-                           Variant="Variant.Outlined"
-                           Dense="true"
-                           Style="min-width: 180px;">
-                    <MudSelectItem Value="10000">10,000</MudSelectItem>
-                    <MudSelectItem Value="100000">100,000</MudSelectItem>
-                    <MudSelectItem Value="1000000">1,000,000</MudSelectItem>
-                </MudSelect>
-                <MudButton Variant="Variant.Filled"
-                           Color="Color.Secondary"
-                           OnClick="CreateTestDataAsync"
-                           StartIcon="@Icons.Material.Filled.PlayArrow"
-                           Disabled="_isGenerating">
-                    @if (_isGenerating)
-                    {
-                        <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" />
-                        @:Generating...
-                    }
-                    else
-                    {
-                        @($"Generate {_generatedFakeEntries:N0} Entries")
-                    }
-                </MudButton>
-                <MudButton Variant="Variant.Outlined"
-                           Color="Color.Error"
-                           OnClick="ClearAllDataAsync"
-                           StartIcon="@Icons.Material.Filled.DeleteSweep">
-                    Clear All
-                </MudButton>
-                <MudButton Variant="Variant.Outlined"
-                           Color="Color.Warning"
-                           OnClick="ResetDatabaseAsync"
-                           StartIcon="@Icons.Material.Filled.RestartAlt">
-                    Reset Database
-                </MudButton>
-            </MudStack>
+            <MudGrid Spacing="2">
+                <MudItem xs="12" sm="6" md="3">
+                    <MudSelect T="int"
+                               @bind-Value="_generatedFakeEntries"
+                               Label="Number of Entries"
+                               Variant="Variant.Outlined"
+                               Dense="true"
+                               FullWidth="true">
+                        <MudSelectItem Value="10000">10,000</MudSelectItem>
+                        <MudSelectItem Value="100000">100,000</MudSelectItem>
+                        <MudSelectItem Value="1000000">1,000,000</MudSelectItem>
+                    </MudSelect>
+                </MudItem>
+                <MudItem xs="12" sm="6" md="3">
+                    <MudButton Variant="Variant.Filled"
+                               Color="Color.Secondary"
+                               OnClick="CreateTestDataAsync"
+                               StartIcon="@Icons.Material.Filled.PlayArrow"
+                               Disabled="_isGenerating"
+                               FullWidth="true">
+                        @if (_isGenerating)
+                        {
+                            <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" />
+                            @:Generating...
+                        }
+                        else
+                        {
+                            @:Generate
+                        }
+                    </MudButton>
+                </MudItem>
+                <MudItem xs="12" sm="6" md="3">
+                    <MudButton Variant="Variant.Outlined"
+                               Color="Color.Error"
+                               OnClick="ClearAllDataAsync"
+                               StartIcon="@Icons.Material.Filled.DeleteSweep"
+                               FullWidth="true">
+                        Clear All
+                    </MudButton>
+                </MudItem>
+                <MudItem xs="12" sm="6" md="3">
+                    <MudButton Variant="Variant.Outlined"
+                               Color="Color.Warning"
+                               OnClick="ResetDatabaseAsync"
+                               StartIcon="@Icons.Material.Filled.RestartAlt"
+                               FullWidth="true">
+                        Reset Database
+                    </MudButton>
+                </MudItem>
+            </MudGrid>
 
             @if (!string.IsNullOrEmpty(_performanceInfo))
             {
@@ -126,7 +137,7 @@
             Todo Items (@_totalCount)
             @if (!string.IsNullOrWhiteSpace(_searchString))
             {
-                <MudChip T="string" Size="Size.Small" Color="Color.Primary" OnClose="ClearSearch">
+                <MudChip T="string" Size="Size.Small" Color="Color.Primary" OnClose="ClearSearchAsync">
                     Filtered: @_searchString
                 </MudChip>
             }
@@ -200,6 +211,12 @@
                         </MudText>
                     </MudStack>
                     <MudStack Row="true" AlignItems="AlignItems.Center">
+                        <MudIcon Icon="@Icons.Material.Filled.DataUsage" Size="Size.Small" />
+                        <MudText Typo="Typo.body2">
+                            <strong>Database Size:</strong> @FormatBytes(_databaseFileSize)
+                        </MudText>
+                    </MudStack>
+                    <MudStack Row="true" AlignItems="AlignItems.Center">
                         <MudIcon Icon="@Icons.Material.Filled.Storage" Size="Size.Small" />
                         <MudText Typo="Typo.body2">
                             <strong>Storage:</strong> OPFS (Origin Private File System)
@@ -229,6 +246,7 @@
 @code {
     public required MudTable<TodoItem> Table;
     private int _totalCount;
+    private long _databaseFileSize;
     private string _newTitle = string.Empty;
     private string _newDescription = string.Empty;
     private string _searchString = string.Empty;
@@ -243,6 +261,7 @@
     protected override async Task OnInitializedAsync()
     {
         await UpdateTotalCountAsync();
+        await UpdateDatabaseFileSizeAsync();
     }
 
     private async Task<TableData<TodoItem>> LoadServerDataAsync(TableState state, CancellationToken cancellationToken)
@@ -291,6 +310,41 @@
         StateHasChanged();
     }
 
+    private async Task UpdateDatabaseFileSizeAsync()
+    {
+        try
+        {
+            await using var context = await DbContextFactory.CreateDbContextAsync();
+            var fileSize = await context.Database.SqlQueryRaw<long>(
+                "SELECT (SELECT page_count FROM pragma_page_count()) * (SELECT page_size FROM pragma_page_size()) AS Value"
+            ).FirstOrDefaultAsync();
+            _databaseFileSize = fileSize;
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Failed to get database file size: {ex.Message}");
+            _databaseFileSize = 0;
+        }
+    }
+
+    private static string FormatBytes(long bytes)
+    {
+        if (bytes < 1024)
+        {
+            return $"{bytes} B";
+        }
+        if (bytes < 1024 * 1024)
+        {
+            return $"{bytes / 1024.0:F2} KB";
+        }
+        if (bytes < 1024 * 1024 * 1024)
+        {
+            return $"{bytes / (1024.0 * 1024.0):F2} MB";
+        }
+        return $"{bytes / (1024.0 * 1024.0 * 1024.0):F2} GB";
+    }
+
     private async Task AddTodoAsync()
     {
         if (string.IsNullOrWhiteSpace(_newTitle))
@@ -319,6 +373,7 @@
         _newDescription = string.Empty;
 
         await Table.ReloadServerData();
+        await UpdateDatabaseFileSizeAsync();
         Snackbar.Add($"Todo created in {stopwatch.ElapsedMilliseconds}ms", Severity.Success);
     }
 
@@ -351,6 +406,7 @@
         stopwatch.Stop();
 
         await Table.ReloadServerData();
+        await UpdateDatabaseFileSizeAsync();
         Snackbar.Add($"Todo deleted in {stopwatch.ElapsedMilliseconds}ms", Severity.Error);
     }
 
@@ -359,6 +415,7 @@
         var stopwatch = Stopwatch.StartNew();
 
         await Table.ReloadServerData();
+        await UpdateDatabaseFileSizeAsync();
 
         stopwatch.Stop();
 
@@ -445,6 +502,7 @@
             _isGenerating = false;
 
             await Table.ReloadServerData();
+            await UpdateDatabaseFileSizeAsync();
             StateHasChanged();
             Snackbar.Add($"Generated {_generatedFakeEntries:N0} entries in {stopwatch.ElapsedMilliseconds}ms ({batchCount} SQL batches)", Severity.Success);
         }
@@ -457,17 +515,19 @@
         }
     }
 
-    private void OnSearch(string text)
+    private async Task OnSearch(string text)
     {
         _searchString = text;
-        Table.ReloadServerData();
+        await Table.ReloadServerData();
+        StateHasChanged();
     }
 
-    private void ClearSearch()
+    private async Task ClearSearchAsync()
     {
         _searchString = string.Empty;
-        Table.ReloadServerData();
+        await Table.ReloadServerData();
         _performanceInfo = string.Empty;
+        StateHasChanged();
     }
 
     private async Task ClearAllDataAsync()
@@ -480,6 +540,7 @@
         stopwatch.Stop();
 
         await UpdateTotalCountAsync();
+        await UpdateDatabaseFileSizeAsync();
         await Table.ReloadServerData();
         _performanceInfo = $"All data cleared in {stopwatch.ElapsedMilliseconds}ms";
         Snackbar.Add($"All todos deleted in {stopwatch.ElapsedMilliseconds}ms", Severity.Warning);
@@ -501,6 +562,7 @@
             stopwatch.Stop();
 
             await UpdateTotalCountAsync();
+            await UpdateDatabaseFileSizeAsync();
             await Table.ReloadServerData();
             _performanceInfo = $"Database reset in {stopwatch.ElapsedMilliseconds}ms";
             Snackbar.Add($"Database completely reset in {stopwatch.ElapsedMilliseconds}ms", Severity.Warning);
