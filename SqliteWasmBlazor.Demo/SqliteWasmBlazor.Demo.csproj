@@ -4,8 +4,9 @@
         <TargetFramework>net10.0</TargetFramework>
         <Nullable>enable</Nullable>
         <ImplicitUsings>enable</ImplicitUsings>
-        <OverrideHtmlAssetPlaceholders>true</OverrideHtmlAssetPlaceholders>
+        <OverrideHtmlAssetPlaceholders>false</OverrideHtmlAssetPlaceholders>
         <WasmFingerprintAssets>false</WasmFingerprintAssets>
+        <ServiceWorkerAssetsManifest>service-worker-assets.js</ServiceWorkerAssetsManifest>
     </PropertyGroup>
 
     <ItemGroup>
@@ -31,8 +32,12 @@
     </ItemGroup>
 
     <ItemGroup Condition="'$(Configuration)' == 'Debug'">
-        <NativeFileReference Include="..\SqliteWasmBlazor\native\lib\e_sqlite3.a" />
+        <NativeFileReference Include="..\SqliteWasmBlazor\native\lib\e_sqlite3.a"/>
         <ProjectReference Include="..\SqliteWasmBlazor\SqliteWasmBlazor.csproj"/>
+    </ItemGroup>
+
+    <ItemGroup>
+        <ServiceWorker Include="wwwroot\service-worker.js" PublishedContent="wwwroot\service-worker.published.js"/>
     </ItemGroup>
 
 </Project>

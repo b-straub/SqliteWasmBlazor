@@ -6,10 +6,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>SqliteWasmBlazor.Demo</title>
     <base href="/" />
-    <link href="_content/MudBlazor/MudBlazor.min#[.{fingerprint}].css" rel="stylesheet" crossorigin="anonymous" />
-    <link rel="stylesheet" href="css/app#[.{fingerprint}].css" crossorigin="anonymous" />
+    <link href="_content/MudBlazor/MudBlazor.min.css" rel="stylesheet" crossorigin="anonymous" />
+    <link rel="stylesheet" href="css/app.css" crossorigin="anonymous" />
     <link rel="icon" type="image/png" href="favicon.png" />
-    <script type="importmap"></script>
 </head>
 
 <body>
@@ -44,8 +43,9 @@
             <span class="dismiss" style="margin-left: 10px; cursor: pointer; font-size: 1.5em;">🗙</span>
         </div>
     </div>
-    <script src="_framework/blazor.webassembly#[.{fingerprint}].js" crossorigin="anonymous"></script>
-    <script src="_content/MudBlazor/MudBlazor.min#[.{fingerprint}].js" crossorigin="anonymous"></script>
+    <script src="_framework/blazor.webassembly.js" crossorigin="anonymous"></script>
+    <script src="_content/MudBlazor/MudBlazor.min.js" crossorigin="anonymous"></script>
+    <script>navigator.serviceWorker.register('service-worker.js');</script>
 </body>
 
 </html>
