@@ -58,7 +58,7 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: nuget-packages
-        path: .nuget/
+        path: SqliteWasmBlazor/**/*.nupkg
         retention-days: 2
 
     - name: Clear NuGet cache
