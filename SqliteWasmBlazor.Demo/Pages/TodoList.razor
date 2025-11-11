@@ -9,6 +9,24 @@
 
 <PageTitle>Todo List</PageTitle>
 
+@if (_isGenerating)
+{
+    <MudOverlay Visible="true" ZIndex="9999" DarkBackground="true" Absolute="false">
+        <MudPaper Class="pa-8" Elevation="8" Style="max-width: 400px;">
+            <MudStack Spacing="4" AlignItems="AlignItems.Center">
+                <MudProgressCircular Color="Color.Primary" Size="Size.Large" Indeterminate="true" />
+                <MudText Typo="Typo.h6" Align="Align.Center">Generating Test Data</MudText>
+                <MudText Typo="Typo.body2" Align="Align.Center" Color="Color.Secondary">
+                    Creating @_generatedFakeEntries.ToString("N0") entries...
+                </MudText>
+                <MudText Typo="Typo.caption" Align="Align.Center" Color="Color.Secondary">
+                    Please wait, this may take a moment
+                </MudText>
+            </MudStack>
+        </MudPaper>
+    </MudOverlay>
+}
+
 <MudContainer MaxWidth="MaxWidth.Large" Class="mt-4">
     <MudText Typo="Typo.h3" GutterBottom="true">
         <MudIcon Icon="@Icons.Material.Filled.Storage" Class="mr-2" />
@@ -71,19 +89,20 @@
                           Clearable="true" />
 
             <MudGrid Spacing="2">
-                <MudItem xs="12" sm="6" md="3">
+                <MudItem xs="12" sm="6" md="3" Class="d-flex align-center">
                     <MudSelect T="int"
                                @bind-Value="_generatedFakeEntries"
                                Label="Number of Entries"
                                Variant="Variant.Outlined"
                                Dense="true"
-                               FullWidth="true">
+                               FullWidth="true"
+                               Disabled="_isGenerating">
                         <MudSelectItem Value="10000">10,000</MudSelectItem>
                         <MudSelectItem Value="100000">100,000</MudSelectItem>
                         <MudSelectItem Value="1000000">1,000,000</MudSelectItem>
                     </MudSelect>
                 </MudItem>
-                <MudItem xs="12" sm="6" md="3">
+                <MudItem xs="12" sm="6" md="3" Class="d-flex align-center">
                     <MudButton Variant="Variant.Filled"
                                Color="Color.Secondary"
                                OnClick="CreateTestDataAsync"
@@ -101,21 +120,23 @@
                         }
                     </MudButton>
                 </MudItem>
-                <MudItem xs="12" sm="6" md="3">
+                <MudItem xs="12" sm="6" md="3" Class="d-flex align-center">
                     <MudButton Variant="Variant.Outlined"
                                Color="Color.Error"
                                OnClick="ClearAllDataAsync"
                                StartIcon="@Icons.Material.Filled.DeleteSweep"
-                               FullWidth="true">
+                               FullWidth="true"
+                               Disabled="_isGenerating">
                         Clear All
                     </MudButton>
                 </MudItem>
-                <MudItem xs="12" sm="6" md="3">
+                <MudItem xs="12" sm="6" md="3" Class="d-flex align-center">
                     <MudButton Variant="Variant.Outlined"
                                Color="Color.Warning"
                                OnClick="ResetDatabaseAsync"
                                StartIcon="@Icons.Material.Filled.RestartAlt"
-                               FullWidth="true">
+                               FullWidth="true"
+                               Disabled="_isGenerating">
                         Reset Database
                     </MudButton>
                 </MudItem>
