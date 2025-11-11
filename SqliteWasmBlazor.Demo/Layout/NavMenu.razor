@@ -1,5 +1,3 @@
-@using SqliteWasmBlazor.Demo.Services
-
 <MudNavMenu>
     <MudNavLink Href="" Match="NavLinkMatch.All" Icon="@Icons.Material.Filled.Home">Home</MudNavLink>
     @if (DBInitializationService.ErrorMessage is null)
@@ -12,5 +10,5 @@
 @code
 {
     [Inject]
-    public required DBInitializationService DBInitializationService { get; init; }
+    public required IDBInitializationService DBInitializationService { get; init; }
 }

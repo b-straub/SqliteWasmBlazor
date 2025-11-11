@@ -7,7 +7,7 @@
 
     <!-- Package Metadata -->
     <PackageId>SqliteWasmBlazor</PackageId>
-    <Version>0.5.13-pre</Version>
+    <Version>0.5.14-pre</Version>
     <Authors>bernisoft</Authors>
     <Company>bernisoft</Company>
     <Product>SqliteWasmBlazor</Product>
@@ -20,7 +20,7 @@
     <RepositoryType>git</RepositoryType>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageReleaseNotes>
-      v0.5.13-pre - Initial Release
+      v0.5.14-pre - Initial Release
       - Full EF Core ADO.NET provider
       - OPFS SAHPool persistence
       - MessagePack binary protocol
@@ -68,11 +68,6 @@
     <NativeFileReference Include="native/lib/e_sqlite3.a" />
     <!-- Include in NuGet package - targets file handles the NativeFileReference for consumers -->
     <None Include="native/lib/e_sqlite3.a" Pack="true" PackagePath="native/lib" />
-  </ItemGroup>
-  <ItemGroup>
-    <Content Include="..\README.md">
-      <Link>README.md</Link>
-    </Content>
   </ItemGroup>
 
   <!-- Build TypeScript very early, before static web assets are discovered -->

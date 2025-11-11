@@ -181,26 +181,25 @@ builder.Services.AddDbContextFactory<TodoDbContext>(options =>
     options.UseSqliteWasm(connection);
 });
 
+// Register initialization service
+builder.Services.AddSingleton<IDBInitializationService, DBInitializationService>();
+
 var host = builder.Build();
 
-// Initialize the Web Worker
-await SqliteWasmWorkerBridge.Instance.InitializeAsync();
+// Initialize SqliteWasm database with automatic migration support
+await host.Services.InitializeSqliteWasmDatabaseAsync<TodoDbContext>();
 
-// Initialize database
-using (var scope = host.Services.CreateScope())
-{
-    var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<TodoDbContext>>();
-    await using var dbContext = await factory.CreateDbContextAsync();
-
-    // Option 1: Use migrations (recommended)
-    await dbContext.Database.MigrateAsync();
-
-    // Option 2: Simple schema creation
-    await dbContext.Database.EnsureCreatedAsync();
-}
+// Configure logging (optional)
+SqliteWasmLogger.SetLogLevel(SqliteWasmLogLevel.WARNING);
 
 await host.RunAsync();
 ```
+
+The `InitializeSqliteWasmDatabaseAsync` extension method automatically:
+- Initializes the Web Worker bridge
+- Applies pending migrations (with automatic migration history recovery)
+- Handles multi-tab conflicts with helpful error messages
+- Tracks initialization status via `IDBInitializationService`
 
 ### 2. Define Your DbContext
 
@@ -333,11 +332,13 @@ All modern browsers (2023+) support OPFS with Synchronous Access Handles.
 
 ## Technical Details
 
-### Package Size
+### Package Size (Published/Release Build)
 
-- **SqliteWasmBlazor.dll**: ~50 KB (minimal ADO.NET implementation)
-- **sqlite-worker.js**: 1.7 MB (includes sqlite-wasm + MessagePack)
-- **sqlite3.wasm**: 1.1 MB (official SQLite WebAssembly build)
+- **SqliteWasmBlazor.wasm**: 88 KB (ADO.NET provider + EF Core integration)
+- **sqlite-wasm-worker.js**: 234 KB (minified, includes MessagePack)
+- **sqlite-wasm-bridge.js**: 1.7 KB (main thread bridge)
+- **sqlite3.wasm**: 836 KB (official SQLite WebAssembly build)
+- **Total overhead**: ~1.16 MB (compressed sizes are typically 40-50% smaller)
 
 ### Performance Characteristics
 
@@ -348,20 +349,25 @@ All modern browsers (2023+) support OPFS with Synchronous Access Handles.
 
 ### SQLite Configuration
 
-Automatically configured for WASM environment:
+Automatically configured for OPFS environment (SQLite 3.47+):
 
 ```sql
-PRAGMA journal_mode = WAL;        -- Write-Ahead Logging for concurrency
+PRAGMA locking_mode = exclusive;  -- Required for WAL mode with OPFS
+PRAGMA journal_mode = WAL;        -- Write-Ahead Logging for performance
 PRAGMA synchronous = FULL;        -- Maximum data safety
 ```
 
+**Note**: WAL mode with OPFS requires exclusive locking (single connection). This is automatically handled - no concurrency concerns in single-user browser environment.
+
 ### Custom EF Core Functions
 
-All `ef_*` functions are implemented in TypeScript for full EF Core compatibility:
+All EF Core functions are implemented for full compatibility:
 
-- **Arithmetic**: `ef_add`, `ef_divide`, `ef_multiply`, `ef_negate`
+- **Arithmetic**: `ef_add`, `ef_divide`, `ef_multiply`, `ef_mod`, `ef_negate`
 - **Comparison**: `ef_compare`
-- **Aggregates**: `ef_sum`, `ef_avg`, `ef_min`, `ef_max`
+- **Aggregates**: `ef_sum`, `ef_avg`, `ef_min`, `ef_max` (optimized via native SQLite)
+- **Pattern Matching**: `regexp` (for `Regex.IsMatch()`)
+- **Collation**: `EF_DECIMAL` (for proper decimal sorting)
 
 ## FAQ
 

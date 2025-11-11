@@ -105,6 +105,15 @@ function convertBigInt(value: any): any {
         // Restore original console.warn
         console.warn = originalWarn;
 
+        // Configure SQLite's internal logging to respect our log level
+        // This ensures SQLite WASM's warnings, errors, and debug messages go through our logger
+        if (sqlite3.config) {
+            sqlite3.config.warn = (...args: any[]) => logger.warn(MODULE_NAME, ...args);
+            sqlite3.config.error = (...args: any[]) => logger.error(MODULE_NAME, ...args);
+            sqlite3.config.log = (...args: any[]) => logger.info(MODULE_NAME, ...args);
+            sqlite3.config.debug = (...args: any[]) => logger.debug(MODULE_NAME, ...args);
+        }
+
         // Disable automatic OPFS VFS installation to prevent misleading warnings
         // We explicitly use SAHPool VFS below instead
         if ((sqlite3 as any).capi?.sqlite3_vfs_find('opfs')) {
@@ -242,10 +251,13 @@ async function openDatabase(dbName: string) {
     // Always check if PRAGMAs need to be set (even if database was already open)
     // This handles the case where database was closed and reopened
     if (!pragmasSet.has(dbName)) {
+        // WAL mode with OPFS requires exclusive locking mode (SQLite 3.47+)
+        // Must be set BEFORE activating WAL mode
+        db.exec("PRAGMA locking_mode = exclusive;");
         db.exec("PRAGMA journal_mode = WAL;");
         db.exec("PRAGMA synchronous = FULL;");
         pragmasSet.add(dbName);
-        console.debug(`[SQLite Worker] Set PRAGMAs for ${dbName} (journal_mode=WAL, synchronous=FULL)`);
+        console.debug(`[SQLite Worker] Set PRAGMAs for ${dbName} (locking_mode=exclusive, journal_mode=WAL, synchronous=FULL)`);
 
         // Register EF Core scalar and aggregate functions for feature completeness
         // These functions enable full decimal arithmetic and comparison support in EF Core queries
