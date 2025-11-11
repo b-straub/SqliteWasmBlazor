@@ -64,5 +64,6 @@ Thumbs.db
 *.temp
 SqliteWasm.Data/wwwroot/sqlite-wasm-worker.js
 SqliteWasm.Data/wwwroot/sqlite-wasm-bridge.js
+.nuget
 SqliteWasmBlazor/wwwroot
 SqliteWasmBlazor/native/lib/sqlite3_stub.o

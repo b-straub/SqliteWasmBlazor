@@ -5,21 +5,22 @@
         <Nullable>enable</Nullable>
         <ImplicitUsings>enable</ImplicitUsings>
         <OverrideHtmlAssetPlaceholders>false</OverrideHtmlAssetPlaceholders>
-        <WasmFingerprintAssets>false</WasmFingerprintAssets>
         <ServiceWorkerAssetsManifest>service-worker-assets.js</ServiceWorkerAssetsManifest>
+        <WasmFingerprintAssets>false</WasmFingerprintAssets>
         <WasmBuildNative>true</WasmBuildNative>
     </PropertyGroup>
 
     <ItemGroup>
-        <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly" Version="10.0.0-rc.2.25502.107"/>
-        <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.DevServer" Version="10.0.0-rc.2.25502.107" PrivateAssets="all"/>
-        <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.0-rc.2.25502.107"/>
+        <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly" Version="10.0.0" />
+        <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.DevServer" Version="10.0.0" PrivateAssets="all" />
+        <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.0" />
         <PackageReference Include="MudBlazor" Version="8.14.0"/>
-        <PackageReference Include="SqliteWasmBlazor" Version="0.5.14-pre" Condition="'$(Configuration)' == 'Release'" />
+        <PackageReference Include="SqliteWasmBlazor" Version="0.5.15-pre" Condition="'$(Configuration)' == 'Release'" />
         <!-- Exclude large (1.1MB) SQLitePCLRaw native library - SqliteWasmBlazor provides minimal (9.8KB) stub -->
         <PackageReference Include="SQLitePCLRaw.lib.e_sqlite3" Version="2.1.11" ExcludeAssets="all" PrivateAssets="all" Condition="'$(Configuration)' == 'Release'"/>
     </ItemGroup>
 
+    <!-- MSB4018 -->
     <ItemGroup>
         <Compile Include="..\SqliteWasmBlazor.Models\Migrations\**\*.cs">
             <Link>Migrations\%(RecursiveDir)%(Filename)%(Extension)</Link>
@@ -31,7 +32,7 @@
             <Link>Models\%(RecursiveDir)%(Filename)%(Extension)</Link>
         </Compile>
     </ItemGroup>
-
+    
     <ItemGroup Condition="'$(Configuration)' == 'Debug'">
         <NativeFileReference Include="..\SqliteWasmBlazor\native\lib\e_sqlite3.a"/>
         <ProjectReference Include="..\SqliteWasmBlazor\SqliteWasmBlazor.csproj"/>
@@ -40,5 +41,11 @@
     <ItemGroup>
         <ServiceWorker Include="wwwroot\service-worker.js" PublishedContent="wwwroot\service-worker.published.js"/>
     </ItemGroup>
-
+    
+    <!-- MSB4018
+   <ItemGroup>
+     <ProjectReference Include="..\SqliteWasmBlazor.Models\SqliteWasmBlazor.Models.csproj" />
+   </ItemGroup>
+    -->
+    
 </Project>

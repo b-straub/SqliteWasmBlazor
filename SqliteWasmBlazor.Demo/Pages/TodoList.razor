@@ -6,6 +6,7 @@
 @using SqliteWasmWorkerBridge = SqliteWasmBlazor.SqliteWasmWorkerBridge
 @inject IDbContextFactory<TodoDbContext> DbContextFactory
 @inject ISnackbar Snackbar
+@implements IDisposable
 
 <PageTitle>Todo List</PageTitle>
 
@@ -274,6 +275,8 @@
     private string _performanceInfo = string.Empty;
     private bool _isGenerating;
     private int _generatedFakeEntries = 10000;
+    private CancellationTokenSource? _searchCts;
+    private Timer? _debounceTimer;
 
     private static readonly string[] TaskPrefixes = ["Task", "Work", "Project", "Meeting", "Call", "Email", "Review", "Plan", "Design", "Test"];
     private static readonly string[] TaskTypes = ["urgent", "important", "routine", "followup", "research", "development", "documentation", "deployment"];
@@ -338,7 +341,7 @@
             await using var context = await DbContextFactory.CreateDbContextAsync();
             var fileSize = await context.Database.SqlQueryRaw<long>(
                 "SELECT (SELECT page_count FROM pragma_page_count()) * (SELECT page_size FROM pragma_page_size()) AS Value"
-            ).FirstOrDefaultAsync();
+            ).SingleOrDefaultAsync();
             _databaseFileSize = fileSize;
             StateHasChanged();
         }
@@ -536,11 +539,42 @@
         }
     }
 
-    private async Task OnSearch(string text)
+    private void OnSearch(string text)
     {
         _searchString = text;
-        await Table.ReloadServerData();
-        StateHasChanged();
+
+        // Cancel any pending search
+        _searchCts?.Cancel();
+        _searchCts?.Dispose();
+        _searchCts = new CancellationTokenSource();
+
+        // Debounce: wait 300ms before executing search
+        _debounceTimer?.Dispose();
+        _debounceTimer = new Timer(_ =>
+        {
+            _ = InvokeAsync(async () =>
+            {
+                try
+                {
+                    if (_searchCts is { IsCancellationRequested: false })
+                    {
+                        await Table.ReloadServerData();
+                        StateHasChanged();
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                    // Ignore cancellation
+                }
+            });
+        }, null, 300, Timeout.Infinite);
+    }
+
+    public void Dispose()
+    {
+        _searchCts?.Cancel();
+        _searchCts?.Dispose();
+        _debounceTimer?.Dispose();
     }
 
     private async Task ClearSearchAsync()
