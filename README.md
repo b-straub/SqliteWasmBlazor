@@ -272,15 +272,89 @@ public class TodoItem
 
 ### Migrations
 
-Generate migrations just like regular EF Core:
+EF Core migrations work with SqliteWasmBlazor, but require special configuration due to WebAssembly limitations.
+
+**Project Structure Recommendation:**
+- Put your DbContext and models in a **separate project** (e.g., `YourApp.Models`)
+- Reference this project from your Blazor WebAssembly project
+- Configure `Microsoft.EntityFrameworkCore.Design` with minimal assets:
+
+```xml
+<!-- In YourApp.Models.csproj -->
+<PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.0">
+    <IncludeAssets>runtime; analyzers;</IncludeAssets>
+    <PrivateAssets>all</PrivateAssets>
+</PackageReference>
+```
+
+This prevents design-time assets from being published with your WebAssembly app, which would cause errors.
+
+**Generate and apply migrations:**
 
 ```bash
-# Add migration
+# Generate migration (run from models project directory)
 dotnet ef migrations add InitialCreate --context TodoDbContext
 
-# Apply migrations at runtime
+# Apply migrations at runtime (in your Blazor app)
 await dbContext.Database.MigrateAsync();
 ```
+
+The `InitializeSqliteWasmDatabaseAsync` extension method automatically applies pending migrations during app startup.
+
+### Full-Text Search (FTS5)
+
+SqliteWasmBlazor supports SQLite's FTS5 (Full-Text Search 5) virtual tables for powerful text search capabilities:
+
+```csharp
+// Define FTS5 virtual table entity
+public class FTSTodoItem
+{
+    public int RowId { get; set; }
+    public string? Match { get; set; }
+    public double Rank { get; set; }
+    public TodoItem? TodoItem { get; set; }
+}
+
+// Configure in OnModelCreating
+modelBuilder.Entity<FTSTodoItem>(entity =>
+{
+    entity.HasNoKey();
+    entity.ToTable("FTSTodoItem");
+    entity.Property(e => e.Match).HasColumnName("FTSTodoItem");
+});
+
+// Create FTS5 table via migration (manually edit migration file)
+migrationBuilder.Sql(@"
+    CREATE VIRTUAL TABLE FTSTodoItem USING fts5(
+        Title, Description,
+        content='TodoItems',
+        content_rowid='Id'
+    );
+");
+
+// Search with highlighting
+var results = dbContext.Database
+    .SqlQuery<TodoItemSearchResult>($@"
+        SELECT
+            t.Id, t.Title, t.Description,
+            highlight(FTSTodoItem, 0, '<mark>', '</mark>') AS HighlightedTitle,
+            highlight(FTSTodoItem, 1, '<mark>', '</mark>') AS HighlightedDescription,
+            rank AS Rank
+        FROM FTSTodoItem
+        INNER JOIN TodoItems t ON FTSTodoItem.rowid = t.Id
+        WHERE FTSTodoItem MATCH {searchQuery}
+        ORDER BY rank")
+    .AsNoTracking();
+```
+
+**FTS5 Features:**
+- Full-text search across multiple columns with relevance ranking
+- `highlight()` function for marking search matches in full text
+- `snippet()` function for contextual excerpts with configurable token limits
+- Automatic query sanitization to handle special characters safely
+- Support for phrase searches, prefix matching, and boolean operators
+
+See the demo application for a complete FTS5 implementation example.
 
 ### JSON Collections
 
@@ -398,6 +472,7 @@ Yes! All standard EF Core features work: migrations, relationships, LINQ queries
 - [x] EF Core migrations support
 - [x] MessagePack serialization
 - [x] Custom EF functions (decimals)
+- [x] FTS5 full-text search with highlighting and snippets
 - [x] MudBlazor demo app
 - [ ] NuGet package release
 - [ ] Database export/import API

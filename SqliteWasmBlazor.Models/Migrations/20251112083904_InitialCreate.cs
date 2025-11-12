@@ -86,6 +86,41 @@ namespace SqliteWasmBlazor.Models.Migrations
                     table.PrimaryKey("PK_TypeTests", x => x.Id);
                 });
 
+            // Create FTS5 virtual table for full-text search on TodoItems
+            // Note: EF Core cannot auto-generate FTS5 syntax, so we use raw SQL
+            migrationBuilder.Sql(@"
+                CREATE VIRTUAL TABLE FTSTodoItem USING fts5(
+                    Title,
+                    Description,
+                    content=TodoItems,
+                    content_rowid=Id
+                );
+            ");
+
+            // Create triggers to keep FTS5 table synchronized with TodoItems
+            // Insert trigger
+            migrationBuilder.Sql(@"
+                CREATE TRIGGER FTSTodoItem_ai AFTER INSERT ON TodoItems BEGIN
+                    INSERT INTO FTSTodoItem(rowid, Title, Description)
+                    VALUES (new.Id, new.Title, new.Description);
+                END;
+            ");
+
+            // Update trigger
+            migrationBuilder.Sql(@"
+                CREATE TRIGGER FTSTodoItem_au AFTER UPDATE ON TodoItems BEGIN
+                    UPDATE FTSTodoItem SET Title = new.Title, Description = new.Description
+                    WHERE rowid = new.Id;
+                END;
+            ");
+
+            // Delete trigger
+            migrationBuilder.Sql(@"
+                CREATE TRIGGER FTSTodoItem_ad AFTER DELETE ON TodoItems BEGIN
+                    DELETE FROM FTSTodoItem WHERE rowid = old.Id;
+                END;
+            ");
+
             migrationBuilder.CreateTable(
                 name: "todos",
                 columns: table => new
@@ -119,14 +154,22 @@ namespace SqliteWasmBlazor.Models.Migrations
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.DropTable(
-                name: "TodoItems");
+            // Drop FTS5 triggers
+            migrationBuilder.Sql("DROP TRIGGER IF EXISTS FTSTodoItem_ai;");
+            migrationBuilder.Sql("DROP TRIGGER IF EXISTS FTSTodoItem_au;");
+            migrationBuilder.Sql("DROP TRIGGER IF EXISTS FTSTodoItem_ad;");
+
+            // Drop FTS5 virtual table
+            migrationBuilder.Sql("DROP TABLE IF EXISTS FTSTodoItem;");
 
             migrationBuilder.DropTable(
                 name: "todos");
 
             migrationBuilder.DropTable(
                 name: "TypeTests");
+
+            migrationBuilder.DropTable(
+                name: "TodoItems");
 
             migrationBuilder.DropTable(
                 name: "todoLists");

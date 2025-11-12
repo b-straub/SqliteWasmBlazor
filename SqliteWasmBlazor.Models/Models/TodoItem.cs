@@ -19,4 +19,9 @@ public class TodoItem
     public DateTime CreatedAt { get; set; }
 
     public DateTime? CompletedAt { get; set; }
+
+    /// <summary>
+    /// Navigation property to FTS5 virtual table for full-text search
+    /// </summary>
+    public FTSTodoItem? FTS { get; set; }
 }

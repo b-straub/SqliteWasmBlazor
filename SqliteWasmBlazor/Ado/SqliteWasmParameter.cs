@@ -232,7 +232,14 @@ public sealed class SqliteWasmParameterCollection : DbParameterCollection
                 value = Convert.ToBase64String(bytes);
             }
 
-            result[param.ParameterName] = value;
+            // Ensure parameter name has @ prefix for SQLite compatibility
+            var paramName = param.ParameterName;
+            if (!string.IsNullOrEmpty(paramName) && !paramName.StartsWith('@') && !paramName.StartsWith('$') && !paramName.StartsWith(':'))
+            {
+                paramName = "@" + paramName;
+            }
+
+            result[paramName] = value;
         }
         return result;
     }

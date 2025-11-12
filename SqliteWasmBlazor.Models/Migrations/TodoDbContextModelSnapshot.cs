@@ -17,6 +17,32 @@ namespace SqliteWasmBlazor.Models.Migrations
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "10.0.0");
 
+            modelBuilder.Entity("SqliteWasmBlazor.Models.Models.FTSTodoItem", b =>
+                {
+                    b.Property<int>("RowId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Match")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("FTSTodoItem");
+
+                    b.Property<double?>("Rank")
+                        .HasColumnType("REAL");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("RowId");
+
+                    b.ToTable("FTSTodoItem", (string)null);
+                });
+
             modelBuilder.Entity("SqliteWasmBlazor.Models.Models.Todo", b =>
                 {
                     b.Property<Guid>("Id")
@@ -217,6 +243,17 @@ namespace SqliteWasmBlazor.Models.Migrations
                     b.ToTable("TypeTests");
                 });
 
+            modelBuilder.Entity("SqliteWasmBlazor.Models.Models.FTSTodoItem", b =>
+                {
+                    b.HasOne("SqliteWasmBlazor.Models.Models.TodoItem", "TodoItem")
+                        .WithOne("FTS")
+                        .HasForeignKey("SqliteWasmBlazor.Models.Models.FTSTodoItem", "RowId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("TodoItem");
+                });
+
             modelBuilder.Entity("SqliteWasmBlazor.Models.Models.Todo", b =>
                 {
                     b.HasOne("SqliteWasmBlazor.Models.Models.TodoList", "TodoList")
@@ -226,6 +263,11 @@ namespace SqliteWasmBlazor.Models.Migrations
                         .IsRequired();
 
                     b.Navigation("TodoList");
+                });
+
+            modelBuilder.Entity("SqliteWasmBlazor.Models.Models.TodoItem", b =>
+                {
+                    b.Navigation("FTS");
                 });
 
             modelBuilder.Entity("SqliteWasmBlazor.Models.Models.TodoList", b =>

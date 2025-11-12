@@ -49,6 +49,7 @@ internal class TestFactory
         _tests.Add(("CRUD", new UpdateModifyPropertyTest(factory)));
         _tests.Add(("CRUD", new DeleteSingleEntityTest(factory)));
         _tests.Add(("CRUD", new BulkInsert100EntitiesTest(factory)));
+        _tests.Add(("CRUD", new FTS5SearchTest(factory)));
 
         // Transaction Tests
         _tests.Add(("Transactions", new TransactionCommitTest(factory)));

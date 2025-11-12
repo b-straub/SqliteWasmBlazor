@@ -119,7 +119,7 @@ Please close any other tabs running this application and refresh the page.
 
                 var versionParam = cmd.CreateParameter();
                 versionParam.ParameterName = "$version";
-                versionParam.Value = "10.0.0-rc.2.25502.107";
+                versionParam.Value = "10.0.0";
                 cmd.Parameters.Add(versionParam);
 
                 await cmd.ExecuteNonQueryAsync();

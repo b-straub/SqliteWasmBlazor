@@ -3,6 +3,8 @@
 @using System.Diagnostics
 @using SqliteWasmBlazor.Models
 @using SqliteWasmBlazor.Models.Models
+@using SqliteWasmBlazor.Models.Extensions
+@using SqliteWasmBlazor.Demo.Components
 @using SqliteWasmWorkerBridge = SqliteWasmBlazor.SqliteWasmWorkerBridge
 @inject IDbContextFactory<TodoDbContext> DbContextFactory
 @inject ISnackbar Snackbar
@@ -76,18 +78,31 @@
         <MudText Typo="Typo.h6" Class="mb-3">
             <MudIcon Icon="@Icons.Material.Filled.Speed" Size="Size.Small" Class="mr-1" />
             Search & Performance Testing
+            <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Text">FTS5 Enabled</MudChip>
         </MudText>
         <MudStack Spacing="3">
-            <MudTextField T="string"
-                          Value="_searchString"
-                          ValueChanged="@(s => OnSearch(s))"
-                          Immediate="true"
-                          Label="Search"
-                          Variant="Variant.Outlined"
-                          Placeholder="Search by title or description..."
-                          Adornment="Adornment.Start"
-                          AdornmentIcon="@Icons.Material.Filled.Search"
-                          Clearable="true" />
+            <MudStack Spacing="2">
+                <MudTextField T="string"
+                              Value="_searchString"
+                              ValueChanged="@(s => OnSearch(s))"
+                              Immediate="true"
+                              Label="Full-Text Search (FTS5)"
+                              Variant="Variant.Outlined"
+                              Placeholder="Search for any text (e.g., 'urgent', 'Task #123', 'ac10*' for prefix)"
+                              Adornment="Adornment.Start"
+                              AdornmentIcon="@Icons.Material.Filled.Search"
+                              Clearable="true"
+                              HelperText="Searches title and description. Use * for prefix matching (e.g., 'ac10*'). Special characters are escaped." />
+
+                <MudRadioGroup Value="_searchMode"
+                               ValueChanged="@(async (SearchMode mode) => await OnSearchModeChanged(mode))"
+                               T="SearchMode"
+                               row="true">
+                    <MudRadio Value="SearchMode.Normal" Color="Color.Default">Normal</MudRadio>
+                    <MudRadio Value="SearchMode.Highlight" Color="Color.Primary">Highlight Full Text</MudRadio>
+                    <MudRadio Value="SearchMode.Snippet" Color="Color.Secondary">Show Snippets</MudRadio>
+                </MudRadioGroup>
+            </MudStack>
 
             <MudGrid Spacing="2">
                 <MudItem xs="12" sm="6" md="3" Class="d-flex align-center">
@@ -133,12 +148,44 @@
                 </MudItem>
                 <MudItem xs="12" sm="6" md="3" Class="d-flex align-center">
                     <MudButton Variant="Variant.Outlined"
+                               Color="Color.Info"
+                               OnClick="OptimizeFTS5IndexAsync"
+                               StartIcon="@Icons.Material.Filled.Tune"
+                               FullWidth="true"
+                               Disabled="_isGenerating">
+                        Optimize FTS5
+                    </MudButton>
+                </MudItem>
+            </MudGrid>
+            <MudGrid Spacing="2">
+                <MudItem xs="12" sm="6" md="4" Class="d-flex align-center">
+                    <MudButton Variant="Variant.Outlined"
                                Color="Color.Warning"
                                OnClick="ResetDatabaseAsync"
                                StartIcon="@Icons.Material.Filled.RestartAlt"
                                FullWidth="true"
                                Disabled="_isGenerating">
                         Reset Database
+                    </MudButton>
+                </MudItem>
+                <MudItem xs="12" sm="6" md="4" Class="d-flex align-center">
+                    <MudButton Variant="Variant.Outlined"
+                               Color="Color.Secondary"
+                               OnClick="RebuildFTS5IndexAsync"
+                               StartIcon="@Icons.Material.Filled.Build"
+                               FullWidth="true"
+                               Disabled="_isGenerating">
+                        Rebuild FTS5 Index
+                    </MudButton>
+                </MudItem>
+                <MudItem xs="12" sm="6" md="4" Class="d-flex align-center">
+                    <MudButton Variant="Variant.Outlined"
+                               Color="Color.Primary"
+                               OnClick="CheckFTS5IntegrityAsync"
+                               StartIcon="@Icons.Material.Filled.VerifiedUser"
+                               FullWidth="true"
+                               Disabled="_isGenerating">
+                        Check FTS5 Integrity
                     </MudButton>
                 </MudItem>
             </MudGrid>
@@ -185,16 +232,16 @@
                                  Color="Color.Success" />
                 </MudTd>
                 <MudTd DataLabel="Title">
-                    <MudText Typo="Typo.body2"
-                             Style="@(context.IsCompleted ? "text-decoration: line-through; color: var(--mud-palette-text-secondary);" : "")">
-                        @context.Title
-                    </MudText>
+                    <HighlightedText PlainContent="@context.Title"
+                                     HighlightedContent="@GetHighlightedText(context.Id, isTitle: true)"
+                                     UseHighlighting="@(_searchMode != SearchMode.Normal)"
+                                     Strikethrough="@context.IsCompleted" />
                 </MudTd>
                 <MudTd DataLabel="Description">
-                    <MudText Typo="Typo.body2"
-                             Style="@(context.IsCompleted ? "text-decoration: line-through; color: var(--mud-palette-text-secondary);" : "")">
-                        @context.Description
-                    </MudText>
+                    <HighlightedText PlainContent="@context.Description"
+                                     HighlightedContent="@GetHighlightedText(context.Id, isTitle: false)"
+                                     UseHighlighting="@(_searchMode != SearchMode.Normal)"
+                                     Strikethrough="@context.IsCompleted" />
                 </MudTd>
                 <MudTd DataLabel="Created">
                     <MudChip T="string" Size="Size.Small" Variant="Variant.Text">
@@ -266,6 +313,13 @@
 </MudContainer>
 
 @code {
+    public enum SearchMode
+    {
+        Normal,
+        Highlight,
+        Snippet
+    }
+
     public required MudTable<TodoItem> Table;
     private int _totalCount;
     private long _databaseFileSize;
@@ -274,9 +328,11 @@
     private string _searchString = string.Empty;
     private string _performanceInfo = string.Empty;
     private bool _isGenerating;
+    private SearchMode _searchMode = SearchMode.Normal;
     private int _generatedFakeEntries = 10000;
     private CancellationTokenSource? _searchCts;
     private Timer? _debounceTimer;
+    private Dictionary<int, (string Title, string Description)> _highlightCache = new();
 
     private static readonly string[] TaskPrefixes = ["Task", "Work", "Project", "Meeting", "Call", "Email", "Review", "Plan", "Design", "Test"];
     private static readonly string[] TaskTypes = ["urgent", "important", "routine", "followup", "research", "development", "documentation", "deployment"];
@@ -292,42 +348,125 @@
     {
         await using var context = await DbContextFactory.CreateDbContextAsync(cancellationToken);
 
-        var query = context.TodoItems.AsQueryable();
+        _highlightCache.Clear(); // Clear cache for new results
 
-        // Apply search filter if active
+        // Use FTS5 search if search string is provided
         if (!string.IsNullOrWhiteSpace(_searchString))
         {
-            query = query.Where(t => t.Title.StartsWith(_searchString) || t.Description.Contains(_searchString));
+            if (_searchMode == SearchMode.Highlight)
+            {
+                // Use FTS5 with highlighting
+                var query = context.SearchTodoItemsWithHighlight(_searchString, "<mark>", "</mark>");
+                var count = await query.CountAsync(cancellationToken);
+                _totalCount = count;
+
+                var highlightedResults = await query
+                    .Skip(state.Page * state.PageSize)
+                    .Take(state.PageSize)
+                    .ToListAsync(cancellationToken);
+
+                // Cache highlighted text (now accessing properties directly due to inheritance)
+                foreach (var result in highlightedResults)
+                {
+                    _highlightCache[result.Id] = (result.DisplayTitle, result.DisplayDescription);
+                }
+
+                return new TableData<TodoItem>
+                {
+                    // Can cast because TodoItemSearchResult inherits from TodoItem
+                    Items = highlightedResults.Cast<TodoItem>().ToList(),
+                    TotalItems = count
+                };
+            }
+            else if (_searchMode == SearchMode.Snippet)
+            {
+                // Use FTS5 with snippets (5 tokens = ~5-7 words for short excerpts)
+                var query = context.SearchTodoItemsWithSnippet(_searchString, "<mark>", "</mark>", "...", 5);
+                var count = await query.CountAsync(cancellationToken);
+                _totalCount = count;
+
+                var snippetResults = await query
+                    .Skip(state.Page * state.PageSize)
+                    .Take(state.PageSize)
+                    .ToListAsync(cancellationToken);
+
+                // Cache snippet text (now accessing properties directly due to inheritance)
+                foreach (var result in snippetResults)
+                {
+                    _highlightCache[result.Id] = (result.DisplayTitleSnippet, result.DisplayDescriptionSnippet);
+                }
+
+                return new TableData<TodoItem>
+                {
+                    // Can cast because TodoItemSnippetResult inherits from TodoItem
+                    Items = snippetResults.Cast<TodoItem>().ToList(),
+                    TotalItems = count
+                };
+            }
+            else
+            {
+                // Use FTS5 without highlighting or snippets
+                var query = context.SearchTodoItems(_searchString);
+                var count = await query.CountAsync(cancellationToken);
+                _totalCount = count;
+
+                var data = await query
+                    .Skip(state.Page * state.PageSize)
+                    .Take(state.PageSize)
+                    .ToListAsync(cancellationToken);
+
+                return new TableData<TodoItem>
+                {
+                    Items = data,
+                    TotalItems = count
+                };
+            }
+        }
+        else
+        {
+            // Regular query when no search
+            var query = context.TodoItems.OrderByDescending(t => t.CreatedAt);
+            var count = await query.CountAsync(cancellationToken);
+            _totalCount = count;
+
+            var data = await query
+                .Skip(state.Page * state.PageSize)
+                .Take(state.PageSize)
+                .ToListAsync(cancellationToken);
+
+            return new TableData<TodoItem>
+            {
+                Items = data,
+                TotalItems = count
+            };
+        }
+    }
+
+    private string? GetHighlightedText(int itemId, bool isTitle)
+    {
+        // Return highlighted text from FTS5 cache if available (already contains <mark> tags)
+        if (_highlightCache.TryGetValue(itemId, out var highlighted))
+        {
+            return isTitle ? highlighted.Title : highlighted.Description;
         }
 
-        query = query.OrderByDescending(t => t.CreatedAt);
-
-        // Get fresh count for accurate paging
-        var count = await query.CountAsync(cancellationToken);
-        _totalCount = count;
-
-        var data = await query
-            .Skip(state.Page * state.PageSize)
-            .Take(state.PageSize)
-            .ToListAsync(cancellationToken);
-
-        return new TableData<TodoItem>
-        {
-            Items = data,
-            TotalItems = count
-        };
+        return null;
     }
 
     private async Task UpdateTotalCountAsync()
     {
         await using var context = await DbContextFactory.CreateDbContextAsync();
 
-        var query = context.TodoItems.AsQueryable();
+        IQueryable<TodoItem> query;
 
-        // Apply search filter if active
+        // Use FTS5 search if search string is provided
         if (!string.IsNullOrWhiteSpace(_searchString))
         {
-            query = query.Where(t => t.Title.StartsWith(_searchString) || t.Description.Contains(_searchString));
+            query = context.SearchTodoItems(_searchString);
+        }
+        else
+        {
+            query = context.TodoItems;
         }
 
         _totalCount = await query.CountAsync();
@@ -570,6 +709,18 @@
         }, null, 300, Timeout.Infinite);
     }
 
+    private async Task OnSearchModeChanged(SearchMode mode)
+    {
+        _searchMode = mode;
+
+        // Only reload if there's an active search
+        if (!string.IsNullOrWhiteSpace(_searchString))
+        {
+            await Table.ReloadServerData();
+            StateHasChanged();
+        }
+    }
+
     public void Dispose()
     {
         _searchCts?.Cancel();
@@ -610,21 +761,97 @@
             // Delete the database file from OPFS SAHPool
             await SqliteWasmWorkerBridge.Instance.DeleteDatabaseAsync("TodoDb.db");
 
-            // Recreate database schema
+            // Recreate database schema using migrations (required for FTS5)
             await using var context = await DbContextFactory.CreateDbContextAsync();
-            await context.Database.EnsureCreatedAsync();
+            await context.Database.MigrateAsync(); // Use MigrateAsync to create FTS5 virtual tables
 
             stopwatch.Stop();
 
             await UpdateTotalCountAsync();
             await UpdateDatabaseFileSizeAsync();
             await Table.ReloadServerData();
-            _performanceInfo = $"Database reset in {stopwatch.ElapsedMilliseconds}ms";
-            Snackbar.Add($"Database completely reset in {stopwatch.ElapsedMilliseconds}ms", Severity.Warning);
+            _performanceInfo = $"Database reset in {stopwatch.ElapsedMilliseconds}ms - FTS5 search enabled";
+            Snackbar.Add($"Database completely reset in {stopwatch.ElapsedMilliseconds}ms", Severity.Success);
         }
         catch (Exception ex)
         {
             Snackbar.Add($"Database reset failed: {ex.Message}", Severity.Error);
+            _performanceInfo = $"Reset failed: {ex.Message}";
+        }
+    }
+
+    private async Task OptimizeFTS5IndexAsync()
+    {
+        var stopwatch = Stopwatch.StartNew();
+
+        try
+        {
+            await using var context = await DbContextFactory.CreateDbContextAsync();
+
+            // Optimize FTS5 index (reduces size and improves performance)
+            // Use special FTS5 command syntax with rowid and all required columns as NULL
+            await context.Database.ExecuteSqlRawAsync(
+                "INSERT INTO FTSTodoItem(FTSTodoItem, rowid, Title, Description) VALUES('optimize', NULL, NULL, NULL)");
+
+            stopwatch.Stop();
+
+            _performanceInfo = $"FTS5 index optimized in {stopwatch.ElapsedMilliseconds}ms - Index size reduced, query performance improved";
+            Snackbar.Add($"FTS5 index optimized in {stopwatch.ElapsedMilliseconds}ms", Severity.Success);
+            await UpdateDatabaseFileSizeAsync();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"FTS5 optimization failed: {ex.Message}", Severity.Error);
+            _performanceInfo = $"Optimization error: {ex.Message}";
+        }
+    }
+
+    private async Task RebuildFTS5IndexAsync()
+    {
+        var stopwatch = Stopwatch.StartNew();
+
+        try
+        {
+            await using var context = await DbContextFactory.CreateDbContextAsync();
+
+            // Force FTS5 index rebuild (useful after bulk operations)
+            await context.Database.ExecuteSqlRawAsync(
+                "INSERT INTO FTSTodoItem(FTSTodoItem, rowid, Title, Description) VALUES('rebuild', NULL, NULL, NULL)");
+
+            stopwatch.Stop();
+
+            _performanceInfo = $"FTS5 index rebuilt in {stopwatch.ElapsedMilliseconds}ms - Full index reconstruction completed";
+            Snackbar.Add($"FTS5 index rebuilt in {stopwatch.ElapsedMilliseconds}ms", Severity.Success);
+            await UpdateDatabaseFileSizeAsync();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"FTS5 rebuild failed: {ex.Message}", Severity.Error);
+            _performanceInfo = $"Rebuild error: {ex.Message}";
+        }
+    }
+
+    private async Task CheckFTS5IntegrityAsync()
+    {
+        var stopwatch = Stopwatch.StartNew();
+
+        try
+        {
+            await using var context = await DbContextFactory.CreateDbContextAsync();
+
+            // Check FTS5 index integrity
+            await context.Database.ExecuteSqlRawAsync(
+                "INSERT INTO FTSTodoItem(FTSTodoItem, rowid, Title, Description) VALUES('integrity-check', NULL, NULL, NULL)");
+
+            stopwatch.Stop();
+
+            _performanceInfo = $"FTS5 integrity check passed in {stopwatch.ElapsedMilliseconds}ms - No corruption detected";
+            Snackbar.Add($"FTS5 integrity check passed in {stopwatch.ElapsedMilliseconds}ms", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"FTS5 integrity check failed: {ex.Message}", Severity.Error);
+            _performanceInfo = $"FTS5 integrity check FAILED: {ex.Message}";
         }
     }
 }
