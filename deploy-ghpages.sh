@@ -3,12 +3,17 @@ set -e
 
 echo "Building SqliteWasmBlazor Demo for GitHub Pages..."
 
+# Clean previous builds
+echo "Cleaning previous builds..."
+dotnet clean -c Release --nologo
+rm -rf SqliteWasmBlazor.Demo/bin/Release SqliteWasmBlazor.Demo/obj/Release
+
 # Build in temp directory
 TEMP_DIR=$(mktemp -d)
 echo "Building in: $TEMP_DIR"
 
-# Publish the demo app
-dotnet publish SqliteWasmBlazor.Demo/SqliteWasmBlazor.Demo.csproj -c Release -o "$TEMP_DIR/build" --nologo
+# Publish the demo app (force rebuild)
+dotnet publish SqliteWasmBlazor.Demo/SqliteWasmBlazor.Demo.csproj -c Release -o "$TEMP_DIR/build" --nologo --no-incremental
 
 # Navigate to published wwwroot
 cd "$TEMP_DIR/build/wwwroot"
