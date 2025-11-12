@@ -51,27 +51,17 @@ jobs:
       run: dotnet restore
 
     - name: Publish Demo app
-      run: dotnet publish SqliteWasmBlazor.Demo/SqliteWasmBlazor.Demo.csproj -c Release -o release --nologo
+      run: dotnet publish SqliteWasmBlazor.Demo/SqliteWasmBlazor.Demo.csproj -c Release -o release --nologo -p:StaticWebAssetBasePath=/SqliteWasmBlazor/
 
-    - name: List published files
+    - name: Fix service worker base path
       run: |
-        echo "Published files in release/wwwroot:"
-        ls -la release/wwwroot/ | head -20
-        echo "Service worker files:"
-        ls -la release/wwwroot/service-worker* || echo "No service worker files found"
-
-    - name: Change base href in index.html
-      run: |
-        sed -i 's/<base href="\/" \/>/<base href="\/SqliteWasmBlazor\/" \/>/g' release/wwwroot/index.html
-
-    - name: Change base path in service worker
-      run: |
-        if [ -f release/wwwroot/service-worker.published.js ]; then
-          sed -i 's/const base = "\/";/const base = "\/SqliteWasmBlazor\/";/g' release/wwwroot/service-worker.published.js
-        fi
-        if [ -f release/wwwroot/service-worker.js ]; then
-          sed -i 's/const base = "\/";/const base = "\/SqliteWasmBlazor\/";/g' release/wwwroot/service-worker.js
-        fi
+        # The StaticWebAssetBasePath doesn't update the service worker, so we need to fix it manually
+        for file in release/wwwroot/service-worker*.js; do
+          if [ -f "$file" ]; then
+            sed -i 's|const base = "/";|const base = "/SqliteWasmBlazor/";|g' "$file"
+            echo "Updated base path in $file"
+          fi
+        done
 
     - name: Add .nojekyll file
       run: touch release/wwwroot/.nojekyll
