@@ -41,10 +41,19 @@ echo ""
 echo "✅ Build complete!"
 echo ""
 
+# List what we're about to deploy
+echo "Files to deploy:"
+find . -type f | head -20
+echo ""
+
 # Initialize new git repo in this directory
-git init
-git add .
+git init -b main
+git add -A
 git commit -m "Deploy to GitHub Pages - $(date '+%Y-%m-%d %H:%M:%S')"
+
+# Show what was committed
+echo "Committed files:"
+git ls-files | head -30
 
 # Detect the remote name
 cd - > /dev/null
