@@ -13,7 +13,7 @@ TEMP_DIR=$(mktemp -d)
 echo "Building in: $TEMP_DIR"
 
 # Publish the demo app (force rebuild)
-dotnet publish SqliteWasmBlazor.Demo/SqliteWasmBlazor.Demo.csproj -c Release -o "$TEMP_DIR/build" --nologo --no-incremental
+dotnet publish SqliteWasmBlazor.Demo/SqliteWasmBlazor.Demo.csproj -c Release -o "$TEMP_DIR/build" --nologo /p:UseSharedCompilation=false
 
 # Navigate to published wwwroot
 cd "$TEMP_DIR/build/wwwroot"
