@@ -47,25 +47,31 @@ jobs:
       id: get_version
       run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
 
-    - name: Restore dependencies
-      run: dotnet restore
+    - name: Restore SqliteWasmBlazor dependencies
+      run: dotnet restore SqliteWasmBlazor/SqliteWasmBlazor.csproj
 
-    - name: Build
-      run: dotnet build --configuration Release --no-restore
+    - name: Build and pack SqliteWasmBlazor with version
+      run: dotnet pack SqliteWasmBlazor/SqliteWasmBlazor.csproj --configuration Release --output ./.nuget /p:PackageVersion=${{ steps.get_version.outputs.VERSION }}
+
+    - name: Clear NuGet cache
+      run: dotnet nuget locals all --clear
+
+    - name: Restore all dependencies
+      run: dotnet restore --force
+
+    - name: Build solution
+      run: dotnet build --configuration Release
 
     - name: Test
       run: dotnet test --configuration Release --no-build --verbosity normal
 
-    - name: Pack
-      run: dotnet pack SqliteWasmBlazor/SqliteWasmBlazor.csproj --configuration Release --no-build --output ./artifacts /p:PackageVersion=${{ steps.get_version.outputs.VERSION }}
-
     - name: Publish to NuGet
-      run: dotnet nuget push ./artifacts/*.nupkg --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate
+      run: dotnet nuget push ./.nuget/*.nupkg --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate
 
     - name: Create GitHub Release
       uses: softprops/action-gh-release@v1
       with:
-        files: ./artifacts/*.nupkg
+        files: ./.nuget/*.nupkg
         generate_release_notes: true
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
