@@ -13,4 +13,12 @@
     {
         <MudText Color="Color.Error">@DBInitializationService.ErrorMessage</MudText>
     }
+
+    <MudText Typo="Typo.caption" Color="Color.Secondary">
+        Build: @_buildTime
+    </MudText>
 </MudStack>
+
+@code {
+    private readonly string _buildTime = cmdwtf.BuildTimestamp.BuildTime.ToLongDateString() + " - " + cmdwtf.BuildTimestamp.BuildTime.ToLongTimeString();
+}
