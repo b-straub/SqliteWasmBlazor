@@ -11,14 +11,14 @@ using SqliteWasmBlazor.Models;
 namespace SqliteWasmBlazor.Models.Migrations
 {
     [DbContext(typeof(TodoDbContext))]
-    [Migration("20251108180226_InitialCreate")]
+    [Migration("20251112081108_InitialCreate")]
     partial class InitialCreate
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
-            modelBuilder.HasAnnotation("ProductVersion", "10.0.0-rc.2.25502.107");
+            modelBuilder.HasAnnotation("ProductVersion", "10.0.0");
 
             modelBuilder.Entity("SqliteWasmBlazor.Models.Models.Todo", b =>
                 {
