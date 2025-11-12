@@ -7,17 +7,36 @@ using Xunit.Abstractions;
 
 namespace SqliteWasmBlazor.Tests.Infrastructure;
 
-public class WaFixtureBase(int port, ITestOutputHelper? output = null) : WebApplicationFactory<TestHost.Program>
+public class WaFixtureBase : WebApplicationFactory<TestHost.Program>
 {
     public IPage? Page { get; private set; }
 
+    private readonly int _port;
+    private readonly ITestOutputHelper? _output;
     private IPlaywright? _playwright;
     private IBrowser? _browser;
     private IBrowserContext? _browserContext;
+    private bool _serverStarted;
+
+    public WaFixtureBase(int port, ITestOutputHelper? output = null)
+    {
+        _port = port;
+        _output = output;
+
+        // Use the new .NET 10 API - must be called in constructor before server initialization
+        this.UseKestrel(port);
+    }
 
     protected async Task InitializeAsync(IWaFixture.BrowserType browserType, bool onePass, bool headless)
     {
-        CreateDefaultClient();
+        InstallPlaywright();
+
+        // Start the Kestrel server if not already started
+        if (!_serverStarted)
+        {
+            this.StartServer();
+            _serverStarted = true;
+        }
 
         if (_playwright is not null)
         {
@@ -28,7 +47,7 @@ public class WaFixtureBase(int port, ITestOutputHelper? output = null) : WebAppl
 
         var newContextOptions = new BrowserNewContextOptions()
         {
-            IgnoreHTTPSErrors = true
+            IgnoreHTTPSErrors = false  // Using HTTP now
         };
 
         _browser = browserType switch
@@ -62,7 +81,7 @@ public class WaFixtureBase(int port, ITestOutputHelper? output = null) : WebAppl
         _browserContext.WebError += (_, webError) =>
         {
             var message = $"[Browser WebError] {webError.Error}";
-            output?.WriteLine(message);
+            _output?.WriteLine(message);
             Console.Error.WriteLine(message);
         };
 
@@ -72,7 +91,7 @@ public class WaFixtureBase(int port, ITestOutputHelper? output = null) : WebAppl
         Page.Console += (_, msg) =>
         {
             var message = $"[Browser {msg.Type}] {msg.Text}";
-            output?.WriteLine(message);
+            _output?.WriteLine(message);
 
             // Also write to Console so it appears in CI logs even without ITestOutputHelper
             if (msg.Type == "error")
@@ -108,7 +127,7 @@ public class WaFixtureBase(int port, ITestOutputHelper? output = null) : WebAppl
                 Timeout = timeout
             };
 
-            await Page.GotoAsync($"https://localhost:{port}/Tests");
+            await Page.GotoAsync($"http://localhost:{_port}/Tests");
 
             await Page.WaitForSelectorAsync("text=All Tests Completed", waitForSelectorOptions);
         }
@@ -143,7 +162,8 @@ public class WaFixtureBase(int port, ITestOutputHelper? output = null) : WebAppl
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
-        builder.UseUrls($"https://localhost:{port}");
+        // Use HTTP for testing to avoid SSL certificate issues
+        builder.UseUrls($"http://localhost:{_port}");
 
         // Suppress verbose logging during tests
         builder.ConfigureLogging(logging =>
@@ -152,22 +172,6 @@ public class WaFixtureBase(int port, ITestOutputHelper? output = null) : WebAppl
             logging.AddConsole();
             logging.SetMinimumLevel(Microsoft.Extensions.Logging.LogLevel.Warning);
         });
-    }
-
-    protected override IHost CreateHost(IHostBuilder builder)
-    {
-        InstallPlaywright();
-
-        // need to create a plain host that we can return.
-        var dummyHost = builder.Build();
-
-        // configure and start the actual host.
-        builder.ConfigureWebHost(webHostBuilder => webHostBuilder.UseKestrel());
-
-        var host = builder.Build();
-        host.Start();
-
-        return dummyHost;
     }
 
     private static void InstallPlaywright()

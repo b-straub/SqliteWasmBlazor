@@ -65,7 +65,7 @@ public abstract class SqliteWasmTestBase(IWaFixture fixture, ITestOutputHelper o
                 _ => throw new ArgumentOutOfRangeException(nameof(_fixture.Type), nameof(_fixture.Type))
             };
 
-            await _fixture.Page.GotoAsync($"https://localhost:{_fixture.Port}/Tests/{name}");
+            await _fixture.Page.GotoAsync($"http://localhost:{_fixture.Port}/Tests/{name}");
         }
 
         var options = new LocatorAssertionsToBeVisibleOptions()
