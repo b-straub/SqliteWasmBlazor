@@ -10,14 +10,16 @@ echo "Deploying to GitHub Pages..."
 # Save current branch
 CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
 
-# Create/checkout gh-pages branch
-git checkout -B gh-pages
+# Create/checkout gh-pages branch (orphan to start fresh)
+git checkout --orphan gh-pages-temp
 
-# Remove everything except dist and scripts
-find . -maxdepth 1 ! -name 'dist' ! -name '.git' ! -name '.' ! -name '..' ! -name 'publish-ghpages.sh' ! -name 'deploy-ghpages.sh' -exec rm -rf {} + 2>/dev/null || true
+# Remove all files from git
+git rm -rf .
 
-# Move built files to root
-mv dist/wwwroot/* .
+# Copy built files to root
+cp -r dist/wwwroot/* .
+
+# Clean up
 rm -rf dist
 
 # Commit and push
@@ -30,6 +32,9 @@ if [ -z "$REMOTE" ]; then
   REMOTE="origin"
 fi
 
+# Delete old gh-pages branch and push new one
+git branch -D gh-pages 2>/dev/null || true
+git branch -m gh-pages
 git push "$REMOTE" gh-pages --force
 
 echo ""
