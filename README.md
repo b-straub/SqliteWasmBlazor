@@ -6,6 +6,8 @@
 [![.NET](https://img.shields.io/badge/.NET-10.0-purple.svg)](https://dotnet.microsoft.com/)
 [![NuGet](https://img.shields.io/badge/NuGet-Coming%20Soon-orange.svg)]()
 
+**[🚀 Try the Live Demo](https://b-straub.github.io/SqliteWasmBlazor/)** - Experience persistent SQLite database in your browser!
+
 ## What Makes This Special?
 
 Unlike other Blazor WASM database solutions that use in-memory storage or IndexedDB emulation, **SqliteWasmBlazor** is the **first implementation** that combines:
@@ -146,6 +148,20 @@ var expensive = await dbContext.Products
 - **JSON Collections** - Store `List<T>` with proper value comparers
 - **Logging** - Configurable logging levels (Debug/Info/Warning/Error)
 - **Error Handling** - Proper async error propagation
+
+## Try It Now
+
+### Live Demo
+
+**[👉 Launch the demo application](https://b-straub.github.io/SqliteWasmBlazor/)** to see SqliteWasmBlazor in action:
+
+- ✅ Create, edit, and delete todo items with full CRUD operations
+- ✅ Full-text search (FTS5) with real-time highlighting
+- ✅ Data persists across page refreshes and browser restarts
+- ✅ All operations run entirely in your browser (no server required)
+- ✅ View database statistics and performance metrics
+
+Open the demo in multiple tabs to see the multi-tab conflict detection in action!
 
 ## Installation
 
