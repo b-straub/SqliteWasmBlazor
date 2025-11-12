@@ -52,15 +52,7 @@ jobs:
 
     - name: Pack SqliteWasmBlazor
       run: dotnet pack SqliteWasmBlazor/SqliteWasmBlazor.csproj --configuration Release --no-build
-
-    - name: Upload NuGet packages
-      if: success()
-      uses: actions/upload-artifact@v4
-      with:
-        name: nuget-packages
-        path: SqliteWasmBlazor/**/*.nupkg
-        retention-days: 2
-
+      
     - name: Clear NuGet cache
       run: dotnet nuget locals all --clear
 
