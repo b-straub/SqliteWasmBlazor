@@ -33,5 +33,80 @@
     <ItemGroup>
         <ServiceWorker Include="wwwroot\service-worker.js" PublishedContent="wwwroot\service-worker.published.js"/>
     </ItemGroup>
-    
+
+    <UsingTask TaskName="ReplaceRegexInFile" TaskFactory="RoslynCodeTaskFactory"
+               AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.Core.dll">
+        <ParameterGroup>
+            <Filename ParameterType="System.String" Required="true"/>
+            <Default ParameterType="System.String" Required="true"/>
+            <Match ParameterType="System.String" Required="true"/>
+            <Settings ParameterType="System.String"/>
+            <Field ParameterType="System.String"/>
+        </ParameterGroup>
+        <Task>
+            <Using Namespace="System"/>
+            <Using Namespace="System.IO"/>
+            <Using Namespace="System.Text.RegularExpressions"/>
+            <Code Type="Fragment" Language="cs">
+                <![CDATA[
+var replace = Default;
+
+try
+{
+    var settings = File.ReadAllText(Settings);
+
+    var jsonRegex = @$"(?<=""{Field}""\s?:\s?)""(.*?)""";
+    replace = Regex.Match(settings, jsonRegex).Groups[1].Value;
+}
+catch
+{
+}
+
+try
+{
+    var input = File.ReadAllText(Filename);
+    File.WriteAllText(Filename, Regex.Replace(input, Match, $"$1{replace}$3"));
+    Console.WriteLine($"Replaced {Match} in {Filename} with {replace}");
+}
+catch (Exception ex)
+{
+    Console.WriteLine(ex.Message);
+}
+        ]]>
+            </Code>
+        </Task>
+    </UsingTask>
+
+    <Target Name="ReleaseSubfolder" Condition="'$(Configuration)'=='Release'" BeforeTargets="BeforeCompile">
+        <ReplaceRegexInFile
+                Filename="wwwroot\index.html"
+                Default="/"
+                Match="(&lt;base href=&quot;)(.*)(&quot; /&gt;)"
+                Settings="wwwroot\appsettings.Production.json"
+                Field="rootFolder"
+        />
+
+        <ReplaceRegexInFile
+                Filename="wwwroot\service-worker.published.js"
+                Default="/"
+                Match="(const base = &quot;)(.*)(&quot;)"
+                Settings="wwwroot\appsettings.Production.json"
+                Field="rootFolder"
+        />
+    </Target>
+
+    <Target Name="DebugSubfolder" Condition="'$(Configuration)'=='Debug'" BeforeTargets="BeforeCompile">
+        <ReplaceRegexInFile
+                Filename="wwwroot\index.html"
+                Match="(&lt;base href=&quot;)(.*)(&quot; /&gt;)"
+                Default="/"
+        />
+
+        <ReplaceRegexInFile
+                Filename="wwwroot\service-worker.published.js"
+                Match="(const base = &quot;)(.*)(&quot;)"
+                Default="/"
+        />
+    </Target>
+
 </Project>

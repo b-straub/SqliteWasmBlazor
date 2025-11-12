@@ -18,18 +18,7 @@ dotnet publish SqliteWasmBlazor.Demo/SqliteWasmBlazor.Demo.csproj -c Release -o 
 # Navigate to published wwwroot
 cd "$TEMP_DIR/build/wwwroot"
 
-# Fix base href in index.html
-sed -i.bak 's|<base href="/" />|<base href="/SqliteWasmBlazor/" />|g' index.html
-rm index.html.bak
-
-# Fix service worker base paths
-for file in service-worker*.js; do
-  if [ -f "$file" ]; then
-    sed -i.bak 's|const base = "/";|const base = "/SqliteWasmBlazor/";|g' "$file"
-    rm "$file.bak"
-    echo "Updated base path in $file"
-  fi
-done
+# Base paths are already set by MSBuild task from appsettings.Production.json
 
 # Add .nojekyll
 touch .nojekyll
