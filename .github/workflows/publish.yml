@@ -50,8 +50,11 @@ jobs:
     - name: Restore SqliteWasmBlazor dependencies
       run: dotnet restore SqliteWasmBlazor/SqliteWasmBlazor.csproj
 
-    - name: Build and pack SqliteWasmBlazor with version
-      run: dotnet pack SqliteWasmBlazor/SqliteWasmBlazor.csproj --configuration Release --output ./.nuget /p:PackageVersion=${{ steps.get_version.outputs.VERSION }}
+    - name: Build SqliteWasmBlazor
+      run: dotnet build SqliteWasmBlazor/SqliteWasmBlazor.csproj --configuration Release --no-restore
+
+    - name: Pack SqliteWasmBlazor with version
+      run: dotnet pack SqliteWasmBlazor/SqliteWasmBlazor.csproj --configuration Release --no-build --output ./.nuget /p:PackageVersion=${{ steps.get_version.outputs.VERSION }}
 
     - name: Clear NuGet cache
       run: dotnet nuget locals all --clear
