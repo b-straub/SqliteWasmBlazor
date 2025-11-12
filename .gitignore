@@ -70,3 +70,5 @@ SqliteWasmBlazor/native/lib/sqlite3_stub.o
 
 # Internal documentation
 docs/internal/
+deploy-ghpages.sh
+publish-ghpages.sh
