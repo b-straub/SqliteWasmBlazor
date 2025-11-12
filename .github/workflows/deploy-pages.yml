@@ -53,13 +53,25 @@ jobs:
     - name: Publish Demo app
       run: dotnet publish SqliteWasmBlazor.Demo/SqliteWasmBlazor.Demo.csproj -c Release -o release --nologo
 
+    - name: List published files
+      run: |
+        echo "Published files in release/wwwroot:"
+        ls -la release/wwwroot/ | head -20
+        echo "Service worker files:"
+        ls -la release/wwwroot/service-worker* || echo "No service worker files found"
+
     - name: Change base href in index.html
       run: |
         sed -i 's/<base href="\/" \/>/<base href="\/SqliteWasmBlazor\/" \/>/g' release/wwwroot/index.html
 
     - name: Change base path in service worker
       run: |
-        sed -i 's/const base = "\/";/const base = "\/SqliteWasmBlazor\/";/g' release/wwwroot/service-worker.published.js
+        if [ -f release/wwwroot/service-worker.published.js ]; then
+          sed -i 's/const base = "\/";/const base = "\/SqliteWasmBlazor\/";/g' release/wwwroot/service-worker.published.js
+        fi
+        if [ -f release/wwwroot/service-worker.js ]; then
+          sed -i 's/const base = "\/";/const base = "\/SqliteWasmBlazor\/";/g' release/wwwroot/service-worker.js
+        fi
 
     - name: Add .nojekyll file
       run: touch release/wwwroot/.nojekyll
