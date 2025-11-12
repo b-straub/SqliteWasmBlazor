@@ -1,48 +1,66 @@
 #!/bin/bash
 set -e
 
-# Build first
-./publish-ghpages.sh
+echo "Building SqliteWasmBlazor Demo for GitHub Pages..."
+
+# Build in temp directory
+TEMP_DIR=$(mktemp -d)
+echo "Building in: $TEMP_DIR"
+
+# Publish the demo app
+dotnet publish SqliteWasmBlazor.Demo/SqliteWasmBlazor.Demo.csproj -c Release -o "$TEMP_DIR/build" --nologo
+
+# Navigate to published wwwroot
+cd "$TEMP_DIR/build/wwwroot"
+
+# Fix base href in index.html
+sed -i.bak 's|<base href="/" />|<base href="/SqliteWasmBlazor/" />|g' index.html
+rm index.html.bak
+
+# Fix service worker base paths
+for file in service-worker*.js; do
+  if [ -f "$file" ]; then
+    sed -i.bak 's|const base = "/";|const base = "/SqliteWasmBlazor/";|g' "$file"
+    rm "$file.bak"
+    echo "Updated base path in $file"
+  fi
+done
+
+# Add .nojekyll
+touch .nojekyll
+
+# Copy index.html to 404.html
+cp index.html 404.html
 
 echo ""
-echo "Deploying to GitHub Pages..."
+echo "✅ Build complete!"
+echo ""
 
-# Save current branch
-CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
-
-# Create/checkout gh-pages branch (orphan to start fresh)
-git checkout --orphan gh-pages-temp
-
-# Remove all files from git
-git rm -rf .
-
-# Copy built files to root
-cp -r dist/wwwroot/* .
-
-# Clean up
-rm -rf dist
-
-# Commit and push
+# Initialize new git repo in this directory
+git init
 git add .
 git commit -m "Deploy to GitHub Pages - $(date '+%Y-%m-%d %H:%M:%S')"
 
-# Detect the remote name (could be 'origin' or 'Github')
+# Detect the remote name
+cd - > /dev/null
 REMOTE=$(git remote | grep -i "github\|origin" | head -1)
 if [ -z "$REMOTE" ]; then
   REMOTE="origin"
 fi
 
-# Delete old gh-pages branch and push new one
-git branch -D gh-pages 2>/dev/null || true
-git branch -m gh-pages
-git push "$REMOTE" gh-pages --force
+REPO_URL=$(git remote get-url "$REMOTE")
+
+# Push to gh-pages
+cd "$TEMP_DIR/build/wwwroot"
+git push --force "$REPO_URL" HEAD:gh-pages
 
 echo ""
 echo "✅ Deployed to GitHub Pages!"
 echo "🌐 Your site will be available at: https://b-straub.github.io/SqliteWasmBlazor/"
 echo ""
 
-# Return to original branch
-git checkout "$CURRENT_BRANCH"
+# Clean up
+cd - > /dev/null
+rm -rf "$TEMP_DIR"
 
-echo "Returned to branch: $CURRENT_BRANCH"
+echo "Cleaned up temporary files"
