@@ -12,6 +12,8 @@ public static class TodoItemSearchExtensions
     /// Sanitizes a search query for FTS5 by escaping special characters while preserving prefix matching.
     /// Supports prefix queries (e.g., "ac10*") for matching terms that start with the query.
     /// Special characters like #, -, (, ) are escaped, but * for prefix matching is preserved.
+    /// Note: FTS5's tokenizer strips punctuation like # during indexing, but searching for "#26"
+    /// still works because FTS5 also strips it from the query.
     /// </summary>
     private static string SanitizeFts5Query(string query)
     {
