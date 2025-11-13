@@ -4,7 +4,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![.NET](https://img.shields.io/badge/.NET-10.0-purple.svg)](https://dotnet.microsoft.com/)
-[![NuGet](https://img.shields.io/badge/NuGet-Coming%20Soon-orange.svg)]()
+[![NuGet](https://img.shields.io/nuget/vpre/SqliteWasmBlazor)](https://www.nuget.org/packages/SqliteWasmBlazor)
 [![GitHub Repo stars](https://img.shields.io/github/stars/b-straub/SqliteWasmBlazor)](https://github.com/b-straub/SqliteWasmBlazor/stargazers)
 
 **[🚀 Try the Live Demo](https://b-straub.github.io/SqliteWasmBlazor/)** - Experience persistent SQLite database in your browser! Can be installed as a Progressive Web App (PWA) for offline use.
@@ -167,11 +167,21 @@ Open the demo in multiple tabs to see the multi-tab conflict detection in action
 
 ## Installation
 
-### NuGet Package (Coming Soon)
+### NuGet Package
+
+**Pre-release version available now:**
 
 ```bash
-dotnet add package SqliteWasmBlazor
+dotnet add package SqliteWasmBlazor --prerelease
 ```
+
+Or install a specific version:
+
+```bash
+dotnet add package SqliteWasmBlazor --version 0.6.5-pre
+```
+
+Visit [NuGet.org](https://www.nuget.org/packages/SqliteWasmBlazor) for the latest version.
 
 ### From Source
 
@@ -720,7 +730,8 @@ Yes! All standard EF Core features work: migrations, relationships, LINQ queries
 - [x] Custom EF functions (decimals)
 - [x] FTS5 full-text search with highlighting and snippets
 - [x] MudBlazor demo app
-- [ ] NuGet package release
+- [x] NuGet package pre-release
+- [ ] Stable NuGet package release
 - [ ] Database export/import API
 - [ ] Multi-database support
 - [ ] Backup/restore utilities
