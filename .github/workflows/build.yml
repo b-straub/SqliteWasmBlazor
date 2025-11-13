@@ -56,15 +56,6 @@ jobs:
     - name: Pack SqliteWasmBlazor
       run: dotnet pack SqliteWasmBlazor/SqliteWasmBlazor.csproj --configuration Release --no-build
 
-    - name: List local packages
-      run: |
-        echo "Contents of .nuget folder:"
-        ls -la .nuget/ || echo ".nuget folder not found"
-        echo "NuGet.config contents:"
-        cat NuGet.config
-        echo "NuGet sources:"
-        dotnet nuget list source
-
     - name: Restore all dependencies
       run: dotnet restore
 

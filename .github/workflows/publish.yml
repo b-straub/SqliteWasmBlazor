@@ -62,11 +62,8 @@ jobs:
     - name: Pack SqliteWasmBlazor with version
       run: dotnet pack SqliteWasmBlazor/SqliteWasmBlazor.csproj --configuration Release --no-build --output ./.nuget /p:PackageVersion=${{ steps.get_version.outputs.VERSION }}
 
-    - name: Clear NuGet cache
-      run: dotnet nuget locals all --clear
-
     - name: Restore all dependencies
-      run: dotnet restore --force
+      run: dotnet restore
 
     - name: Build solution
       run: dotnet build --configuration Release
