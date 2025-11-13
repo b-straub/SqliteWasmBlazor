@@ -13,6 +13,35 @@ namespace SqliteWasmBlazor;
 public static class SqliteWasmServiceCollectionExtensions
 {
     /// <summary>
+    /// Initializes the SqliteWasm worker bridge without Entity Framework Core.
+    /// Use this method when using the ADO.NET provider directly without EF Core.
+    /// </summary>
+    /// <param name="services">The service collection.</param>
+    /// <param name="cancellationToken">Optional cancellation token.</param>
+    /// <returns>A task that represents the asynchronous operation.</returns>
+    /// <exception cref="InvalidOperationException">Thrown when initialization fails or database is locked by another tab.</exception>
+    public static async Task InitializeSqliteWasmAsync(
+        this IServiceProvider services,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            // Initialize the worker bridge
+            await SqliteWasmWorkerBridge.Instance.InitializeAsync(cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            throw new InvalidOperationException(
+$"""
+{ex.Message}
+Database is locked by another browser tab.
+This application uses OPFS (Origin Private File System) which only allows one tab to access the database at a time.
+Please close any other tabs running this application and refresh the page.
+""", ex);
+        }
+    }
+
+    /// <summary>
     /// Initializes the SqliteWasm database by applying pending migrations and handling migration history recovery.
     /// </summary>
     /// <typeparam name="TContext">The DbContext type to initialize.</typeparam>

@@ -72,3 +72,4 @@ SqliteWasmBlazor/native/lib/sqlite3_stub.o
 # Internal documentation
 docs/internal/
 SqliteWasmBlazor/package-lock.json
+SqliteWasmBlazor/ARCHITECTURE.md
