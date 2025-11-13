@@ -77,7 +77,7 @@ catch (Exception ex)
         </Task>
     </UsingTask>
 
-    <Target Name="ReleaseSubfolder" Condition="'$(Configuration)'=='Release'" BeforeTargets="BeforeCompile">
+    <Target Name="ReleaseSubfolder" Condition="'$(Configuration)'=='Release'" BeforeTargets="GenerateServiceWorkerAssetsManifest">
         <ReplaceRegexInFile
                 Filename="wwwroot\index.html"
                 Default="/"
