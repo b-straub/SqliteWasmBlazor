@@ -6,11 +6,15 @@ let worker: Worker | null = null;
 // Initialize worker on first import
 (async () => {
     try {
-        // Create worker - load from static assets path
+        // Create worker - load from static assets path using base href
+        const baseHref = document.querySelector('base')?.getAttribute('href') || '/';
         worker = new Worker(
-            '/_content/SqliteWasmBlazor/sqlite-wasm-worker.js',
+            `${baseHref}_content/SqliteWasmBlazor/sqlite-wasm-worker.js`,
             { type: 'module' }
         );
+
+        // Send base href to worker so it can locate WASM files
+        worker.postMessage({ type: 'init', baseHref });
 
         // Handle messages from worker
         worker.onmessage = async (event) => {

@@ -43,6 +43,9 @@ const schemaCache = new Map<string, Map<string, string>>();
 
 const MODULE_NAME = 'SQLite Worker';
 
+// Store base href from main thread
+let baseHref = '/';
+
 // Helper function to convert BigInt and Uint8Array for JSON serialization
 // BigInts within safe integer range (±2^53-1) are converted to number for efficiency
 // Larger BigInts are converted to string to preserve precision
@@ -71,7 +74,7 @@ function convertBigInt(value: any): any {
 }
 
 // Initialize sqlite-wasm with OPFS SAHPool
-(async () => {
+async function initializeSQLite() {
     try {
         logger.info(MODULE_NAME, 'Initializing sqlite-wasm with OPFS SAHPool...');
 
@@ -94,9 +97,9 @@ function convertBigInt(value: any): any {
             print: console.log,
             printErr: console.error,
             locateFile(path: string) {
-                // Tell sqlite-wasm where to find the wasm file
+                // Tell sqlite-wasm where to find the wasm file using base href
                 if (path.endsWith('.wasm')) {
-                    return `/_content/SqliteWasmBlazor/${path}`;
+                    return `${baseHref}_content/SqliteWasmBlazor/${path}`;
                 }
                 return path;
             }
@@ -141,10 +144,18 @@ function convertBigInt(value: any): any {
             error: error instanceof Error ? error.message : 'Unknown initialization error'
         });
     }
-})();
+}
 
 // Handle messages from main thread
-self.onmessage = async (event: MessageEvent<WorkerRequest | { type: 'setLogLevel'; level: number }>) => {
+self.onmessage = async (event: MessageEvent<WorkerRequest | { type: 'setLogLevel'; level: number } | { type: 'init'; baseHref: string }>) => {
+    // Handle initialization with base href
+    if ('type' in event.data && event.data.type === 'init' && 'baseHref' in event.data) {
+        baseHref = event.data.baseHref;
+        // Start initialization after receiving base href
+        await initializeSQLite();
+        return;
+    }
+
     // Handle log level changes (no response needed)
     if ('type' in event.data && event.data.type === 'setLogLevel' && 'level' in event.data) {
         logger.setLogLevel(event.data.level);

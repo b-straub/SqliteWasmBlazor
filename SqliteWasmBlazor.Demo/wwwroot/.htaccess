@@ -47,10 +47,10 @@ RemoveLanguage .br
     AddOutputFilterByType DEFLATE application/wasm application/octet-stream application/json
 </IfModule>
 
-# Client-side routing fallback for Blazor (base href="/dbTest/")
+# Client-side routing fallback for Blazor (must match base href in index.html)
 <IfModule mod_rewrite.c>
     RewriteEngine On
-    RewriteBase /dbTest/
+    RewriteBase /$3
 
     # Don't rewrite files or directories that exist
     RewriteCond %{REQUEST_FILENAME} !-f
@@ -59,6 +59,3 @@ RemoveLanguage .br
     # Fallback to index.html for client-side routing
     RewriteRule ^ index.html [L]
 </IfModule>
-
-# Alternative: Use ErrorDocument if mod_rewrite is not available
-# ErrorDocument 404 /dbTest/index.html

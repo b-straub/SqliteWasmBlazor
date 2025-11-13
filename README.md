@@ -6,7 +6,8 @@
 [![.NET](https://img.shields.io/badge/.NET-10.0-purple.svg)](https://dotnet.microsoft.com/)
 [![NuGet](https://img.shields.io/badge/NuGet-Coming%20Soon-orange.svg)]()
 
-**[🚀 Try the Live Demo](https://b-straub.github.io/SqliteWasmBlazor/)** - Experience persistent SQLite database in your browser!
+<!-- Live demo temporarily disabled for updates -->
+<!-- **[🚀 Try the Live Demo](https://b-straub.github.io/SqliteWasmBlazor/)** - Experience persistent SQLite database in your browser! -->
 
 ## What Makes This Special?
 
@@ -149,6 +150,8 @@ var expensive = await dbContext.Products
 - **Logging** - Configurable logging levels (Debug/Info/Warning/Error)
 - **Error Handling** - Proper async error propagation
 
+<!-- Live demo temporarily disabled for updates -->
+<!--
 ## Try It Now
 
 ### Live Demo
@@ -162,6 +165,7 @@ var expensive = await dbContext.Products
 - ✅ View database statistics and performance metrics
 
 Open the demo in multiple tabs to see the multi-tab conflict detection in action!
+-->
 
 ## Installation
 

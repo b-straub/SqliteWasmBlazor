@@ -16,7 +16,7 @@
         <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.DevServer" Version="10.0.0" PrivateAssets="all" />
         <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.0" />
         <PackageReference Include="MudBlazor" Version="8.14.0"/>
-        <PackageReference Include="SqliteWasmBlazor" Version="0.6.0-pre" Condition="'$(Configuration)' == 'Release'" />
+        <PackageReference Include="SqliteWasmBlazor" Version="0.6.2-pre" Condition="'$(Configuration)' == 'Release'" />
         <!-- Exclude large (1.1MB) SQLitePCLRaw native library - SqliteWasmBlazor provides minimal (9.8KB) stub -->
         <PackageReference Include="SQLitePCLRaw.lib.e_sqlite3" Version="2.1.11" ExcludeAssets="all" PrivateAssets="all" Condition="'$(Configuration)' == 'Release'"/>
     </ItemGroup>
@@ -24,7 +24,7 @@
     <ItemGroup>
         <ProjectReference Include="..\SqliteWasmBlazor.Models\SqliteWasmBlazor.Models.csproj" />
     </ItemGroup>
-
+    
     <ItemGroup Condition="'$(Configuration)' == 'Debug'">
         <NativeFileReference Include="..\SqliteWasmBlazor\native\lib\e_sqlite3.a"/>
         <ProjectReference Include="..\SqliteWasmBlazor\SqliteWasmBlazor.csproj"/>
@@ -82,7 +82,7 @@ catch (Exception ex)
                 Filename="wwwroot\index.html"
                 Default="/"
                 Match="(&lt;base href=&quot;)(.*)(&quot; /&gt;)"
-                Settings="wwwroot\appsettings.Production.json"
+                Settings="appsettings.json"
                 Field="rootFolder"
         />
 
@@ -90,7 +90,15 @@ catch (Exception ex)
                 Filename="wwwroot\service-worker.published.js"
                 Default="/"
                 Match="(const base = &quot;)(.*)(&quot;)"
-                Settings="wwwroot\appsettings.Production.json"
+                Settings="appsettings.json"
+                Field="rootFolder"
+        />
+
+        <ReplaceRegexInFile
+                Filename="wwwroot\.htaccess"
+                Default="/"
+                Match="(RewriteBase ).*"
+                Settings="appsettings.json"
                 Field="rootFolder"
         />
     </Target>
@@ -105,6 +113,12 @@ catch (Exception ex)
         <ReplaceRegexInFile
                 Filename="wwwroot\service-worker.published.js"
                 Match="(const base = &quot;)(.*)(&quot;)"
+                Default="/"
+        />
+
+        <ReplaceRegexInFile
+                Filename="wwwroot\.htaccess"
+                Match="(RewriteBase ).*"
                 Default="/"
         />
     </Target>

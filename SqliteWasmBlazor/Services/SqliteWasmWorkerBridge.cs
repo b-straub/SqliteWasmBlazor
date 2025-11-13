@@ -63,6 +63,9 @@ public sealed partial class SqliteWasmWorkerBridge
     {
     }
 
+    [JSImport("getBaseHref", "SqliteWasmBlazor")]
+    private static partial string GetBaseHref();
+
     /// <summary>
     /// Initialize the worker and sqlite-wasm module.
     /// </summary>
@@ -73,7 +76,12 @@ public sealed partial class SqliteWasmWorkerBridge
             return;
         }
 
-        await JSHost.ImportAsync("sqliteWasmWorker", "/_content/SqliteWasmBlazor/sqlite-wasm-bridge.js", cancellationToken ?? CancellationToken.None);
+        // Get base href dynamically and construct absolute path
+        await JSHost.ImportAsync("SqliteWasmBlazor", "data:text/javascript,export function getBaseHref() { return document.querySelector('base')?.getAttribute('href') || '/'; }");
+        var baseHref = GetBaseHref();
+        var bridgePath = $"{baseHref}_content/SqliteWasmBlazor/sqlite-wasm-bridge.js";
+
+        await JSHost.ImportAsync("sqliteWasmWorker", bridgePath, cancellationToken ?? CancellationToken.None);
 
         // Wait for worker to signal ready or error
         _initializationTcs = new TaskCompletionSource<bool>();
