@@ -13,19 +13,29 @@ echo '{
   "rootFolder": "/SqliteWasmBlazor/"
 }' > "$APPSETTINGS_FILE"
 
-# Restore original appsettings.json on exit
-trap "echo '$APPSETTINGS_BACKUP' > '$APPSETTINGS_FILE' && echo 'Restored appsettings.json to original state'" EXIT
+# Restore original appsettings.json on exit (error or success)
+restore_appsettings() {
+    echo "Restoring appsettings.json to original state..."
+    echo "$APPSETTINGS_BACKUP" > "$APPSETTINGS_FILE"
+    echo "Rebuilding to reset wwwroot files..."
+    dotnet build SqliteWasmBlazor.Demo/SqliteWasmBlazor.Demo.csproj -c Release --nologo > /dev/null 2>&1 || true
+}
+trap restore_appsettings EXIT
 
 # Clean previous builds
 echo "Cleaning previous builds..."
 dotnet clean -c Release --nologo
 rm -rf SqliteWasmBlazor.Demo/bin/Release SqliteWasmBlazor.Demo/obj/Release
 
+# Build first to trigger MSBuild task that modifies wwwroot files
+echo "Building to trigger file modifications..."
+dotnet build SqliteWasmBlazor.Demo/SqliteWasmBlazor.Demo.csproj -c Release --nologo
+
 # Build in temp directory
 TEMP_DIR=$(mktemp -d)
 echo "Building in: $TEMP_DIR"
 
-# Publish the demo app (force rebuild)
+# Publish the demo app (will use already modified files)
 dotnet publish SqliteWasmBlazor.Demo/SqliteWasmBlazor.Demo.csproj -c Release -o "$TEMP_DIR/build" --nologo /p:UseSharedCompilation=false
 
 # Navigate to published wwwroot

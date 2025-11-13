@@ -6,8 +6,7 @@
 [![.NET](https://img.shields.io/badge/.NET-10.0-purple.svg)](https://dotnet.microsoft.com/)
 [![NuGet](https://img.shields.io/badge/NuGet-Coming%20Soon-orange.svg)]()
 
-<!-- Live demo temporarily disabled for updates -->
-<!-- **[🚀 Try the Live Demo](https://b-straub.github.io/SqliteWasmBlazor/)** - Experience persistent SQLite database in your browser! -->
+**[🚀 Try the Live Demo](https://b-straub.github.io/SqliteWasmBlazor/)** - Experience persistent SQLite database in your browser! Can be installed as a Progressive Web App (PWA) for offline use.
 
 ## What Makes This Special?
 
@@ -150,8 +149,6 @@ var expensive = await dbContext.Products
 - **Logging** - Configurable logging levels (Debug/Info/Warning/Error)
 - **Error Handling** - Proper async error propagation
 
-<!-- Live demo temporarily disabled for updates -->
-<!--
 ## Try It Now
 
 ### Live Demo
@@ -163,9 +160,9 @@ var expensive = await dbContext.Products
 - ✅ Data persists across page refreshes and browser restarts
 - ✅ All operations run entirely in your browser (no server required)
 - ✅ View database statistics and performance metrics
+- ✅ **Install as PWA** for offline use and app-like experience
 
 Open the demo in multiple tabs to see the multi-tab conflict detection in action!
--->
 
 ## Installation
 
