@@ -5,6 +5,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![.NET](https://img.shields.io/badge/.NET-10.0-purple.svg)](https://dotnet.microsoft.com/)
 [![NuGet](https://img.shields.io/badge/NuGet-Coming%20Soon-orange.svg)]()
+[![GitHub stars](https://img.shields.io/github/stars/bernisoft/SqliteWasmBlazor?style=social)](https://github.com/bernisoft/SqliteWasmBlazor/stargazers)
 
 **[🚀 Try the Live Demo](https://b-straub.github.io/SqliteWasmBlazor/)** - Experience persistent SQLite database in your browser! Can be installed as a Progressive Web App (PWA) for offline use.
 
