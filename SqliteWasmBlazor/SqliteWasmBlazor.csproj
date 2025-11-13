@@ -7,7 +7,7 @@
 
     <!-- Package Metadata -->
     <PackageId>SqliteWasmBlazor</PackageId>
-    <Version>0.6.4-pre</Version>
+    <Version>0.6.5-pre</Version>
     <Authors>bernisoft</Authors>
     <Company>bernisoft</Company>
     <Product>SqliteWasmBlazor</Product>
@@ -15,12 +15,12 @@
     <PackageTags>blazor;wasm;sqlite;efcore;opfs;database;entityframework;webassembly;offline;persistence</PackageTags>
     <Copyright>Copyright (c) 2025 bernisoft</Copyright>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <PackageProjectUrl>https://github.com/bernisoft/SqliteWasmBlazor</PackageProjectUrl>
-    <RepositoryUrl>https://github.com/bernisoft/SqliteWasmBlazor</RepositoryUrl>
+    <PackageProjectUrl>https://github.com/b-straub/SqliteWasmBlazor</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/b-straub/SqliteWasmBlazor</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageReleaseNotes>
-      v0.6.4-pre - Initial Release
+      v0.6.5-pre - Initial Release
       - Full EF Core ADO.NET provider
       - OPFS SAHPool persistence
       - MessagePack binary protocol
