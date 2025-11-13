@@ -3,6 +3,19 @@ set -e
 
 echo "Building SqliteWasmBlazor Demo for GitHub Pages..."
 
+# Store original appsettings.json content
+APPSETTINGS_FILE="SqliteWasmBlazor.Demo/appsettings.json"
+APPSETTINGS_BACKUP=$(cat "$APPSETTINGS_FILE")
+
+# Update rootFolder for GitHub Pages deployment
+echo "Setting rootFolder to /SqliteWasmBlazor/ for GitHub Pages..."
+echo '{
+  "rootFolder": "/SqliteWasmBlazor/"
+}' > "$APPSETTINGS_FILE"
+
+# Restore original appsettings.json on exit
+trap "echo '$APPSETTINGS_BACKUP' > '$APPSETTINGS_FILE' && echo 'Restored appsettings.json to original state'" EXIT
+
 # Clean previous builds
 echo "Cleaning previous builds..."
 dotnet clean -c Release --nologo
@@ -53,9 +66,13 @@ fi
 
 REPO_URL=$(git remote get-url "$REMOTE")
 
+# Delete gh-pages branch if it exists
+echo "Deleting existing gh-pages branch..."
+git push "$REPO_URL" --delete gh-pages 2>/dev/null || echo "No existing gh-pages branch to delete"
+
 # Push to gh-pages
 cd "$TEMP_DIR/build/wwwroot"
-git push --force "$REPO_URL" HEAD:gh-pages
+git push "$REPO_URL" HEAD:gh-pages
 
 echo ""
 echo "✅ Deployed to GitHub Pages!"

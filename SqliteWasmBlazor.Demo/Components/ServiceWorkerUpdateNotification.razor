@@ -1,0 +1,55 @@
+@inject ISnackbar Snackbar
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+
+@code {
+    private DotNetObjectReference<ServiceWorkerUpdateNotification>? _objRef;
+    private Snackbar? _updateSnackbar;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _objRef = DotNetObjectReference.Create(this);
+            await JS.InvokeVoidAsync("ServiceWorkerUpdate.registerUpdateCallback", _objRef);
+        }
+    }
+
+    [JSInvokable]
+    public void OnUpdateAvailable()
+    {
+        _updateSnackbar = Snackbar.Add(
+            @<div>
+                <MudStack>
+                    <MudText Typo="Typo.body2">An update for this application is available!</MudText>
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="UpdateApp">Update</MudButton>
+                </MudStack>
+            </div>,
+            Severity.Success,
+            config =>
+            {
+                config.RequireInteraction = true;
+                config.DuplicatesBehavior = SnackbarDuplicatesBehavior.Prevent;
+            });
+    }
+
+    private async Task UpdateApp()
+    {
+        if (_updateSnackbar is not null)
+        {
+            Snackbar.Remove(_updateSnackbar);
+            _updateSnackbar = null;
+        }
+
+        await JS.InvokeVoidAsync("ServiceWorkerUpdate.skipWaitingAndReload");
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_objRef is not null)
+        {
+            await JS.InvokeVoidAsync("ServiceWorkerUpdate.registerUpdateCallback", null);
+            _objRef.Dispose();
+        }
+    }
+}

@@ -27,7 +27,8 @@
     </div>
     <script src="_framework/blazor.webassembly.js" crossorigin="anonymous"></script>
     <script src="_content/MudBlazor/MudBlazor.min.js" crossorigin="anonymous"></script>
-    <script>navigator.serviceWorker.register('service-worker.js');</script>
+    <script>navigator.serviceWorker.register('service-worker.js', { updateViaCache: 'none' });</script>
+    <script src="service-worker-update.js"></script>
 </body>
 
 </html>
