@@ -28,14 +28,17 @@ jobs:
         node-version: '20'
 
     - name: Setup Emscripten
+      if: ${{ !env.ACT }}
       uses: mymindstorm/setup-emsdk@v14
       with:
         version: '3.1.56'
 
     - name: Build native stub
+      if: ${{ !env.ACT }}
       run: bash SqliteWasmBlazor/native/build_stub.sh
 
     - name: Verify native stub was built
+      if: ${{ !env.ACT }}
       run: |
         ls -lh SqliteWasmBlazor/native/lib/e_sqlite3.a
         file SqliteWasmBlazor/native/lib/e_sqlite3.a
@@ -52,6 +55,15 @@ jobs:
 
     - name: Pack SqliteWasmBlazor
       run: dotnet pack SqliteWasmBlazor/SqliteWasmBlazor.csproj --configuration Release --no-build
+
+    - name: List local packages
+      run: |
+        echo "Contents of .nuget folder:"
+        ls -la .nuget/ || echo ".nuget folder not found"
+        echo "NuGet.config contents:"
+        cat NuGet.config
+        echo "NuGet sources:"
+        dotnet nuget list source
 
     - name: Restore all dependencies
       run: dotnet restore
