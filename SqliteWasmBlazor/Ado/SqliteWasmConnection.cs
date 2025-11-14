@@ -27,6 +27,15 @@ public sealed class SqliteWasmConnection : DbConnection
         _connectionString = connectionString;
     }
 
+    public SqliteWasmConnection(string connectionString, SqliteWasmLogLevel logLevel) : this(connectionString)
+    {
+        // Set log level before any worker operations
+        if (OperatingSystem.IsBrowser())
+        {
+            SqliteWasmLogger.SetLogLevel(logLevel);
+        }
+    }
+
     [AllowNull]
     public override string ConnectionString
     {
@@ -107,32 +116,28 @@ public sealed class SqliteWasmConnection : DbConnection
 
     public override void Close()
     {
-        // Cannot call async operation from sync method in WebAssembly
-        // Fire and forget close operation - worker will clean up SAH
-        if (_state == ConnectionState.Open)
-        {
-            _ = CloseAsync();
-        }
+        // IMPORTANT: Do NOT close the worker-side database connection here!
+        //
+        // The worker maintains a persistent connection pool. Opening/closing
+        // the database for every DbContext operation is extremely inefficient:
+        // - Each open: create SAH, set PRAGMAs, register functions
+        // - Each close: flush WAL, release SAH
+        //
+        // Instead, we only update the C# connection state. The worker keeps
+        // the database open and reuses it for subsequent operations.
+        //
+        // The database will only be truly closed when:
+        // 1. Explicitly calling SqliteWasmWorkerBridge.CloseDatabaseAsync()
+        // 2. The web worker terminates (e.g., page unload)
+
         _state = ConnectionState.Closed;
     }
 
-    public override async Task CloseAsync()
+    public override Task CloseAsync()
     {
-        if (_state != ConnectionState.Open)
-        {
-            return;
-        }
-
-        try
-        {
-            await _bridge.CloseDatabaseAsync(Database);
-            _state = ConnectionState.Closed;
-        }
-        catch
-        {
-            _state = ConnectionState.Broken;
-            throw;
-        }
+        // See Close() for explanation - we don't close the worker-side connection
+        _state = ConnectionState.Closed;
+        return Task.CompletedTask;
     }
 
     protected override DbCommand CreateDbCommand()

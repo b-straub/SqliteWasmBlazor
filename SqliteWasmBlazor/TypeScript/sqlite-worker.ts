@@ -252,7 +252,7 @@ async function openDatabase(dbName: string) {
 
             db = await Promise.race([openPromise, timeoutPromise]);
             openDatabases.set(dbName, db);
-            console.debug(`[SQLite Worker] Opened database: ${dbName} with OPFS SAHPool`);
+            logger.info(MODULE_NAME, `Opened database: ${dbName} with OPFS SAHPool`);
         } catch (error) {
             console.error(`[SQLite Worker] Failed to open database ${dbName}:`, error);
             throw error;
@@ -268,7 +268,7 @@ async function openDatabase(dbName: string) {
         db.exec("PRAGMA journal_mode = WAL;");
         db.exec("PRAGMA synchronous = FULL;");
         pragmasSet.add(dbName);
-        console.debug(`[SQLite Worker] Set PRAGMAs for ${dbName} (locking_mode=exclusive, journal_mode=WAL, synchronous=FULL)`);
+        logger.debug(MODULE_NAME, `Set PRAGMAs for ${dbName} (locking_mode=exclusive, journal_mode=WAL, synchronous=FULL)`);
 
         // Register EF Core scalar and aggregate functions for feature completeness
         // These functions enable full decimal arithmetic and comparison support in EF Core queries
@@ -455,7 +455,7 @@ async function closeDatabase(dbName: string) {
         db.close();
         openDatabases.delete(dbName);
         pragmasSet.delete(dbName); // Clear PRAGMA tracking when database is closed
-        console.debug(`[SQLite Worker] Closed database: ${dbName}`);
+        logger.info(MODULE_NAME, `Closed database: ${dbName}`);
     }
     return { success: true };
 }
