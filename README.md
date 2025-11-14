@@ -9,6 +9,32 @@
 
 **[🚀 Try the Live Demo](https://b-straub.github.io/SqliteWasmBlazor/)** - Experience persistent SQLite database in your browser! Can be installed as a Progressive Web App (PWA) for offline use.
 
+## ⚠️ Breaking Changes
+
+### Version 0.6.7-pre (2025-11-14)
+
+**Log Level Configuration Change**
+
+The `SqliteWasmConnection` constructor now uses the standard `Microsoft.Extensions.Logging.LogLevel` enum instead of the custom `SqliteWasmLogLevel`:
+
+```csharp
+// ❌ Old (0.6.6-pre and earlier)
+var connection = new SqliteWasmConnection("Data Source=MyDb.db", SqliteWasmLogLevel.Warning);
+
+// ✅ New (0.6.7-pre and later)
+using Microsoft.Extensions.Logging; // Add this using
+
+// Default is LogLevel.Warning, so you can omit it:
+var connection = new SqliteWasmConnection("Data Source=MyDb.db");
+
+// Or specify a different level:
+var connection = new SqliteWasmConnection("Data Source=MyDb.db", LogLevel.Error);
+```
+
+**Migration:** Simply add `using Microsoft.Extensions.Logging;` and change `SqliteWasmLogLevel` to `LogLevel`. If you were using the default `Warning` level, you can omit the parameter entirely.
+
+Available log levels: `Trace`, `Debug`, `Information`, `Warning` (default), `Error`, `Critical`, `None`
+
 ## What Makes This Special?
 
 Unlike other Blazor WASM database solutions that use in-memory storage or IndexedDB emulation, **SqliteWasmBlazor** is the **first implementation** that combines:
