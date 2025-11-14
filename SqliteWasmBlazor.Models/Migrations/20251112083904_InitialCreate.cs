@@ -109,15 +109,18 @@ namespace SqliteWasmBlazor.Models.Migrations
             // Update trigger
             migrationBuilder.Sql(@"
                 CREATE TRIGGER FTSTodoItem_au AFTER UPDATE ON TodoItems BEGIN
-                    UPDATE FTSTodoItem SET Title = new.Title, Description = new.Description
-                    WHERE rowid = new.Id;
+                    INSERT INTO FTSTodoItem(FTSTodoItem, rowid, Title, Description)
+                    VALUES('delete', old.Id, old.Title, old.Description);
+                    INSERT INTO FTSTodoItem(rowid, Title, Description)
+                    VALUES(new.Id, new.Title, new.Description);
                 END;
             ");
 
             // Delete trigger
             migrationBuilder.Sql(@"
                 CREATE TRIGGER FTSTodoItem_ad AFTER DELETE ON TodoItems BEGIN
-                    DELETE FROM FTSTodoItem WHERE rowid = old.Id;
+                    INSERT INTO FTSTodoItem(FTSTodoItem, rowid, Title, Description)
+                    VALUES('delete', old.Id, old.Title, old.Description);
                 END;
             ");
 

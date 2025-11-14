@@ -20,8 +20,13 @@
     {
         _updateSnackbar = Snackbar.Add(
             @<div>
-                <MudStack>
+                <MudStack Spacing="2">
                     <MudText Typo="Typo.body2">An update for this application is available!</MudText>
+                    <MudAlert Severity="Severity.Warning" Dense="true" Class="pa-2">
+                        <MudText Typo="Typo.caption">
+                            <strong>Demo Notice:</strong> If you encounter any issues after updating, please use "Reset Database" from the TodoList page.
+                        </MudText>
+                    </MudAlert>
                     <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="UpdateApp">Update</MudButton>
                 </MudStack>
             </div>,

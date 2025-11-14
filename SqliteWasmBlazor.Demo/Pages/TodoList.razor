@@ -252,7 +252,6 @@
                     <MudIconButton Icon="@Icons.Material.Filled.Delete"
                                    Color="Color.Error"
                                    Size="Size.Small"
-                                   Disabled="@_deletingItems.Contains(context.Id)"
                                    OnClick="async () => await DeleteTodoAsync(context)" />
                 </MudTd>
             </RowTemplate>
@@ -334,7 +333,6 @@
     private CancellationTokenSource? _searchCts;
     private Timer? _debounceTimer;
     private Dictionary<int, (string Title, string Description)> _highlightCache = new();
-    private HashSet<int> _deletingItems = new(); // Track items currently being deleted to prevent double-tap
 
     private static readonly string[] TaskPrefixes = ["Task", "Work", "Project", "Meeting", "Call", "Email", "Review", "Plan", "Design", "Test"];
     private static readonly string[] TaskTypes = ["urgent", "important", "routine", "followup", "research", "development", "documentation", "deployment"];
@@ -562,51 +560,29 @@
 
     private async Task DeleteTodoAsync(TodoItem todo)
     {
-        // Prevent double-tap by checking if already deleting
-        if (!_deletingItems.Add(todo.Id))
-        {
-            return; // Already being deleted
-        }
+        var stopwatch = Stopwatch.StartNew();
 
-        // Trigger UI update to show disabled button
-        StateHasChanged();
+        await using var context = await DbContextFactory.CreateDbContextAsync();
+        context.TodoItems.Remove(todo);
 
         try
         {
-            var stopwatch = Stopwatch.StartNew();
-
-            await using var context = await DbContextFactory.CreateDbContextAsync();
-            context.TodoItems.Remove(todo);
-
-            try
-            {
-                await context.SaveChangesAsync();
-            }
-            catch (Microsoft.EntityFrameworkCore.DbUpdateConcurrencyException)
-            {
-                // Item was already deleted (e.g., by another tab or concurrent operation)
-                // This is fine - just show a warning and refresh the list
-                Snackbar.Add("Item was already deleted", Severity.Warning);
-                await Table.ReloadServerData();
-                return;
-            }
-
-            // FTS5 content tables can have stale index entries after trigger-based deletes
-            // Rebuild the index to ensure MATCH queries don't find deleted rows
-            await RebuildFTS5IndexInternalAsync(context);
-
-            stopwatch.Stop();
-
-            await Table.ReloadServerData();
-            await UpdateDatabaseFileSizeAsync();
-            Snackbar.Add($"Todo deleted in {stopwatch.ElapsedMilliseconds}ms", Severity.Error);
+            await context.SaveChangesAsync();
         }
-        finally
+        catch (DbUpdateConcurrencyException)
         {
-            // Always remove from tracking set, even if error occurred
-            _deletingItems.Remove(todo.Id);
-            StateHasChanged();
+            // Item was already deleted (e.g., by another tab or concurrent operation)
+            // This is fine - just show a warning and refresh the list
+            Snackbar.Add("Item was already deleted", Severity.Warning);
+            await Table.ReloadServerData();
+            return;
         }
+
+        stopwatch.Stop();
+
+        await Table.ReloadServerData();
+        await UpdateDatabaseFileSizeAsync();
+        Snackbar.Add($"Todo deleted in {stopwatch.ElapsedMilliseconds}ms", Severity.Error);
     }
 
     private async Task RefreshListAsync()
