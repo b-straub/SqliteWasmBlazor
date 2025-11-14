@@ -9,9 +9,11 @@ namespace SqliteWasmBlazor.Models.Extensions;
 public static class TodoItemSearchExtensions
 {
     /// <summary>
-    /// Sanitizes a search query for FTS5 by escaping special characters while preserving prefix matching.
-    /// Supports prefix queries (e.g., "ac10*") for matching terms that start with the query.
-    /// Special characters like #, -, (, ) are escaped, but * for prefix matching is preserved.
+    /// Sanitizes a search query for FTS5 by escaping special characters while preserving:
+    /// - Prefix matching (e.g., "ac10*")
+    /// - Boolean operators (AND, OR, NOT)
+    /// - Phrase queries (quoted strings)
+    /// Special characters like #, -, (, ) are escaped unless they're part of FTS5 syntax.
     /// Note: FTS5's tokenizer strips punctuation like # during indexing, but searching for "#26"
     /// still works because FTS5 also strips it from the query.
     /// </summary>
@@ -22,8 +24,22 @@ public static class TodoItemSearchExtensions
             return query;
         }
 
+        // Check if query contains FTS5 boolean operators (case-insensitive)
+        var hasBooleanOperators = query.Contains(" AND ", StringComparison.OrdinalIgnoreCase) ||
+                                   query.Contains(" OR ", StringComparison.OrdinalIgnoreCase) ||
+                                   query.Contains(" NOT ", StringComparison.OrdinalIgnoreCase);
+
         // Check if query ends with * (prefix search intent)
         var hasPrefixOperator = query.EndsWith('*');
+
+        // If query has boolean operators, return as-is (user wants FTS5 syntax)
+        // FTS5 handles these operators natively
+        if (hasBooleanOperators)
+        {
+            return query;
+        }
+
+        // Otherwise, sanitize for safe literal search
         var baseQuery = hasPrefixOperator ? query[..^1] : query;
 
         // Escape double quotes by doubling them (FTS5 phrase syntax)
