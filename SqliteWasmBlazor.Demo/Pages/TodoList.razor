@@ -566,6 +566,10 @@
         context.TodoItems.Remove(todo);
         await context.SaveChangesAsync();
 
+        // FTS5 content tables can have stale index entries after trigger-based deletes
+        // Rebuild the index to ensure MATCH queries don't find deleted rows
+        await RebuildFTS5IndexInternalAsync(context);
+
         stopwatch.Stop();
 
         await Table.ReloadServerData();
@@ -658,6 +662,9 @@
 
             await transaction.CommitAsync();
 
+            // Rebuild FTS5 index after bulk inserts to ensure index is synchronized
+            await RebuildFTS5IndexInternalAsync(context);
+
             stopwatch.Stop();
 
             var itemsPerSecond = _generatedFakeEntries / stopwatch.Elapsed.TotalSeconds;
@@ -743,6 +750,9 @@
         await using var context = await DbContextFactory.CreateDbContextAsync();
         await context.Database.ExecuteSqlRawAsync("DELETE FROM TodoItems");
 
+        // Rebuild FTS5 index after bulk delete to ensure index is synchronized
+        await RebuildFTS5IndexInternalAsync(context);
+
         stopwatch.Stop();
 
         await UpdateTotalCountAsync();
@@ -813,10 +823,7 @@
         try
         {
             await using var context = await DbContextFactory.CreateDbContextAsync();
-
-            // Force FTS5 index rebuild (useful after bulk operations)
-            await context.Database.ExecuteSqlRawAsync(
-                "INSERT INTO FTSTodoItem(FTSTodoItem, rowid, Title, Description) VALUES('rebuild', NULL, NULL, NULL)");
+            await RebuildFTS5IndexInternalAsync(context);
 
             stopwatch.Stop();
 
@@ -829,6 +836,13 @@
             Snackbar.Add($"FTS5 rebuild failed: {ex.Message}", Severity.Error);
             _performanceInfo = $"Rebuild error: {ex.Message}";
         }
+    }
+
+    private static async Task RebuildFTS5IndexInternalAsync(TodoDbContext context)
+    {
+        // Force FTS5 index rebuild (useful after bulk operations or to fix stale MATCH results)
+        await context.Database.ExecuteSqlRawAsync(
+            "INSERT INTO FTSTodoItem(FTSTodoItem, rowid, Title, Description) VALUES('rebuild', NULL, NULL, NULL)");
     }
 
     private async Task CheckFTS5IntegrityAsync()
