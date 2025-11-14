@@ -27,7 +27,11 @@ builder.Services.AddMudServices();
 // Add DbContext with SqliteWasm provider
 builder.Services.AddDbContextFactory<TodoDbContext>(options =>
 {
-    var connection = new SqliteWasmConnection("Data Source=TodoDb.db");
+#if DEBUG
+    var connection = new SqliteWasmConnection("Data Source=TodoDb.db", LogLevel.Warning);
+#else
+    var connection = new SqliteWasmConnection("Data Source=TodoDb.db", LogLevel.Error);
+#endif
     options.UseSqliteWasm(connection);
 });
 
@@ -37,10 +41,7 @@ builder.Services.AddSingleton<IDBInitializationService, DBInitializationService>
 var host = builder.Build();
 
 // Initialize SqliteWasm database with migration support
+// Log level is configured via SqliteWasmConnection constructor above
 await host.Services.InitializeSqliteWasmDatabaseAsync<TodoDbContext>();
-
-// Configure logging - set to Warning to reduce chatty debug logs
-// Use SqliteWasmLogLevel.Debug for detailed SQL execution logs
-SqliteWasmLogger.SetLogLevel(SqliteWasmLogLevel.WARNING);
 
 await host.RunAsync();

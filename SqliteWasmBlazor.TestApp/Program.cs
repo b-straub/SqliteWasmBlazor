@@ -30,7 +30,12 @@ builder.Services.AddMudServices();
 // Add DbContext with SqliteWasm provider
 builder.Services.AddDbContextFactory<TodoDbContext>(options =>
 {
+#if DEBUG
+    var connection = new SqliteWasmConnection("Data Source=TestDb.db", LogLevel.Debug);
+#else
     var connection = new SqliteWasmConnection("Data Source=TestDb.db");
+#endif
+    
     options.UseSqliteWasm(connection);
 
     // Only enable detailed logging in Debug builds
@@ -44,11 +49,6 @@ var host = builder.Build();
 
 // Initialize sqlite-wasm worker
 await SqliteWasmWorkerBridge.Instance.InitializeAsync();
-
-// Set worker log level to Debug in debug builds for detailed function tracing
-#if DEBUG
-SqliteWasmLogger.SetLogLevel(SqliteWasmLogLevel.DEBUG);
-#endif
 
 // Initialize database - always recreate for clean test runs
 using (var scope = host.Services.CreateScope())
