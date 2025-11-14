@@ -7,7 +7,7 @@
 
     <!-- Package Metadata -->
     <PackageId>SqliteWasmBlazor</PackageId>
-    <Version>0.6.6-pre</Version>
+    <Version>0.6.7-pre</Version>
     <Authors>bernisoft</Authors>
     <Company>bernisoft</Company>
     <Product>SqliteWasmBlazor</Product>
@@ -20,7 +20,7 @@
     <RepositoryType>git</RepositoryType>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageReleaseNotes>
-      v0.6.6-pre - Initial Release
+      v0.6.7-pre - Initial Release
       - Full EF Core ADO.NET provider
       - OPFS SAHPool persistence
       - MessagePack binary protocol
