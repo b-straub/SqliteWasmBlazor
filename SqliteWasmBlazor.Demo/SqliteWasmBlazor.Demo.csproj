@@ -8,6 +8,8 @@
         <ServiceWorkerAssetsManifest>service-worker-assets.js</ServiceWorkerAssetsManifest>
         <WasmFingerprintAssets>false</WasmFingerprintAssets>
         <WasmBuildNative>true</WasmBuildNative>
+        <!-- Suppress known EF Core trimming warning for unused ExecuteUpdateAsync API -->
+        <NoWarn>$(NoWarn);IL2037</NoWarn>
     </PropertyGroup>
 
     <ItemGroup>
