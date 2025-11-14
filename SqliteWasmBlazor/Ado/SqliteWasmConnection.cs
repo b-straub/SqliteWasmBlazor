@@ -4,6 +4,7 @@
 using System.Data;
 using System.Data.Common;
 using System.Diagnostics.CodeAnalysis;
+using Microsoft.Extensions.Logging;
 
 namespace SqliteWasmBlazor;
 
@@ -27,7 +28,7 @@ public sealed class SqliteWasmConnection : DbConnection
         _connectionString = connectionString;
     }
 
-    public SqliteWasmConnection(string connectionString, SqliteWasmLogLevel logLevel) : this(connectionString)
+    public SqliteWasmConnection(string connectionString, LogLevel logLevel = LogLevel.Warning) : this(connectionString)
     {
         // Set log level before any worker operations
         if (OperatingSystem.IsBrowser())
