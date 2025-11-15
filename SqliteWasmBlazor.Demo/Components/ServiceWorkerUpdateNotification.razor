@@ -19,17 +19,18 @@
     public void OnUpdateAvailable()
     {
         _updateSnackbar = Snackbar.Add(
-            @<div>
-                <MudStack Spacing="2">
-                    <MudText Typo="Typo.body2">An update for this application is available!</MudText>
-                    <MudAlert Severity="Severity.Warning" Dense="true" Class="pa-2">
-                        <MudText Typo="Typo.caption">
-                            <strong>Demo Notice:</strong> If you encounter any issues after updating, please use "Reset Database" from the TodoList page.
-                        </MudText>
-                    </MudAlert>
+            @<MudPaper Class="pa-6">
+                <MudStack Spacing="2" StretchItems="StretchItems.All">
+                    <MudText Typo="Typo.body1" Align="Align.Center">An update for this application is available!</MudText>
+                    <MudText Typo="Typo.body2" Style="font-weight:bold" Color="Color.Warning" Align="Align.Center">
+                        Demo Notice
+                    </MudText>
+                    <MudText Typo="Typo.body2" Color="Color.Warning" Align="Align.Center">
+                        If you encounter any issues after updating, please use "Reset Database" from the TodoList page.
+                    </MudText>
                     <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="UpdateApp">Update</MudButton>
                 </MudStack>
-            </div>,
+            </MudPaper>,
             Severity.Info,
             config =>
             {
@@ -57,4 +58,5 @@
             _objRef.Dispose();
         }
     }
+
 }
