@@ -1,0 +1,104 @@
+@using SqliteWasmBlazor.Models.Extensions
+
+<MudStack Spacing="2">
+    <MudTextField T="string"
+                  Value="@SearchString"
+                  ValueChanged="@OnSearchStringChanged"
+                  Immediate="true"
+                  Label="Full-Text Search (FTS5)"
+                  Variant="Variant.Outlined"
+                  Placeholder="@CurrentPlaceholder"
+                  Adornment="Adornment.Start"
+                  AdornmentIcon="@Icons.Material.Filled.Search"
+                  Clearable="true"
+                  HelperText="@CurrentHelperText" />
+
+    <MudStack Row="true" Spacing="3" AlignItems="AlignItems.Center">
+        <MudSwitch T="bool"
+                   Value="@IsRawMode"
+                   ValueChanged="@OnQueryModeChanged"
+                   Color="Color.Primary"
+                   Label="@CurrentModeLabel" />
+
+        <MudRadioGroup Value="@SearchMode"
+                       ValueChanged="@OnSearchModeChanged"
+                       T="SearchDisplayMode"
+                       row="true">
+            <MudRadio Value="SearchDisplayMode.Normal" Color="Color.Default">Normal</MudRadio>
+            <MudRadio Value="SearchDisplayMode.Highlight" Color="Color.Primary">Highlight</MudRadio>
+            <MudRadio Value="SearchDisplayMode.Snippet" Color="Color.Secondary">Snippets</MudRadio>
+        </MudRadioGroup>
+    </MudStack>
+</MudStack>
+
+@code {
+    public enum SearchDisplayMode
+    {
+        Normal,
+        Highlight,
+        Snippet
+    }
+
+    [Parameter]
+    public string SearchString { get; set; } = string.Empty;
+
+    [Parameter]
+    public EventCallback<string> SearchStringChanged { get; set; }
+
+    [Parameter]
+    public SearchDisplayMode SearchMode { get; set; } = SearchDisplayMode.Normal;
+
+    [Parameter]
+    public EventCallback<SearchDisplayMode> SearchModeChanged { get; set; }
+
+    [Parameter]
+    public Fts5QueryMode QueryMode { get; set; } = Fts5QueryMode.Processed;
+
+    [Parameter]
+    public EventCallback<Fts5QueryMode> QueryModeChanged { get; set; }
+
+    private bool IsRawMode
+    {
+        get => QueryMode == Fts5QueryMode.Raw;
+        set => QueryMode = value ? Fts5QueryMode.Raw : Fts5QueryMode.Processed;
+    }
+
+    private string CurrentPlaceholder => QueryMode switch
+    {
+        Fts5QueryMode.Raw => "FTS5 syntax (e.g., 'task*', 'title:urgent', 'NEAR(task urgent, 5)', 'quarterly OR report')",
+        Fts5QueryMode.Processed => "Search as you type (e.g., 'urg tas', 'quar repo')",
+        _ => "Search..."
+    };
+
+    private string CurrentHelperText => QueryMode switch
+    {
+        Fts5QueryMode.Raw => "Raw mode: FTS5 syntax. Column: 'title:term'. Proximity: 'NEAR(term1 term2, distance)'. Space = AND. Operators: *, AND, OR, NOT.",
+        Fts5QueryMode.Processed => "Processed mode (default): Strips special chars & reserved words (AND/OR/NOT), tokenizes by space, adds wildcards (e.g., 'rout OR #title' → 'rout* AND title*').",
+        _ => "Search title and description"
+    };
+
+    private string CurrentModeLabel => QueryMode switch
+    {
+        Fts5QueryMode.Raw => "Raw FTS5 Mode",
+        Fts5QueryMode.Processed => "Smart Search Mode",
+        _ => "Search Mode"
+    };
+
+    private async Task OnSearchStringChanged(string value)
+    {
+        SearchString = value;
+        await SearchStringChanged.InvokeAsync(value);
+    }
+
+    private async Task OnSearchModeChanged(SearchDisplayMode mode)
+    {
+        SearchMode = mode;
+        await SearchModeChanged.InvokeAsync(mode);
+    }
+
+    private async Task OnQueryModeChanged(bool isRaw)
+    {
+        QueryMode = isRaw ? Fts5QueryMode.Raw : Fts5QueryMode.Processed;
+        await QueryModeChanged.InvokeAsync(QueryMode);
+    }
+}

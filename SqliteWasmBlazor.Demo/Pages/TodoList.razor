@@ -81,28 +81,12 @@
             <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Text">FTS5 Enabled</MudChip>
         </MudText>
         <MudStack Spacing="3">
-            <MudStack Spacing="2">
-                <MudTextField T="string"
-                              Value="_searchString"
-                              ValueChanged="@(s => OnSearch(s))"
-                              Immediate="true"
-                              Label="Full-Text Search (FTS5)"
-                              Variant="Variant.Outlined"
-                              Placeholder="Search for any text (e.g., 'urgent', 'Task #123', 'ac10*' for prefix)"
-                              Adornment="Adornment.Start"
-                              AdornmentIcon="@Icons.Material.Filled.Search"
-                              Clearable="true"
-                              HelperText="Searches title and description. Use * for prefix matching (e.g., 'ac10*'). Special characters are escaped." />
-
-                <MudRadioGroup Value="_searchMode"
-                               ValueChanged="@(async (SearchMode mode) => await OnSearchModeChanged(mode))"
-                               T="SearchMode"
-                               row="true">
-                    <MudRadio Value="SearchMode.Normal" Color="Color.Default">Normal</MudRadio>
-                    <MudRadio Value="SearchMode.Highlight" Color="Color.Primary">Highlight Full Text</MudRadio>
-                    <MudRadio Value="SearchMode.Snippet" Color="Color.Secondary">Show Snippets</MudRadio>
-                </MudRadioGroup>
-            </MudStack>
+            <TodoSearchComponent SearchString="@_searchString"
+                                SearchStringChanged="@OnSearchStringChanged"
+                                SearchMode="@_searchMode"
+                                SearchModeChanged="@OnSearchModeChanged"
+                                QueryMode="@_fts5QueryMode"
+                                QueryModeChanged="@OnQueryModeChanged" />
 
             <MudGrid Spacing="2">
                 <MudItem xs="12" sm="6" md="3" Class="d-flex align-center">
@@ -234,13 +218,13 @@
                 <MudTd DataLabel="Title">
                     <HighlightedText PlainContent="@context.Title"
                                      HighlightedContent="@GetHighlightedText(context.Id, isTitle: true)"
-                                     UseHighlighting="@(_searchMode != SearchMode.Normal)"
+                                     UseHighlighting="@(_searchMode != TodoSearchComponent.SearchDisplayMode.Normal)"
                                      Strikethrough="@context.IsCompleted" />
                 </MudTd>
                 <MudTd DataLabel="Description">
                     <HighlightedText PlainContent="@context.Description"
                                      HighlightedContent="@GetHighlightedText(context.Id, isTitle: false)"
-                                     UseHighlighting="@(_searchMode != SearchMode.Normal)"
+                                     UseHighlighting="@(_searchMode != TodoSearchComponent.SearchDisplayMode.Normal)"
                                      Strikethrough="@context.IsCompleted" />
                 </MudTd>
                 <MudTd DataLabel="Created">
@@ -313,13 +297,6 @@
 </MudContainer>
 
 @code {
-    public enum SearchMode
-    {
-        Normal,
-        Highlight,
-        Snippet
-    }
-
     public required MudTable<TodoItem> Table;
     private int _totalCount;
     private long _databaseFileSize;
@@ -328,7 +305,8 @@
     private string _searchString = string.Empty;
     private string _performanceInfo = string.Empty;
     private bool _isGenerating;
-    private SearchMode _searchMode = SearchMode.Normal;
+    private TodoSearchComponent.SearchDisplayMode _searchMode = TodoSearchComponent.SearchDisplayMode.Normal;
+    private Fts5QueryMode _fts5QueryMode = Fts5QueryMode.Processed;
     private int _generatedFakeEntries = 10000;
     private CancellationTokenSource? _searchCts;
     private Timer? _debounceTimer;
@@ -353,10 +331,12 @@
         // Use FTS5 search if search string is provided
         if (!string.IsNullOrWhiteSpace(_searchString))
         {
-            if (_searchMode == SearchMode.Highlight)
+            try
             {
+                if (_searchMode == TodoSearchComponent.SearchDisplayMode.Highlight)
+                {
                 // Use FTS5 with highlighting
-                var query = context.SearchTodoItemsWithHighlight(_searchString, "<mark>", "</mark>");
+                var query = context.SearchTodoItemsWithHighlight(_searchString, "<mark>", "</mark>", _fts5QueryMode);
                 var count = await query.CountAsync(cancellationToken);
                 _totalCount = count;
 
@@ -378,10 +358,10 @@
                     TotalItems = count
                 };
             }
-            else if (_searchMode == SearchMode.Snippet)
+            else if (_searchMode == TodoSearchComponent.SearchDisplayMode.Snippet)
             {
                 // Use FTS5 with snippets (5 tokens = ~5-7 words for short excerpts)
-                var query = context.SearchTodoItemsWithSnippet(_searchString, "<mark>", "</mark>", "...", 5);
+                var query = context.SearchTodoItemsWithSnippet(_searchString, "<mark>", "</mark>", "...", 5, _fts5QueryMode);
                 var count = await query.CountAsync(cancellationToken);
                 _totalCount = count;
 
@@ -406,7 +386,7 @@
             else
             {
                 // Use FTS5 without highlighting or snippets
-                var query = context.SearchTodoItems(_searchString);
+                var query = context.SearchTodoItems(_searchString, _fts5QueryMode);
                 var count = await query.CountAsync(cancellationToken);
                 _totalCount = count;
 
@@ -419,6 +399,25 @@
                 {
                     Items = data,
                     TotalItems = count
+                };
+            }
+            }
+            catch (Exception ex)
+            {
+                // Handle FTS5 syntax errors
+                var errorMessage = ex.Message.Contains("fts5: syntax error")
+                    ? $"FTS5 Syntax Error: {ExtractFts5Error(ex.Message)}"
+                    : $"Search Error: {ex.Message}";
+
+                Snackbar.Add(errorMessage, Severity.Error);
+                _performanceInfo = errorMessage;
+
+                // Return empty result on error
+                _totalCount = 0;
+                return new TableData<TodoItem>
+                {
+                    Items = new List<TodoItem>(),
+                    TotalItems = 0
                 };
             }
         }
@@ -462,7 +461,7 @@
         // Use FTS5 search if search string is provided
         if (!string.IsNullOrWhiteSpace(_searchString))
         {
-            query = context.SearchTodoItems(_searchString);
+            query = context.SearchTodoItems(_searchString, _fts5QueryMode);
         }
         else
         {
@@ -692,7 +691,7 @@
         }
     }
 
-    private void OnSearch(string text)
+    private void OnSearchStringChanged(string text)
     {
         _searchString = text;
 
@@ -723,9 +722,21 @@
         }, null, 300, Timeout.Infinite);
     }
 
-    private async Task OnSearchModeChanged(SearchMode mode)
+    private async Task OnSearchModeChanged(TodoSearchComponent.SearchDisplayMode mode)
     {
         _searchMode = mode;
+
+        // Only reload if there's an active search
+        if (!string.IsNullOrWhiteSpace(_searchString))
+        {
+            await Table.ReloadServerData();
+            StateHasChanged();
+        }
+    }
+
+    private async Task OnQueryModeChanged(Fts5QueryMode mode)
+    {
+        _fts5QueryMode = mode;
 
         // Only reload if there's an active search
         if (!string.IsNullOrWhiteSpace(_searchString))
@@ -864,5 +875,31 @@
             Snackbar.Add($"FTS5 integrity check failed: {ex.Message}", Severity.Error);
             _performanceInfo = $"FTS5 integrity check FAILED: {ex.Message}";
         }
+    }
+
+    private static string ExtractFts5Error(string fullErrorMessage)
+    {
+        // Extract the meaningful part of the FTS5 error message
+        // Example: "fts5: syntax error near 'OR'" → "syntax error near 'OR'"
+        var fts5Index = fullErrorMessage.IndexOf("fts5:", StringComparison.OrdinalIgnoreCase);
+        if (fts5Index >= 0)
+        {
+            var errorStart = fts5Index + 5; // Skip "fts5:"
+            var errorPart = fullErrorMessage[errorStart..].Trim();
+
+            // Add helpful hint based on common errors
+            if (errorPart.Contains("syntax error near"))
+            {
+                if (fullErrorMessage.Contains("NEAR"))
+                {
+                    return $"{errorPart}. Tip: NEAR syntax is 'NEAR(term1 term2, distance)' - space-separated terms, comma before distance.";
+                }
+                return $"{errorPart}. Tip: Column filters use 'title:term' not '#column'. NEAR uses 'NEAR(term1 term2, distance)'.";
+            }
+
+            return errorPart;
+        }
+
+        return fullErrorMessage;
     }
 }

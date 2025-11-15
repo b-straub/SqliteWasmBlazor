@@ -132,15 +132,61 @@ internal class FTS5SearchTest(IDbContextFactory<TodoDbContext> factory)
                 $"Expected 4 results for empty search, got {allResults.Count}");
         }
 
-        // Test 6: Search with AND operator (FTS5 syntax)
+        // Test 6: Search with AND operator (FTS5 syntax) using Raw mode
         var andResults = await context
-            .SearchTodoItems("quarterly AND report")
+            .SearchTodoItems("quarterly AND report", Fts5QueryMode.Raw)
             .ToListAsync();
 
         if (andResults.Count != 1)
         {
             throw new InvalidOperationException(
-                $"Expected 1 result for 'quarterly AND report', got {andResults.Count}");
+                $"Expected 1 result for 'quarterly AND report' (Raw), got {andResults.Count}");
+        }
+
+        // Test 7: Processed mode - tokenize and add wildcards
+        // Search for "quar repo" should match "quarterly" and "report"
+        var processedResults = await context
+            .SearchTodoItems("quar repo", Fts5QueryMode.Processed)
+            .ToListAsync();
+
+        if (processedResults.Count != 1)
+        {
+            throw new InvalidOperationException(
+                $"Expected 1 result for 'quar repo' (Processed), got {processedResults.Count}");
+        }
+
+        // Test 8: Processed mode with special characters (should be stripped)
+        // "#quarter#ly #report#" should become "quarterly* AND report*"
+        var processedSpecialChars = await context
+            .SearchTodoItems("#quarter#ly #report#", Fts5QueryMode.Processed)
+            .ToListAsync();
+
+        if (processedSpecialChars.Count != 1)
+        {
+            throw new InvalidOperationException(
+                $"Expected 1 result for '#quarter#ly #report#' (Processed), got {processedSpecialChars.Count}");
+        }
+
+        // Test 9: Processed mode - partial matching with single word
+        var processedSingleWord = await context
+            .SearchTodoItems("gro", Fts5QueryMode.Processed)
+            .ToListAsync();
+
+        if (processedSingleWord.Count != 1) // Should match "groceries"
+        {
+            throw new InvalidOperationException(
+                $"Expected 1 result for 'gro' (Processed), got {processedSingleWord.Count}");
+        }
+
+        // Test 10: Raw mode with exact term (no wildcards)
+        var rawExact = await context
+            .SearchTodoItems("groceries", Fts5QueryMode.Raw)
+            .ToListAsync();
+
+        if (rawExact.Count != 1)
+        {
+            throw new InvalidOperationException(
+                $"Expected 1 result for 'groceries' (Raw), got {rawExact.Count}");
         }
 
         return "OK";
