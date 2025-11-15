@@ -1,3 +1,4 @@
+@using Microsoft.JSInterop
 @inject ISnackbar Snackbar
 @inject IJSRuntime JS
 @implements IAsyncDisposable
@@ -10,8 +11,16 @@
     {
         if (firstRender)
         {
-            _objRef = DotNetObjectReference.Create(this);
-            await JS.InvokeVoidAsync("ServiceWorkerUpdate.registerUpdateCallback", _objRef);
+            try
+            {
+                _objRef = DotNetObjectReference.Create(this);
+                await JS.InvokeVoidAsync("ServiceWorkerUpdate.registerUpdateCallback", _objRef);
+            }
+            catch (JSException)
+            {
+                // ServiceWorkerUpdate not available (e.g., in debug mode where service worker is disabled)
+                // This is expected and can be safely ignored
+            }
         }
     }
 
@@ -54,7 +63,14 @@
     {
         if (_objRef is not null)
         {
-            await JS.InvokeVoidAsync("ServiceWorkerUpdate.registerUpdateCallback", null);
+            try
+            {
+                await JS.InvokeVoidAsync("ServiceWorkerUpdate.registerUpdateCallback", null);
+            }
+            catch (JSException)
+            {
+                // ServiceWorkerUpdate not available - safe to ignore
+            }
             _objRef.Dispose();
         }
     }

@@ -105,6 +105,47 @@ catch (Exception ex)
         />
     </Target>
 
+    <UsingTask TaskName="ReplaceTextInFile" TaskFactory="RoslynCodeTaskFactory"
+               AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.Core.dll">
+        <ParameterGroup>
+            <Filename ParameterType="System.String" Required="true"/>
+            <Placeholder ParameterType="System.String" Required="true"/>
+            <Replacement ParameterType="System.String" Required="true"/>
+        </ParameterGroup>
+        <Task>
+            <Using Namespace="System"/>
+            <Using Namespace="System.IO"/>
+            <Code Type="Fragment" Language="cs">
+                <![CDATA[
+try
+{
+    var input = File.ReadAllText(Filename);
+    var output = input.Replace(Placeholder, Replacement);
+    File.WriteAllText(Filename, output);
+    Console.WriteLine($"Replaced '{Placeholder}' in {Filename}");
+}
+catch (Exception ex)
+{
+    Console.WriteLine(ex.Message);
+}
+        ]]>
+            </Code>
+        </Task>
+    </UsingTask>
+
+    <Target Name="ReleaseServiceWorker" Condition="'$(Configuration)'=='Release'" BeforeTargets="BeforeCompile">
+        <ReplaceTextInFile
+                Filename="wwwroot\index.html"
+                Placeholder="&lt;!--SW_REGISTER_PLACEHOLDER--&gt;"
+                Replacement="&lt;script&gt;navigator.serviceWorker.register('service-worker.js', { updateViaCache: 'none' });&lt;/script&gt;"
+        />
+        <ReplaceTextInFile
+                Filename="wwwroot\index.html"
+                Placeholder="&lt;!--SW_UPDATE_PLACEHOLDER--&gt;"
+                Replacement="&lt;script src=&quot;service-worker-update.js&quot;&gt;&lt;/script&gt;"
+        />
+    </Target>
+
     <Target Name="DebugSubfolder" Condition="'$(Configuration)'=='Debug'" BeforeTargets="BeforeCompile">
         <ReplaceRegexInFile
                 Filename="wwwroot\index.html"
@@ -122,6 +163,20 @@ catch (Exception ex)
                 Filename="wwwroot\.htaccess"
                 Match="(RewriteBase ).*"
                 Default="/"
+        />
+    </Target>
+
+    <Target Name="DebugServiceWorker" Condition="'$(Configuration)'=='Debug'" BeforeTargets="BeforeCompile">
+        <!-- In Debug mode, ensure service worker scripts remain commented out (no-op) -->
+        <ReplaceTextInFile
+                Filename="wwwroot\index.html"
+                Placeholder="&lt;script&gt;navigator.serviceWorker.register('service-worker.js', { updateViaCache: 'none' });&lt;/script&gt;"
+                Replacement="&lt;!--SW_REGISTER_PLACEHOLDER--&gt;"
+        />
+        <ReplaceTextInFile
+                Filename="wwwroot\index.html"
+                Placeholder="&lt;script src=&quot;service-worker-update.js&quot;&gt;&lt;/script&gt;"
+                Replacement="&lt;!--SW_UPDATE_PLACEHOLDER--&gt;"
         />
     </Target>
 
