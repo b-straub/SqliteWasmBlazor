@@ -8,6 +8,7 @@
 @using SqliteWasmWorkerBridge = SqliteWasmBlazor.SqliteWasmWorkerBridge
 @inject IDbContextFactory<TodoDbContext> DbContextFactory
 @inject ISnackbar Snackbar
+@inject NavigationManager Navigation
 @implements IDisposable
 
 <PageTitle>Todo List</PageTitle>
@@ -72,6 +73,9 @@
             </MudItem>
         </MudGrid>
     </MudPaper>
+
+    <!-- Database Import/Export Card -->
+    <TodoImportExport DatabaseName="TodoDb.db" OnDataChanged="RefreshDataAsync" />
 
     <!-- Search and Performance Testing Card -->
     <MudPaper Elevation="2" Class="pa-4 mb-6">
@@ -596,6 +600,14 @@
         Snackbar.Add($"List refreshed in {stopwatch.ElapsedMilliseconds}ms", Severity.Info);
     }
 
+    private async Task RefreshDataAsync()
+    {
+        // Called after import - refresh without showing snackbar (import already shows success)
+        await Table.ReloadServerData();
+        await UpdateDatabaseFileSizeAsync();
+        StateHasChanged();
+    }
+
     private async Task HandleKeyDownAsync(KeyboardEventArgs e)
     {
         if (e.Key == "Enter")
@@ -668,8 +680,6 @@
             }
 
             await transaction.CommitAsync();
-            // Optimize FTS5 index after bulk inserts to ensure index is optimal
-            await context.OptimizeTodoItemFts5IndexAsync();
 
             stopwatch.Stop();
 
@@ -688,6 +698,27 @@
             _isGenerating = false;
             Snackbar.Add($"Generation failed: {ex.Message}", Severity.Error);
             throw;
+        }
+
+        // Optimize FTS5 index after bulk inserts (outside transaction to avoid rollback issues)
+        try
+        {
+            await context.OptimizeTodoItemFts5IndexAsync();
+        }
+        catch
+        {
+            // FTS5 might be missing/corrupted after import - try to rebuild it
+            try
+            {
+                Snackbar.Add("FTS5 index missing or corrupted - rebuilding...", Severity.Warning);
+                await context.RebuildTodoItemFts5IndexAsync();
+                Snackbar.Add("FTS5 index rebuilt successfully", Severity.Success);
+            }
+            catch (Exception rebuildEx)
+            {
+                // If rebuild fails, log but don't fail the entire operation
+                Snackbar.Add($"FTS5 rebuild failed: {rebuildEx.Message}. Use 'Rebuild FTS5 Index' button.", Severity.Warning);
+            }
         }
     }
 

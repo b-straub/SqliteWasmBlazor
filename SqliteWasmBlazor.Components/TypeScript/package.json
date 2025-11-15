@@ -1,0 +1,16 @@
+{
+  "name": "sqlitewasmblazor-components-typescript",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "build": "npm run build:fileops && npm run copy:files",
+    "build:fileops": "esbuild file-operations.ts --bundle --format=esm --sourcemap=inline --outfile=../wwwroot/file-operations.js",
+    "build:release": "npm run build:fileops:release && npm run copy:files",
+    "build:fileops:release": "esbuild file-operations.ts --bundle --format=esm --minify --outfile=../wwwroot/file-operations.js",
+    "copy:files": "echo 'No additional files to copy'"
+  },
+  "devDependencies": {
+    "esbuild": "^0.27.0",
+    "typescript": "^5.8.3"
+  }
+}

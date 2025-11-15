@@ -3,6 +3,7 @@ using SqliteWasmBlazor.Models;
 using SqliteWasmBlazor.TestApp.TestInfrastructure.Tests;
 using SqliteWasmBlazor.TestApp.TestInfrastructure.Tests.CRUD;
 using SqliteWasmBlazor.TestApp.TestInfrastructure.Tests.EFCoreFunctions;
+using SqliteWasmBlazor.TestApp.TestInfrastructure.Tests.ImportExport;
 using SqliteWasmBlazor.TestApp.TestInfrastructure.Tests.JsonCollections;
 using SqliteWasmBlazor.TestApp.TestInfrastructure.Tests.Migrations;
 using SqliteWasmBlazor.TestApp.TestInfrastructure.Tests.RaceConditions;
@@ -81,6 +82,14 @@ internal class TestFactory
         _tests.Add(("EF Core Functions", new DecimalComparisonTest(factory)));
         _tests.Add(("EF Core Functions", new RegexPatternTest(factory)));
         _tests.Add(("EF Core Functions", new ComplexDecimalQueryTest(factory)));
+
+        // Import/Export Tests (MessagePack serialization with schema validation)
+        _tests.Add(("Import/Export", new ExportImportRoundTripTest(factory)));
+        _tests.Add(("Import/Export", new ExportImportLargeDatasetTest(factory)));
+        _tests.Add(("Import/Export", new ImportIncompatibleSchemaVersionTest(factory)));
+        _tests.Add(("Import/Export", new ImportIncompatibleAppIdTest(factory)));
+        _tests.Add(("Import/Export", new ExportImportEmptyDatabaseTest(factory)));
+        _tests.Add(("Import/Export", new ExportImportIncrementalBatchesTest(factory)));
     }
 }
 

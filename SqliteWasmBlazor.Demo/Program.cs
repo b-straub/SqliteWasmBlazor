@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Components.Web;
 using Microsoft.AspNetCore.Components.WebAssembly.Hosting;
 using MudBlazor.Services;
 using SqliteWasmBlazor;
+using SqliteWasmBlazor.Components.Interop;
 using SqliteWasmBlazor.Demo;
 using SqliteWasmBlazor.Models;
 
@@ -9,7 +10,7 @@ var builder = WebAssemblyHostBuilder.CreateDefault(args);
 
 // Reduce EF Core logging verbosity
 #if DEBUG
-builder.Logging.AddFilter("Microsoft.EntityFrameworkCore.Database.Command", LogLevel.Warning);
+builder.Logging.AddFilter("Microsoft.EntityFrameworkCore.Database.Command", LogLevel.Debug);
 #else
 builder.Logging.AddFilter("Microsoft.EntityFrameworkCore.Infrastructure", LogLevel.Error);
 builder.Logging.AddFilter("Microsoft.EntityFrameworkCore.Database.Command", LogLevel.Error);
@@ -28,7 +29,7 @@ builder.Services.AddMudServices();
 builder.Services.AddDbContextFactory<TodoDbContext>(options =>
 {
 #if DEBUG
-    var connection = new SqliteWasmConnection("Data Source=TodoDb.db", LogLevel.Warning);
+    var connection = new SqliteWasmConnection("Data Source=TodoDb.db", LogLevel.Debug);
 #else
     var connection = new SqliteWasmConnection("Data Source=TodoDb.db", LogLevel.Error);
 #endif
@@ -37,6 +38,9 @@ builder.Services.AddDbContextFactory<TodoDbContext>(options =>
 
 // Register database initialization service
 builder.Services.AddSingleton<IDBInitializationService, DBInitializationService>();
+
+// Initialize FileOperations JS module for import/export
+await FileOperationsInterop.InitializeAsync();
 
 var host = builder.Build();
 

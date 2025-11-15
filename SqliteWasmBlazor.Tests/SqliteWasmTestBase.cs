@@ -49,6 +49,13 @@ public abstract class SqliteWasmTestBase(IWaFixture fixture, ITestOutputHelper o
     // Race Condition Tests
     [InlineData("RaceCondition_PurgeThenLoad")]
     [InlineData("RaceCondition_PurgeThenLoadWithTransaction")]
+    // Import/Export Tests
+    [InlineData("ExportImport_RoundTrip")]
+    [InlineData("ExportImport_LargeDataset")]
+    [InlineData("ImportIncompatibleSchemaVersion")]
+    [InlineData("ImportIncompatibleAppId")]
+    [InlineData("ExportImport_EmptyDatabase")]
+    [InlineData("ExportImport_IncrementalBatches")]
     public async Task TestCaseAsync(string name)
     {
         Assert.NotNull(_fixture.Page);

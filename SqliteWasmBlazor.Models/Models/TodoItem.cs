@@ -4,6 +4,7 @@ namespace SqliteWasmBlazor.Models.Models;
 
 public class TodoItem
 {
+    [Key]
     public int Id { get; set; }
 
     [Required]

@@ -1,0 +1,413 @@
+@using Microsoft.EntityFrameworkCore
+@using SqliteWasmBlazor
+@using SqliteWasmBlazor.Models
+@using SqliteWasmBlazor.Models.DTOs
+@using SqliteWasmBlazor.Models.Extensions
+@using SqliteWasmBlazor.Components.Components
+@using System.Runtime.Versioning
+@inject IDbContextFactory<TodoDbContext> DbContextFactory
+@inject ISnackbar Snackbar
+@inject ILogger<TodoImportExport> Logger
+
+<MudPaper Elevation="2" Class="pa-4 mb-6">
+    <MudText Typo="Typo.h6" Class="mb-3">
+        <MudIcon Icon="@Icons.Material.Filled.ImportExport" Size="Size.Small" Class="mr-1" />
+        Database Import/Export
+    </MudText>
+
+    <MudGrid Spacing="3">
+        <MudItem xs="12" sm="6">
+            <MessagePackFileDownload T="TodoItemDto"
+                GetPageAsync="@GetTodoItemsPageAsync"
+                GetTotalCountAsync="@GetTodoItemCountAsync"
+                FileName="@GetExportFileName()"
+                ButtonText="Export All TodoItems"
+                PageSize="10000"
+                SchemaVersion="@SchemaVersion"
+                AppIdentifier="@AppIdentifier"
+                OnDownloadStarted="@OnExportStarted"
+                OnDownloadCompleted="@OnExportCompleted" />
+        </MudItem>
+
+        <MudItem xs="12" sm="6">
+            <MessagePackFileUpload T="TodoItemDto"
+                OnBulkInsertAsync="@BulkInsertTodoItemsAsync"
+                ButtonText="Import TodoItems (Safe)"
+                BatchSize="10000"
+                ExpectedSchemaVersion="@SchemaVersion"
+                ExpectedAppIdentifier="@AppIdentifier"
+                OnUploadStarted="@OnImportStartedAsync"
+                OnUploadCompleted="@OnImportCompletedAsync"
+                OnUploadFailed="@OnImportFailed" />
+        </MudItem>
+    </MudGrid>
+
+    <MudAlert Severity="Severity.Info" Class="mt-4" Dense="true" NoIcon="false">
+        <strong>Import uses atomic file swap:</strong> Your current database is backed up as
+        <code>@BackupDatabaseName</code> before import. The list will refresh automatically after import.
+    </MudAlert>
+</MudPaper>
+
+@code {
+    /// <summary>
+    /// Database filename (without path) - e.g., "TodoDb.db"
+    /// </summary>
+    [Parameter]
+    public string DatabaseName { get; set; } = "TodoDb.db";
+
+    [Parameter]
+    public EventCallback OnDataChanged { get; set; }
+
+    /// <summary>
+    /// Schema version for TodoItemDto export/import validation
+    /// Increment when TodoItemDto structure changes
+    /// </summary>
+    private const string SchemaVersion = "1.0";
+
+    /// <summary>
+    /// Application identifier to prevent cross-app data imports
+    /// </summary>
+    private const string AppIdentifier = "SqliteWasmBlazor.Demo";
+
+    private TodoDbContext? _tempDbContext;
+    private Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction? _importTransaction;
+    private bool _isImporting;
+    private int _importedCount;
+
+    private string ImportDatabaseName => $"{Path.GetFileNameWithoutExtension(DatabaseName)}-import{Path.GetExtension(DatabaseName)}";
+    private string BackupDatabaseName => $"{Path.GetFileNameWithoutExtension(DatabaseName)}.bak";
+
+    // Export methods
+    private async Task<List<TodoItemDto>> GetTodoItemsPageAsync(int pageIndex, int pageSize)
+    {
+        await using var context = await DbContextFactory.CreateDbContextAsync();
+        var items = await context.TodoItems
+            .AsNoTracking()
+            .OrderBy(t => t.Id)
+            .Skip(pageIndex * pageSize)
+            .Take(pageSize)
+            .ToListAsync();
+
+        return items.Select(TodoItemDto.FromEntity).ToList();
+    }
+
+    private async Task<int> GetTodoItemCountAsync()
+    {
+        await using var context = await DbContextFactory.CreateDbContextAsync();
+        return await context.TodoItems.CountAsync();
+    }
+
+    private string GetExportFileName()
+    {
+        var timestamp = DateTime.Now.ToString("yyyyMMdd-HHmmss");
+        return $"todoitems-{timestamp}.msgpack";
+    }
+
+    private async Task OnExportStarted()
+    {
+        Logger.LogDebug("Export started");
+        await Task.CompletedTask;
+    }
+
+    private async Task OnExportCompleted(int count)
+    {
+        Logger.LogInformation("Export completed: {Count} items", count);
+        Snackbar.Add($"Successfully exported {count:N0} items", Severity.Success);
+        await Task.CompletedTask;
+    }
+
+    // Import methods - uses temporary database
+    private async Task OnImportStartedAsync()
+    {
+        if (_isImporting)
+        {
+            return;
+        }
+
+        // Show warning
+        Snackbar.Add(
+            "Import will create a temporary database and swap it after validation. Your current data will be backed up.",
+            Severity.Warning,
+            config =>
+            {
+                config.VisibleStateDuration = 5000;
+            });
+
+        _isImporting = true;
+        _importedCount = 0;
+
+        // Create temporary database for import
+        try
+        {
+            // Delete temp database if it exists from previous failed import
+            if (await SqliteWasmWorkerBridge.Instance.ExistsDatabaseAsync(ImportDatabaseName))
+            {
+                Logger.LogDebug("Deleting existing temporary database: {DatabaseName}", ImportDatabaseName);
+                await SqliteWasmWorkerBridge.Instance.DeleteDatabaseAsync(ImportDatabaseName);
+            }
+
+            var tempConnection = new SqliteWasmConnection($"Data Source={ImportDatabaseName}");
+            var optionsBuilder = new DbContextOptionsBuilder<TodoDbContext>();
+            optionsBuilder.UseSqliteWasm(tempConnection);
+
+            _tempDbContext = new TodoDbContext(optionsBuilder.Options);
+
+            // Run migrations to create database with full schema (including FTS5 virtual tables)
+            await _tempDbContext.Database.MigrateAsync();
+
+            // Start transaction for entire import (improves performance and ensures atomicity)
+            _importTransaction = await _tempDbContext.Database.BeginTransactionAsync();
+
+            Logger.LogInformation("Temporary import database created with migrations: {DatabaseName}", ImportDatabaseName);
+            Snackbar.Add("Starting import to temporary database...", Severity.Info);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to create temporary database");
+            Snackbar.Add($"Failed to create temporary database: {ex.Message}", Severity.Error);
+            _isImporting = false;
+            _tempDbContext?.Dispose();
+            _tempDbContext = null;
+            throw;
+        }
+    }
+
+    private async Task BulkInsertTodoItemsAsync(List<TodoItemDto> dtos)
+    {
+        if (_tempDbContext is null)
+        {
+            throw new InvalidOperationException("Temporary database not initialized");
+        }
+
+        try
+        {
+            // Use raw SQL with multi-row INSERT for true batching
+            // SQLite supports up to 999 parameters per statement
+            // TodoItem has 6 columns (Id, Title, Description, IsCompleted, CreatedAt, CompletedAt)
+            // 999 / 6 = 166 rows per statement (996 parameters)
+            const int rowsPerBatch = 166;
+
+            for (int i = 0; i < dtos.Count; i += rowsPerBatch)
+            {
+                var batch = dtos.Skip(i).Take(rowsPerBatch).ToList();
+
+                // Build multi-row INSERT statement
+                var valuesClauses = new List<string>();
+                var parameters = new List<object?>();
+
+                for (int j = 0; j < batch.Count; j++)
+                {
+                    var dto = batch[j];
+                    var baseIndex = j * 6;
+                    valuesClauses.Add($"({{{baseIndex}}}, {{{baseIndex + 1}}}, {{{baseIndex + 2}}}, {{{baseIndex + 3}}}, {{{baseIndex + 4}}}, {{{baseIndex + 5}}})");
+
+                    parameters.Add(dto.Id);
+                    parameters.Add(dto.Title);
+                    parameters.Add(dto.Description);
+                    parameters.Add(dto.IsCompleted ? 1 : 0);
+                    parameters.Add(dto.CreatedAt.ToString("O"));
+                    parameters.Add(dto.CompletedAt?.ToString("O"));
+                }
+
+                var sql = $@"
+                    INSERT INTO TodoItems (Id, Title, Description, IsCompleted, CreatedAt, CompletedAt)
+                    VALUES {string.Join(", ", valuesClauses)}";
+
+                await _tempDbContext.Database.ExecuteSqlRawAsync(sql, parameters.ToArray()!);
+            }
+
+            _importedCount += dtos.Count;
+            Logger.LogDebug("Imported batch: {BatchCount} items (total: {TotalCount})", dtos.Count, _importedCount);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Batch import failed");
+            throw;
+        }
+    }
+
+    private async Task OnImportCompletedAsync(int totalCount)
+    {
+        if (_tempDbContext is null)
+        {
+            return;
+        }
+
+        try
+        {
+            // Commit transaction
+            if (_importTransaction is not null)
+            {
+                Logger.LogInformation("Committing import transaction");
+                await _importTransaction.CommitAsync();
+                await _importTransaction.DisposeAsync();
+                _importTransaction = null;
+            }
+
+            // Validate imported data
+            var importedCount = await _tempDbContext.TodoItems.CountAsync();
+            Logger.LogInformation("Import validation: {ImportedCount} items in temporary database", importedCount);
+
+            if (importedCount != totalCount)
+            {
+                throw new InvalidOperationException($"Data validation failed: expected {totalCount} items, got {importedCount}");
+            }
+
+            // Rebuild FTS5 index to populate it with imported data
+            Logger.LogDebug("Rebuilding FTS5 index for imported data");
+            await _tempDbContext.RebuildTodoItemFts5IndexAsync();
+
+            // Dispose temp context to close connection
+            await _tempDbContext.DisposeAsync();
+            _tempDbContext = null;
+
+            // Close both databases before swap to ensure clean file handles
+            Logger.LogDebug("Closing import database: {DatabaseName}", ImportDatabaseName);
+            await SqliteWasmWorkerBridge.Instance.CloseDatabaseAsync(ImportDatabaseName);
+
+            Logger.LogDebug("Closing main database: {DatabaseName}", DatabaseName);
+            await SqliteWasmWorkerBridge.Instance.CloseDatabaseAsync(DatabaseName);
+
+            // Perform atomic file swap in OPFS using native rename (metadata-only, no file copy)
+            Logger.LogInformation("Performing database backup and swap");
+            await SwapDatabasesAsync(DatabaseName, ImportDatabaseName, BackupDatabaseName, Logger);
+
+            Snackbar.Add($"Successfully imported {totalCount:N0} items!", Severity.Success);
+
+            // Trigger data refresh - EF Core will auto-reconnect to the new database
+            await OnDataChanged.InvokeAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Import completion failed");
+            Snackbar.Add($"Import failed: {ex.Message}", Severity.Error);
+
+            // Rollback transaction if active
+            if (_importTransaction is not null)
+            {
+                await _importTransaction.RollbackAsync();
+                await _importTransaction.DisposeAsync();
+                _importTransaction = null;
+            }
+
+            // Cleanup temporary database
+            if (_tempDbContext is not null)
+            {
+                await _tempDbContext.DisposeAsync();
+                _tempDbContext = null;
+            }
+
+            await OnImportFailed(ex.Message);
+        }
+        finally
+        {
+            _isImporting = false;
+        }
+    }
+
+    private async Task OnImportFailed(string error)
+    {
+        Logger.LogError("Import failed: {Error}", error);
+
+        // Rollback and dispose transaction if active
+        if (_importTransaction is not null)
+        {
+            try
+            {
+                await _importTransaction.RollbackAsync();
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "Transaction rollback failed");
+            }
+            finally
+            {
+                await _importTransaction.DisposeAsync();
+                _importTransaction = null;
+            }
+        }
+
+        // Cleanup temporary database context
+        if (_tempDbContext is not null)
+        {
+            await _tempDbContext.DisposeAsync();
+            _tempDbContext = null;
+        }
+
+        try
+        {
+            // Delete temporary database file
+            Logger.LogDebug("Cleaning up temporary import database");
+            if (await SqliteWasmWorkerBridge.Instance.ExistsDatabaseAsync(ImportDatabaseName))
+            {
+                await SqliteWasmWorkerBridge.Instance.DeleteDatabaseAsync(ImportDatabaseName);
+                Logger.LogDebug("Deleted temporary database: {DatabaseName}", ImportDatabaseName);
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Cleanup failed");
+        }
+
+        _isImporting = false;
+    }
+
+    [SupportedOSPlatform("browser")]
+    private static async Task SwapDatabasesAsync(string mainDbName, string importDbName, string backupDbName, ILogger logger)
+    {
+        // Atomic file swap using OPFS operations:
+        // 1. Delete old backup if exists
+        // 2. Delete current db (or rename to backup if needed)
+        // 3. Rename import db -> current
+
+        try
+        {
+            var bridge = SqliteWasmWorkerBridge.Instance;
+
+            // Step 1: Delete old backup if it exists
+            if (await bridge.ExistsDatabaseAsync(backupDbName))
+            {
+                logger.LogDebug("Deleting old backup database: {BackupDatabase}", backupDbName);
+                await bridge.DeleteDatabaseAsync(backupDbName);
+            }
+
+            // Step 2: Check if main database exists in OPFS
+            // Note: The main database might not exist in OPFS if it was only used by EF Core
+            bool mainDbExists = await bridge.ExistsDatabaseAsync(mainDbName);
+            logger.LogDebug("Main database exists in OPFS: {Exists}", mainDbExists);
+
+            if (mainDbExists)
+            {
+                // Rename current database to backup for safety
+                logger.LogDebug("Renaming current database to backup: {MainDatabase} → {BackupDatabase}", mainDbName, backupDbName);
+                await bridge.RenameDatabaseAsync(mainDbName, backupDbName);
+            }
+            else
+            {
+                // Main database doesn't exist in OPFS yet (created by import/initial setup)
+                logger.LogDebug("Main database doesn't exist in OPFS, will be created by import");
+            }
+
+            // Step 3: Rename import database to main
+            logger.LogDebug("Renaming import database to main: {ImportDatabase} → {MainDatabase}", importDbName, mainDbName);
+            await bridge.RenameDatabaseAsync(importDbName, mainDbName);
+
+            logger.LogInformation("Database swap completed: {MainDatabase} is now active{Backup}",
+                mainDbName,
+                mainDbExists ? $", backup saved as {backupDbName}" : "");
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Database swap failed");
+            throw new InvalidOperationException($"Failed to swap databases. Your data may still be in the import database ({importDbName}).", ex);
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_tempDbContext is not null)
+        {
+            await _tempDbContext.DisposeAsync();
+        }
+    }
+}

@@ -1,0 +1,108 @@
+@typeparam T
+@using MudBlazor
+@inject ISnackbar Snackbar
+
+<MudButton Variant="Variant.Filled"
+           Color="Color.Primary"
+           OnClick="DownloadFileAsync"
+           Disabled="@IsDownloading"
+           StartIcon="@Icons.Material.Filled.Download"
+           FullWidth="true">
+    @if (IsDownloading)
+    {
+        <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" />
+        <MudText>Exporting...</MudText>
+    }
+    else
+    {
+        <MudText>@ButtonText</MudText>
+    }
+</MudButton>
+
+<MudOverlay Visible="@IsDownloading" DarkBackground="true" Absolute="false" ZIndex="9999">
+    <MudPaper Elevation="8" Class="pa-4" Style="min-width: 400px;">
+        <MudText Typo="Typo.h6" Class="mb-2">Exporting Records</MudText>
+        <MudText Typo="Typo.body2" Class="mb-2">
+            @ProcessedRecords.ToString("N0") / @TotalRecords.ToString("N0") records (@ProgressPercentage.ToString("F2")%)
+        </MudText>
+        <MudProgressLinear Color="Color.Primary"
+                          Value="@ProgressPercentage"
+                          Size="Size.Large"
+                          Class="mb-2" />
+        <MudText Typo="Typo.caption" Color="Color.Secondary">
+            Page @CurrentPage / @TotalPages
+        </MudText>
+    </MudPaper>
+</MudOverlay>
+
+@code {
+    /// <summary>
+    /// Paged data provider - fetches items in chunks
+    /// Params: int pageIndex, int pageSize
+    /// Returns: Task with List of items for the requested page
+    /// </summary>
+    [Parameter, EditorRequired]
+    public required Func<int, int, Task<List<T>>> GetPageAsync { get; init; }
+
+    /// <summary>
+    /// Total record count provider - returns total number of records to export
+    /// </summary>
+    [Parameter, EditorRequired]
+    public required Func<Task<int>> GetTotalCountAsync { get; init; }
+
+    /// <summary>
+    /// Page size for SQL queries (default: 10000 records per page)
+    /// Larger batches = fewer roundtrips, faster export
+    /// </summary>
+    [Parameter]
+    public int PageSize { get; set; } = 10000;
+
+    /// <summary>
+    /// Filename for the downloaded file
+    /// </summary>
+    [Parameter]
+    public string FileName { get; set; } = "export.msgpack";
+
+    /// <summary>
+    /// Button text
+    /// </summary>
+    [Parameter]
+    public string ButtonText { get; set; } = "Export to MessagePack";
+
+    /// <summary>
+    /// Show progress bar during export
+    /// </summary>
+    [Parameter]
+    public bool ShowProgress { get; set; } = true;
+
+    /// <summary>
+    /// Event callback when download starts
+    /// </summary>
+    [Parameter]
+    public EventCallback OnDownloadStarted { get; set; }
+
+    /// <summary>
+    /// Event callback for progress updates (current records, total records)
+    /// </summary>
+    [Parameter]
+    public EventCallback<(int current, int total)> OnProgress { get; set; }
+
+    /// <summary>
+    /// Event callback when download completes (total records exported)
+    /// </summary>
+    [Parameter]
+    public EventCallback<int> OnDownloadCompleted { get; set; }
+
+    /// <summary>
+    /// Event callback when download fails
+    /// </summary>
+    [Parameter]
+    public EventCallback<string> OnDownloadFailed { get; set; }
+
+    private bool IsDownloading { get; set; }
+    private int CurrentPage { get; set; }
+    private int TotalPages { get; set; }
+    private int ProcessedRecords { get; set; }
+    private int TotalRecords { get; set; }
+    private double ProgressPercentage { get; set; }
+}

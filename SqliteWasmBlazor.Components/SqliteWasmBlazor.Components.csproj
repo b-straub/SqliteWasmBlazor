@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk.Razor">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+
+  <ItemGroup>
+    <SupportedPlatform Include="browser" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="MessagePack" Version="3.1.4" />
+    <PackageReference Include="Microsoft.AspNetCore.Components.Web" Version="10.0.0" />
+    <PackageReference Include="MudBlazor" Version="8.14.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\SqliteWasmBlazor.Models\SqliteWasmBlazor.Models.csproj" />
+  </ItemGroup>
+
+  <!-- TypeScript Build Integration -->
+  <Target Name="BuildTypeScript" BeforeTargets="BeforeBuild">
+    <Message Text="Building TypeScript files..." Importance="high" />
+    <Exec WorkingDirectory="TypeScript" Command="npm run build" Condition="'$(Configuration)' == 'Debug'" />
+    <Exec WorkingDirectory="TypeScript" Command="npm run build:release" Condition="'$(Configuration)' == 'Release'" />
+  </Target>
+
+</Project>

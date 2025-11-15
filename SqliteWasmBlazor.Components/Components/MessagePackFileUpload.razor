@@ -1,0 +1,110 @@
+@typeparam T
+@using Microsoft.AspNetCore.Components.Forms
+@using MudBlazor
+@inject ISnackbar Snackbar
+
+<MudFileUpload T="IBrowserFile"
+               OnFilesChanged="HandleFileSelectedAsync"
+               Accept=".msgpack"
+               MaximumFileCount="1"
+               Disabled="@IsUploading">
+    <ActivatorContent>
+        <MudButton Variant="Variant.Filled"
+                  Color="Color.Primary"
+                  StartIcon="@Icons.Material.Filled.CloudUpload"
+                  Disabled="@IsUploading"
+                  FullWidth="true">
+            @if (IsUploading)
+            {
+                <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" />
+                <MudText>Importing...</MudText>
+            }
+            else
+            {
+                <MudText>@ButtonText</MudText>
+            }
+        </MudButton>
+    </ActivatorContent>
+</MudFileUpload>
+
+<MudOverlay Visible="@IsUploading" DarkBackground="true" Absolute="false" ZIndex="9999">
+    <MudPaper Elevation="8" Class="pa-4" Style="min-width: 400px;">
+        <MudText Typo="Typo.h6" Class="mb-2">Importing Records</MudText>
+        <MudText Typo="Typo.body2" Class="mb-2">
+            @ProcessedRecords.ToString("N0") records imported
+        </MudText>
+        <MudProgressLinear Color="Color.Primary"
+                          Value="@ProgressPercentage"
+                          Size="Size.Large"
+                          Class="mb-2" />
+        <MudText Typo="Typo.caption" Color="Color.Secondary">
+            Processing batch @CurrentBatch...
+        </MudText>
+    </MudPaper>
+</MudOverlay>
+
+@code {
+    /// <summary>
+    /// Bulk insert callback - receives batches of items to insert into database
+    /// </summary>
+    [Parameter, EditorRequired]
+    public required Func<List<T>, Task> OnBulkInsertAsync { get; init; }
+
+    /// <summary>
+    /// Batch size for SQL bulk inserts (default: 10000 records per batch)
+    /// Larger batches = fewer SaveChanges calls, faster import
+    /// SQLite can handle large batches efficiently
+    /// </summary>
+    [Parameter]
+    public int BatchSize { get; set; } = 10000;
+
+    /// <summary>
+    /// Button text
+    /// </summary>
+    [Parameter]
+    public string ButtonText { get; set; } = "Import from MessagePack";
+
+    /// <summary>
+    /// Event callback when upload starts
+    /// </summary>
+    [Parameter]
+    public EventCallback OnUploadStarted { get; set; }
+
+    /// <summary>
+    /// Event callback for progress updates (current records, total records)
+    /// </summary>
+    [Parameter]
+    public EventCallback<(int current, int total)> OnProgress { get; set; }
+
+    /// <summary>
+    /// Event callback when upload completes (total records imported)
+    /// </summary>
+    [Parameter]
+    public EventCallback<int> OnUploadCompleted { get; set; }
+
+    /// <summary>
+    /// Event callback when upload fails
+    /// </summary>
+    [Parameter]
+    public EventCallback<string> OnUploadFailed { get; set; }
+
+    /// <summary>
+    /// Show progress bar during import
+    /// </summary>
+    [Parameter]
+    public bool ShowProgress { get; set; } = true;
+
+    /// <summary>
+    /// Maximum file size in bytes (default: 500MB for large datasets)
+    /// </summary>
+    [Parameter]
+    public long MaxFileSize { get; set; } = 1024L * 1024L * 500L;
+
+    private bool IsUploading { get; set; }
+    private int ProcessedRecords { get; set; }
+    private int TotalRecords { get; set; }
+    private long BytesRead { get; set; }
+    private long TotalBytes { get; set; }
+    private int CurrentBatch { get; set; }
+    private int ProgressPercentage { get; set; }
+}
