@@ -204,7 +204,7 @@ public sealed partial class SqliteWasmWorkerBridge
 
         try
         {
-            using var registration = cancellationToken.Register(() =>
+            await using var registration = cancellationToken.Register(() =>
             {
                 _pendingRequests.TryRemove(requestId, out _);
                 tcs.TrySetCanceled();
