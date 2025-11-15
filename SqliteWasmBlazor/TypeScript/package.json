@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
+    "postinstall": "patch-package",
     "build": "npm run build:worker && npm run build:bridge && npm run copy:wasm",
     "build:worker": "esbuild sqlite-worker.ts --bundle --format=esm --sourcemap=inline --outfile=../wwwroot/sqlite-wasm-worker.js",
     "build:bridge": "esbuild worker-bridge.ts --bundle --format=esm --sourcemap=inline --outfile=../wwwroot/sqlite-wasm-bridge.js",
@@ -17,6 +18,7 @@
   },
   "devDependencies": {
     "esbuild": "^0.27.0",
+    "patch-package": "^8.0.1",
     "typescript": "^5.8.3"
   }
 }

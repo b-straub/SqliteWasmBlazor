@@ -187,6 +187,23 @@ public sealed partial class SqliteWasmWorkerBridge
         await SendRequestAsync(request, cancellationToken ?? CancellationToken.None);
     }
 
+    /// <summary>
+    /// Rename a database in OPFS SAHPool storage (atomic operation).
+    /// </summary>
+    public async Task RenameDatabaseAsync(string oldName, string newName, CancellationToken? cancellationToken = null)
+    {
+        await EnsureInitializedAsync(cancellationToken);
+
+        var request = new
+        {
+            type = "rename",
+            database = oldName,
+            newName
+        };
+
+        await SendRequestAsync(request, cancellationToken ?? CancellationToken.None);
+    }
+
     private async Task EnsureInitializedAsync(CancellationToken? cancellationToken)
     {
         if (!_isInitialized)
@@ -219,7 +236,12 @@ public sealed partial class SqliteWasmWorkerBridge
             SendToWorker(requestJson);
 
             // Add timeout to detect when another tab has the database locked
-            const int defaultTimeoutMs = 5000;
+            // Use longer timeout in debug mode for operations like VACUUM INTO
+#if DEBUG
+            const int defaultTimeoutMs = 60000; // 60 seconds in debug
+#else
+            const int defaultTimeoutMs = 30000; // 30 seconds in release
+#endif
             using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             timeoutCts.CancelAfter(defaultTimeoutMs);
 
@@ -230,7 +252,7 @@ public sealed partial class SqliteWasmWorkerBridge
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
             {
                 // Timeout occurred (not user cancellation)
-                throw new TimeoutException("Database operation timed out after 5 seconds.");
+                throw new TimeoutException($"Database operation timed out after {defaultTimeoutMs / 1000} seconds.");
             }
         }
         catch

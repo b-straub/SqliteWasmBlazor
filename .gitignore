@@ -73,3 +73,4 @@ SqliteWasmBlazor/native/lib/sqlite3_stub.o
 docs/internal/
 SqliteWasmBlazor/package-lock.json
 SqliteWasmBlazor/ARCHITECTURE.md
+SqliteWasmBlazor.Components/wwwroot/file-operations.js

@@ -218,6 +218,9 @@ async function handleRequest(data: WorkerRequest['data']) {
         case 'delete':
             return await deleteDatabase(database!);
 
+        case 'rename':
+            return await renameDatabase(database!, (data as any).newName);
+
         default:
             throw new Error(`Unknown request type: ${type}`);
     }
@@ -252,7 +255,17 @@ async function openDatabase(dbName: string) {
 
             db = await Promise.race([openPromise, timeoutPromise]);
             openDatabases.set(dbName, db);
-            logger.info(MODULE_NAME, `Opened database: ${dbName} with OPFS SAHPool`);
+            logger.info(MODULE_NAME, `✓ Opened database: ${dbName} with OPFS SAHPool`);
+
+            // Debug: Verify database is in OPFS
+            if (poolUtil.getFileNames) {
+                const filesInOPFS = poolUtil.getFileNames();
+                const isInOPFS = filesInOPFS.includes(dbPath);
+                logger.debug(MODULE_NAME, `Database ${dbName} in OPFS: ${isInOPFS}, Total files: ${filesInOPFS.length}`);
+                if (!isInOPFS) {
+                    logger.warn(MODULE_NAME, `WARNING: Database ${dbName} was opened but is not in OPFS file list!`);
+                }
+            }
         } catch (error) {
             console.error(`[SQLite Worker] Failed to open database ${dbName}:`, error);
             throw error;
@@ -509,17 +522,69 @@ async function deleteDatabase(dbName: string) {
         // Delete database file from OPFS SAHPool
         const dbPath = `/databases/${dbName}`;
 
-        // Use the pool utility's wipeFiles method to delete the database
-        if (poolUtil.wipeFiles) {
-            await poolUtil.wipeFiles(dbPath);
-            console.debug(`[SQLite Worker] Deleted database: ${dbName}`);
+        // Use unlink to delete a specific database file (not wipeFiles which deletes ALL databases!)
+        if (poolUtil.unlink) {
+            const deleted = poolUtil.unlink(dbPath);
+            if (deleted) {
+                logger.info(MODULE_NAME, `✓ Deleted database: ${dbName}`);
+            } else {
+                logger.debug(MODULE_NAME, `Database ${dbName} was not in OPFS (already deleted or never created)`);
+            }
         } else {
-            console.warn(`[SQLite Worker] wipeFiles not available, database may persist`);
+            logger.warn(MODULE_NAME, `unlink not available, database may persist`);
         }
 
         return { success: true };
     } catch (error) {
-        console.error(`[SQLite Worker] Failed to delete database ${dbName}:`, error);
+        logger.error(MODULE_NAME, `Failed to delete database ${dbName}:`, error);
+        throw error;
+    }
+}
+
+async function renameDatabase(oldName: string, newName: string) {
+    if (!sqlite3 || !poolUtil) {
+        throw new Error('SQLite not initialized');
+    }
+
+    try {
+        const oldPath = `/databases/${oldName}`;
+        const newPath = `/databases/${newName}`;
+
+        logger.info(MODULE_NAME, `Renaming database from ${oldName} to ${newName}`);
+
+        // Debug: Show what files are in OPFS before rename
+        if (poolUtil.getFileNames) {
+            const filesInOPFS = poolUtil.getFileNames();
+            logger.debug(MODULE_NAME, `Files currently in OPFS (${filesInOPFS.length}):`, filesInOPFS);
+            logger.debug(MODULE_NAME, `Looking for: ${oldPath}`);
+            logger.debug(MODULE_NAME, `File exists in OPFS: ${filesInOPFS.includes(oldPath)}`);
+        }
+
+        // Ensure both databases are closed before rename
+        logger.debug(MODULE_NAME, `Ensuring databases are closed before rename operation`);
+        await closeDatabase(oldName);
+        await closeDatabase(newName);
+
+        // Use native OPFS SAHPool renameFile() - updates metadata mapping without copying file data
+        logger.debug(MODULE_NAME, `Renaming database file in OPFS: ${oldPath} -> ${newPath}`);
+
+        try {
+            poolUtil.renameFile(oldPath, newPath);
+            logger.info(MODULE_NAME, `✓ Successfully renamed database from ${oldName} to ${newName} (metadata-only, no file copy)`);
+
+            // Debug: Verify rename worked
+            if (poolUtil.getFileNames) {
+                const filesAfterRename = poolUtil.getFileNames();
+                logger.debug(MODULE_NAME, `Files after rename:`, filesAfterRename);
+            }
+        } catch (renameError) {
+            logger.error(MODULE_NAME, `Failed to rename database:`, renameError);
+            throw new Error(`Failed to rename database from ${oldName} to ${newName}: ${renameError}`);
+        }
+
+        return { success: true };
+    } catch (error) {
+        logger.error(MODULE_NAME, `Failed to rename database from ${oldName} to ${newName}:`, error);
         throw error;
     }
 }
