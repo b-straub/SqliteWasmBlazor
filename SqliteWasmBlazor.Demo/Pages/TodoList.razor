@@ -669,9 +669,8 @@
             }
 
             await transaction.CommitAsync();
-
-            // Rebuild FTS5 index after bulk inserts to ensure index is synchronized
-            await RebuildFTS5IndexInternalAsync(context);
+            // Optimize FTS5 index after bulk inserts to ensure index is optimal
+            await context.OptimizeTodoItemFts5IndexAsync();
 
             stopwatch.Stop();
 
@@ -759,7 +758,7 @@
         await context.Database.ExecuteSqlRawAsync("DELETE FROM TodoItems");
 
         // Rebuild FTS5 index after bulk delete to ensure index is synchronized
-        await RebuildFTS5IndexInternalAsync(context);
+        await context.RebuildTodoItemFts5IndexAsync();
 
         stopwatch.Stop();
 
@@ -807,9 +806,7 @@
             await using var context = await DbContextFactory.CreateDbContextAsync();
 
             // Optimize FTS5 index (reduces size and improves performance)
-            // Use special FTS5 command syntax with rowid and all required columns as NULL
-            await context.Database.ExecuteSqlRawAsync(
-                "INSERT INTO FTSTodoItem(FTSTodoItem, rowid, Title, Description) VALUES('optimize', NULL, NULL, NULL)");
+            await context.OptimizeTodoItemFts5IndexAsync();
 
             stopwatch.Stop();
 
@@ -831,7 +828,7 @@
         try
         {
             await using var context = await DbContextFactory.CreateDbContextAsync();
-            await RebuildFTS5IndexInternalAsync(context);
+            await context.RebuildTodoItemFts5IndexAsync();
 
             stopwatch.Stop();
 
@@ -846,13 +843,6 @@
         }
     }
 
-    private static async Task RebuildFTS5IndexInternalAsync(TodoDbContext context)
-    {
-        // Force FTS5 index rebuild (useful after bulk operations or to fix stale MATCH results)
-        await context.Database.ExecuteSqlRawAsync(
-            "INSERT INTO FTSTodoItem(FTSTodoItem, rowid, Title, Description) VALUES('rebuild', NULL, NULL, NULL)");
-    }
-
     private async Task CheckFTS5IntegrityAsync()
     {
         var stopwatch = Stopwatch.StartNew();
@@ -862,8 +852,7 @@
             await using var context = await DbContextFactory.CreateDbContextAsync();
 
             // Check FTS5 index integrity
-            await context.Database.ExecuteSqlRawAsync(
-                "INSERT INTO FTSTodoItem(FTSTodoItem, rowid, Title, Description) VALUES('integrity-check', NULL, NULL, NULL)");
+            await context.CheckTodoItemFts5IntegrityAsync();
 
             stopwatch.Stop();
 
