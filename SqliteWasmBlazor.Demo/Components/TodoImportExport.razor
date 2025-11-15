@@ -183,11 +183,22 @@
         {
             // Use raw SQL with multi-row INSERT for true batching
             // SQLite supports up to 999 parameters per statement
-            // TodoItem has 6 columns (Id, Title, Description, IsCompleted, CreatedAt, CompletedAt)
-            // 999 / 6 = 166 rows per statement (996 parameters)
-            const int rowsPerBatch = 166;
+            // Try to get column count from EF Core metadata, fallback to constant
+            const int maxSqliteParams = 999;
+            const int defaultColumnCount = 6; // TodoItem: Id, Title, Description, IsCompleted, CreatedAt, CompletedAt
 
-            for (int i = 0; i < dtos.Count; i += rowsPerBatch)
+            var entityType = _tempDbContext.Model.FindEntityType(typeof(SqliteWasmBlazor.Models.Models.TodoItem));
+            var columnCount = entityType?.GetProperties().Count();
+
+            if (columnCount is null)
+            {
+                Logger.LogWarning("Unable to retrieve column count from EF Core metadata, using default value {DefaultCount}", defaultColumnCount);
+                columnCount = defaultColumnCount;
+            }
+
+            var rowsPerBatch = maxSqliteParams / columnCount.Value;
+
+            for (var i = 0; i < dtos.Count; i += rowsPerBatch)
             {
                 var batch = dtos.Skip(i).Take(rowsPerBatch).ToList();
 
@@ -195,10 +206,10 @@
                 var valuesClauses = new List<string>();
                 var parameters = new List<object?>();
 
-                for (int j = 0; j < batch.Count; j++)
+                for (var j = 0; j < batch.Count; j++)
                 {
                     var dto = batch[j];
-                    var baseIndex = j * 6;
+                    var baseIndex = j * columnCount;
                     valuesClauses.Add($"({{{baseIndex}}}, {{{baseIndex + 1}}}, {{{baseIndex + 2}}}, {{{baseIndex + 3}}}, {{{baseIndex + 4}}}, {{{baseIndex + 5}}})");
 
                     parameters.Add(dto.Id);
@@ -373,7 +384,7 @@
 
             // Step 2: Check if main database exists in OPFS
             // Note: The main database might not exist in OPFS if it was only used by EF Core
-            bool mainDbExists = await bridge.ExistsDatabaseAsync(mainDbName);
+            var mainDbExists = await bridge.ExistsDatabaseAsync(mainDbName);
             logger.LogDebug("Main database exists in OPFS: {Exists}", mainDbExists);
 
             if (mainDbExists)

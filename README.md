@@ -9,31 +9,13 @@
 
 **[🚀 Try the Live Demo](https://b-straub.github.io/SqliteWasmBlazor/)** - Experience persistent SQLite database in your browser! Can be installed as a Progressive Web App (PWA) for offline use.
 
+## ✨ What's New
+
+- **Database Import/Export** - Schema-validated MessagePack serialization for backups and data migration [(details)](#database-importexport)
+
 ## ⚠️ Breaking Changes
 
-### Version 0.6.7-pre (2025-11-14)
-
-**Log Level Configuration Change**
-
-The `SqliteWasmConnection` constructor now uses the standard `Microsoft.Extensions.Logging.LogLevel` enum instead of the custom `SqliteWasmLogLevel`:
-
-```csharp
-// ❌ Old (0.6.6-pre and earlier)
-var connection = new SqliteWasmConnection("Data Source=MyDb.db", SqliteWasmLogLevel.Warning);
-
-// ✅ New (0.6.7-pre and later)
-using Microsoft.Extensions.Logging; // Add this using
-
-// Default is LogLevel.Warning, so you can omit it:
-var connection = new SqliteWasmConnection("Data Source=MyDb.db");
-
-// Or specify a different level:
-var connection = new SqliteWasmConnection("Data Source=MyDb.db", LogLevel.Error);
-```
-
-**Migration:** Simply add `using Microsoft.Extensions.Logging;` and change `SqliteWasmLogLevel` to `LogLevel`. If you were using the default `Warning` level, you can omit the parameter entirely.
-
-Available log levels: `Trace`, `Debug`, `Information`, `Warning` (default), `Error`, `Critical`, `None`
+- **v0.6.7-pre** (2025-11-14) - Log level configuration now uses standard `Microsoft.Extensions.Logging.LogLevel` [(details)](#version-067-pre-2025-11-14)
 
 ## What Makes This Special?
 
@@ -762,6 +744,74 @@ Yes! All standard EF Core features work: migrations, relationships, LINQ queries
 - [ ] Multi-database support
 - [ ] Backup/restore utilities
 - [ ] Performance profiling tools
+
+## Release Notes
+
+### Database Import/Export
+
+Export and import your entire database with schema validation and efficient binary serialization:
+
+```csharp
+// Export database to MessagePack file
+<MessagePackFileDownload T="TodoItemDto"
+    GetPageAsync="@GetTodoItemsPageAsync"
+    GetTotalCountAsync="@GetTodoItemCountAsync"
+    FileName="@($"backup-{DateTime.Now:yyyyMMdd}.msgpack")"
+    SchemaVersion="1.0"
+    AppIdentifier="MyApp" />
+
+// Import database with validation
+<MessagePackFileUpload T="TodoItemDto"
+    OnBulkInsertAsync="@BulkInsertTodoItemsAsync"
+    ExpectedSchemaVersion="1.0"
+    ExpectedAppIdentifier="MyApp" />
+```
+
+**Features:**
+- ✅ **Schema Validation** - Prevents importing incompatible data with version and app identifier checks
+- ✅ **Efficient Serialization** - MessagePack binary format (60% smaller than JSON)
+- ✅ **Streaming Export** - Handles large datasets with pagination (tested with 100k+ records)
+- ✅ **Bulk Import** - Optimized SQL batching respects SQLite's 999 parameter limit
+- ✅ **Progress Tracking** - Real-time progress updates during import/export operations
+- ✅ **Type Safety** - Full DTO validation ensures data integrity
+
+Perfect for:
+- Database backups and restores
+- Data migration between environments
+- Sharing datasets between users
+- Offline-first PWA scenarios
+
+**How it works:**
+Export streams data in MessagePack format with a file header (magic number "SWBMP", schema version, type info, record count) followed by serialized items. Import deserializes the stream in batches, validates the header, and uses raw SQL INSERT statements to preserve entity IDs while respecting SQLite's 999 parameter limit (166 rows per batch for 6-column entities). The header-first approach ensures schema compatibility before processing begins, preventing partial imports of incompatible data.
+
+**Why sqlite-wasm needed patching:**
+The official sqlite-wasm OPFS SAHPool VFS lacked a `renameFile()` implementation. The patch (`patches/@sqlite.org+sqlite-wasm+3.50.4-build1.patch`) adds this method to enable efficient database renaming by updating the SAH (Synchronous Access Handle) metadata mapping with the new path while keeping the physical file intact - avoiding expensive file copying for large databases.
+
+See the Demo app's TodoImportExport component for a complete implementation example.
+
+### Version 0.6.7-pre (2025-11-14)
+
+**Log Level Configuration Change**
+
+The `SqliteWasmConnection` constructor now uses the standard `Microsoft.Extensions.Logging.LogLevel` enum instead of the custom `SqliteWasmLogLevel`:
+
+```csharp
+// ❌ Old (0.6.6-pre and earlier)
+var connection = new SqliteWasmConnection("Data Source=MyDb.db", SqliteWasmLogLevel.Warning);
+
+// ✅ New (0.6.7-pre and later)
+using Microsoft.Extensions.Logging; // Add this using
+
+// Default is LogLevel.Warning, so you can omit it:
+var connection = new SqliteWasmConnection("Data Source=MyDb.db");
+
+// Or specify a different level:
+var connection = new SqliteWasmConnection("Data Source=MyDb.db", LogLevel.Error);
+```
+
+**Migration:** Simply add `using Microsoft.Extensions.Logging;` and change `SqliteWasmLogLevel` to `LogLevel`. If you were using the default `Warning` level, you can omit the parameter entirely.
+
+Available log levels: `Trace`, `Debug`, `Information`, `Warning` (default), `Error`, `Critical`, `None`
 
 ## Contributing
 
