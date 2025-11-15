@@ -100,7 +100,7 @@
     {
         foreach (var (category, test) in _tests)
         {
-            bool error = false;
+            var error = false;
             string? result;
 
             if (_cancellationTokenSource.IsCancellationRequested)

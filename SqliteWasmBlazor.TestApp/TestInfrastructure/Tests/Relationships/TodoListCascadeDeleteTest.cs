@@ -30,7 +30,7 @@ internal class TodoListCascadeDeleteTest(IDbContextFactory<TodoDbContext> factor
 
         // Create child Todos
         var todoIds = new List<Guid>();
-        for (int i = 0; i < 5; i++)
+        for (var i = 0; i < 5; i++)
         {
             var todoId = Guid.NewGuid();
             todoIds.Add(todoId);

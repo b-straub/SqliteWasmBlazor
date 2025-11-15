@@ -9,6 +9,8 @@ namespace SqliteWasmBlazor.TestApp.TestInfrastructure.Tests.ImportExport;
 /// </summary>
 internal static class ImportExportTestHelper
 {
+    private const int DefaultColumnCount = 6; // TodoItem: Id, Title, Description, IsCompleted, CreatedAt, CompletedAt
+
     /// <summary>
     /// Bulk insert TodoItemDtos using raw SQL to preserve IDs
     /// Same pattern as TodoImportExport.razor:175-216
@@ -21,9 +23,11 @@ internal static class ImportExportTestHelper
         }
 
         // SQLite supports up to 999 parameters per statement
-        // TodoItem has 6 columns (Id, Title, Description, IsCompleted, CreatedAt, CompletedAt)
-        // 999 / 6 = 166 rows per statement
-        const int rowsPerBatch = 166;
+        // Try to get column count from EF Core metadata, fallback to constant
+        const int maxSqliteParams = 999;
+        var entityType = context.Model.FindEntityType(typeof(SqliteWasmBlazor.Models.Models.TodoItem));
+        var columnCount = entityType?.GetProperties().Count() ?? DefaultColumnCount;
+        var rowsPerBatch = maxSqliteParams / columnCount;
 
         for (var i = 0; i < dtos.Count; i += rowsPerBatch)
         {
@@ -34,7 +38,7 @@ internal static class ImportExportTestHelper
             for (var j = 0; j < batch.Count; j++)
             {
                 var dto = batch[j];
-                var baseIndex = j * 6;
+                var baseIndex = j * columnCount;
                 valuesClauses.Add($"({{{baseIndex}}}, {{{baseIndex + 1}}}, {{{baseIndex + 2}}}, {{{baseIndex + 3}}}, {{{baseIndex + 4}}}, {{{baseIndex + 5}}})");
 
                 parameters.Add(dto.Id);

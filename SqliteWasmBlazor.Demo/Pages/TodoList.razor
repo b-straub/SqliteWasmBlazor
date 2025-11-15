@@ -628,7 +628,7 @@
 
         // Generate all items first
         var items = new List<TodoItem>();
-        for (int i = 0; i < _generatedFakeEntries; i++)
+        for (var i = 0; i < _generatedFakeEntries; i++)
         {
             var prefix = TaskPrefixes[Random.Next(TaskPrefixes.Length)];
             var type = TaskTypes[Random.Next(TaskTypes.Length)];
@@ -650,7 +650,7 @@
             const int rowsPerBatch = 199; // 199 rows * 5 columns = 995 parameters (under SQLite's 999 limit)
             var batchCount = 0;
 
-            for (int i = 0; i < items.Count; i += rowsPerBatch)
+            for (var i = 0; i < items.Count; i += rowsPerBatch)
             {
                 var batch = items.Skip(i).Take(rowsPerBatch).ToList();
 
@@ -658,7 +658,7 @@
                 var valuesClauses = new List<string>();
                 var parameters = new List<object?>();
 
-                for (int j = 0; j < batch.Count; j++)
+                for (var j = 0; j < batch.Count; j++)
                 {
                     var item = batch[j];
                     var baseIndex = j * 5;
