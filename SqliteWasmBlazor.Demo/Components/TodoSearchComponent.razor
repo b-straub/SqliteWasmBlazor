@@ -13,22 +13,32 @@
                   Clearable="true"
                   HelperText="@CurrentHelperText" />
 
-    <MudStack Row="true" Spacing="3" AlignItems="AlignItems.Center">
-        <MudSwitch T="bool"
-                   Value="@IsRawMode"
-                   ValueChanged="@OnQueryModeChanged"
-                   Color="Color.Primary"
-                   Label="@CurrentModeLabel" />
-
-        <MudRadioGroup Value="@SearchMode"
-                       ValueChanged="@OnSearchModeChanged"
-                       T="SearchDisplayMode"
-                       row="true">
-            <MudRadio Value="SearchDisplayMode.Normal" Color="Color.Default">Normal</MudRadio>
-            <MudRadio Value="SearchDisplayMode.Highlight" Color="Color.Primary">Highlight</MudRadio>
-            <MudRadio Value="SearchDisplayMode.Snippet" Color="Color.Secondary">Snippets</MudRadio>
-        </MudRadioGroup>
-    </MudStack>
+    <MudGrid Spacing="2">
+        <MudItem xs="12">
+            <MudSwitch T="bool"
+                       Value="@IsRawMode"
+                       ValueChanged="@OnQueryModeChanged"
+                       Color="Color.Primary"
+                       Label="@CurrentModeLabel" />
+        </MudItem>
+        <MudItem xs="12">
+            <MudRadioGroup Value="@SearchMode"
+                           ValueChanged="@OnSearchModeChanged"
+                           T="SearchDisplayMode">
+                <MudGrid Spacing="1">
+                    <MudItem xs="4">
+                        <MudRadio Value="SearchDisplayMode.Normal" Color="Color.Default" Dense="true">Normal</MudRadio>
+                    </MudItem>
+                    <MudItem xs="4">
+                        <MudRadio Value="SearchDisplayMode.Highlight" Color="Color.Primary" Dense="true">Highlight</MudRadio>
+                    </MudItem>
+                    <MudItem xs="4">
+                        <MudRadio Value="SearchDisplayMode.Snippet" Color="Color.Secondary" Dense="true">Snippets</MudRadio>
+                    </MudItem>
+                </MudGrid>
+            </MudRadioGroup>
+        </MudItem>
+    </MudGrid>
 </MudStack>
 
 @code {
