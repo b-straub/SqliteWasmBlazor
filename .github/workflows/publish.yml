@@ -45,9 +45,13 @@ jobs:
         ls -lh SqliteWasmBlazor/native/lib/e_sqlite3.a
         file SqliteWasmBlazor/native/lib/e_sqlite3.a
 
-    - name: Install npm dependencies
+    - name: Install npm dependencies (SqliteWasmBlazor)
       run: npm install
       working-directory: SqliteWasmBlazor/TypeScript
+
+    - name: Install npm dependencies (Components)
+      run: npm install
+      working-directory: SqliteWasmBlazor.Components/TypeScript
 
     - name: Extract version from tag
       id: get_version
