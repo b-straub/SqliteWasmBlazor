@@ -14,6 +14,15 @@ internal class ExportImportLargeDatasetTest(IDbContextFactory<TodoDbContext> fac
 
     public override async ValueTask<string?> RunTestAsync()
     {
+        // Skip in CI - IncrementalBatches test provides sufficient coverage
+        var isCI = !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("CI")) ||
+                   !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("GITHUB_ACTIONS"));
+
+        if (isCI)
+        {
+            return "SKIPPED (CI - use IncrementalBatches for coverage)";
+        }
+
         const int itemCount = 10000;
         const string schemaVersion = "1.0";
         const string appId = "SqliteWasmBlazor.Test";
