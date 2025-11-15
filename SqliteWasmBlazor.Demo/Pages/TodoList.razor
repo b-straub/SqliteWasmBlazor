@@ -402,9 +402,9 @@
                 };
             }
             }
-            catch (Exception ex)
+            catch (Exception ex) when (ex is not OperationCanceledException and not TaskCanceledException)
             {
-                // Handle FTS5 syntax errors
+                // Handle FTS5 syntax errors (but ignore cancellation from debouncing)
                 var errorMessage = ex.Message.Contains("fts5: syntax error")
                     ? $"FTS5 Syntax Error: {ExtractFts5Error(ex.Message)}"
                     : $"Search Error: {ex.Message}";
