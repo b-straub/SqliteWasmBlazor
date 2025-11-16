@@ -12,6 +12,7 @@
 ## ✨ What's New
 
 - **Database Import/Export** - Schema-validated MessagePack serialization for backups and data migration [(details)](#database-importexport)
+- **Real-World Sample** - Check out the [Datasync TodoApp](https://github.com/b-straub/Datasync/tree/main/samples/todoapp-blazor-wasm-offline) for offline-first data synchronization with SqliteWasmBlazor
 
 ## ⚠️ Breaking Changes
 
