@@ -5,7 +5,6 @@ using Microsoft.EntityFrameworkCore;
 using MudBlazor.Services;
 using SqliteWasmBlazor;
 using SqliteWasmBlazor.Models;
-using SqliteWasmLogger = SqliteWasmBlazor.SqliteWasmLogger;
 using SqliteWasmWorkerBridge = SqliteWasmBlazor.SqliteWasmWorkerBridge;
 
 var builder = WebAssemblyHostBuilder.CreateDefault(args);
