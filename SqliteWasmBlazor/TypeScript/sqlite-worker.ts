@@ -267,7 +267,7 @@ async function openDatabase(dbName: string) {
                 }
             }
         } catch (error) {
-            console.error(`[SQLite Worker] Failed to open database ${dbName}:`, error);
+            logger.error(MODULE_NAME, `Failed to open database ${dbName}:`, error);
             throw error;
         }
     }
@@ -430,17 +430,6 @@ async function executeSql(dbName: string, sql: string, parameters: Record<string
             }
 
             lastInsertId = db.lastInsertRowId;
-
-            // DEBUG: Log UPDATE operations specifically
-            if (sql.trim().toUpperCase().startsWith('UPDATE')) {
-                console.log(`[SQLite Worker] UPDATE executed:`, sql);
-                console.log(`[SQLite Worker] Parameters:`, parameters);
-                console.log(`[SQLite Worker] Has RETURNING:`, hasReturning);
-                console.log(`[SQLite Worker] Result rows:`, result?.length || 0);
-                console.log(`[SQLite Worker] Result values:`, result);
-                console.log(`[SQLite Worker] db.changes():`, db.changes());
-                console.log(`[SQLite Worker] Final rowsAffected:`, rowsAffected);
-            }
         }
 
         const response = {
@@ -456,8 +445,8 @@ async function executeSql(dbName: string, sql: string, parameters: Record<string
 
         return pack(response);
     } catch (error) {
-        console.error(`[SQLite Worker] SQL execution failed:`, error);
-        console.error(`SQL: ${sql}`);
+        logger.error(MODULE_NAME, 'SQL execution failed:', error);
+        logger.error(MODULE_NAME, 'SQL:', sql);
         throw error;
     }
 }
@@ -504,7 +493,7 @@ async function checkDatabaseExists(dbName: string) {
             return { rowsAffected: 0 };  // doesn't exist
         }
     } catch (error) {
-        console.error(`[SQLite Worker] Failed to check database ${dbName}:`, error);
+        logger.error(MODULE_NAME, `Failed to check database ${dbName}:`, error);
         // On error, assume it doesn't exist
         return { rowsAffected: 0 };
     }
