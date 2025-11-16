@@ -39,6 +39,12 @@ internal class TestFactory
         _tests.Add(("Type Marshalling", new BinaryDataLargeBlobTest(factory)));
         _tests.Add(("Type Marshalling", new StringValueUnicodeTest(factory)));
 
+        // Type Conversion Tests (EF Core compatibility fixes)
+        _tests.Add(("Type Marshalling", new DateTimeOffsetTextStorageTest(factory)));
+        _tests.Add(("Type Marshalling", new TimeSpanConversionTest(factory)));
+        _tests.Add(("Type Marshalling", new CharSingleCharStringTest(factory)));
+        _tests.Add(("Type Marshalling", new GuidUtf8ByteArrayTest(factory)));
+
         // JSON Collection Tests
         _tests.Add(("JSON Collections", new IntListRoundTripTest(factory)));
         _tests.Add(("JSON Collections", new IntListEmptyTest(factory)));

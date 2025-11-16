@@ -31,16 +31,7 @@ public sealed class SqliteWasmDataReader : DbDataReader
         // Special handling for TimeSpan
         if (typeof(T) == typeof(TimeSpan))
         {
-            var value = GetValue(ordinal);
-            if (value is double ms)
-            {
-                return (T)(object)TimeSpan.FromMilliseconds(ms);
-            }
-            if (value is TimeSpan ts)
-            {
-                return (T)(object)ts;
-            }
-            throw new InvalidCastException($"Column {ordinal} is not a TimeSpan. Actual type: {value.GetType().Name}");
+            return (T)(object)GetTimeSpan(ordinal);
         }
 
         // Default behavior for all other types
@@ -100,6 +91,17 @@ public sealed class SqliteWasmDataReader : DbDataReader
     public override char GetChar(int ordinal)
     {
         var value = GetValue(ordinal);
+
+        // Handle single-character string (match Microsoft.Data.Sqlite behavior)
+        if (value is string str)
+        {
+            if (str.Length == 1)
+            {
+                return str[0];
+            }
+            // For multi-char or empty strings, fall through to numeric conversion
+        }
+
         return Convert.ToChar(value);
     }
 
@@ -146,7 +148,40 @@ public sealed class SqliteWasmDataReader : DbDataReader
         {
             return new DateTimeOffset(dt);
         }
+        if (value is string str)
+        {
+            // Handle TEXT storage (SQLite stores DateTimeOffset as TEXT)
+            // Match Microsoft.Data.Sqlite behavior
+            return DateTimeOffset.Parse(str, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.AssumeUniversal);
+        }
         throw new InvalidCastException($"Column {ordinal} is not a DateTimeOffset or DateTime. Actual type: {value.GetType().Name}");
+    }
+
+    public TimeSpan GetTimeSpan(int ordinal)
+    {
+        var value = GetValue(ordinal);
+        if (value is TimeSpan ts)
+        {
+            return ts;
+        }
+        // Match Microsoft.Data.Sqlite behavior: FLOAT/INTEGER stored as days (not milliseconds!)
+        if (value is double d)
+        {
+            return TimeSpan.FromDays(d);
+        }
+        if (value is long l)
+        {
+            return TimeSpan.FromDays(l);
+        }
+        if (value is int i)
+        {
+            return TimeSpan.FromDays(i);
+        }
+        if (value is string str)
+        {
+            return TimeSpan.Parse(str);
+        }
+        throw new InvalidCastException($"Column {ordinal} is not a TimeSpan. Actual type: {value.GetType().Name}");
     }
 
     public override decimal GetDecimal(int ordinal)
@@ -194,9 +229,14 @@ public sealed class SqliteWasmDataReader : DbDataReader
         {
             return Guid.Parse(str);
         }
-        if (value is byte[] bytes && bytes.Length == 16)
+        if (value is byte[] bytes)
         {
-            return new Guid(bytes);
+            // Match Microsoft.Data.Sqlite behavior:
+            // If 16 bytes, interpret as Guid directly
+            // Otherwise, interpret as UTF-8 encoded Guid string
+            return bytes.Length == 16
+                ? new Guid(bytes)
+                : new Guid(System.Text.Encoding.UTF8.GetString(bytes));
         }
         throw new InvalidCastException($"Column {ordinal} is not a Guid. Actual type: {value.GetType().Name}");
     }
