@@ -1,0 +1,372 @@
+@page "/administration"
+@using Microsoft.EntityFrameworkCore
+@using System.Diagnostics
+@using SqliteWasmBlazor.Models
+@using SqliteWasmBlazor.Models.Models
+@using SqliteWasmBlazor.Models.Extensions
+@inject IDbContextFactory<TodoDbContext> DbContextFactory
+@inject ISnackbar Snackbar
+
+<PageTitle>Administration</PageTitle>
+
+@if (_isGenerating)
+{
+    <MudOverlay Visible="true" ZIndex="9999" DarkBackground="true" Absolute="false">
+        <MudPaper Class="pa-8" Elevation="8" Style="max-width: 400px;">
+            <MudStack Spacing="4" AlignItems="AlignItems.Center">
+                <MudProgressCircular Color="Color.Primary" Size="Size.Large" Indeterminate="true" />
+                <MudText Typo="Typo.h6" Align="Align.Center">Generating Test Data</MudText>
+                <MudText Typo="Typo.body2" Align="Align.Center" Color="Color.Secondary">
+                    Creating @_generatedFakeEntries.ToString("N0") entries...
+                </MudText>
+                <MudText Typo="Typo.caption" Align="Align.Center" Color="Color.Secondary">
+                    Please wait, this may take a moment
+                </MudText>
+            </MudStack>
+        </MudPaper>
+    </MudOverlay>
+}
+
+<MudContainer MaxWidth="MaxWidth.Large" Class="mt-4">
+    <MudText Typo="Typo.h3" GutterBottom="true">
+        <MudIcon Icon="@Icons.Material.Filled.AdminPanelSettings" Class="mr-2" />
+        Administration
+    </MudText>
+    <MudText Typo="Typo.body1" Color="Color.Secondary" Class="mb-6">
+        Database administration and performance testing tools
+    </MudText>
+
+    <!-- Database Import/Export Card -->
+    <TodoImportExport DatabaseName="TodoDb.db" OnDataChanged="RefreshDataAsync" />
+
+    <!-- Performance Testing Card -->
+    <MudPaper Elevation="2" Class="pa-4 mb-6">
+        <MudText Typo="Typo.h6" Class="mb-3">
+            <MudIcon Icon="@Icons.Material.Filled.Speed" Size="Size.Small" Class="mr-1" />
+            Performance Testing
+            <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Text">FTS5 Enabled</MudChip>
+        </MudText>
+        <MudStack Spacing="3">
+            <MudGrid Spacing="2">
+                <MudItem xs="12" sm="6" md="3" Class="d-flex align-center">
+                    <MudSelect T="int"
+                               @bind-Value="_generatedFakeEntries"
+                               Label="Number of Entries"
+                               Variant="Variant.Outlined"
+                               Dense="true"
+                               FullWidth="true"
+                               Disabled="_isGenerating">
+                        <MudSelectItem Value="10000">10,000</MudSelectItem>
+                        <MudSelectItem Value="100000">100,000</MudSelectItem>
+                        <MudSelectItem Value="1000000">1,000,000</MudSelectItem>
+                    </MudSelect>
+                </MudItem>
+                <MudItem xs="12" sm="6" md="3" Class="d-flex align-center">
+                    <MudButton Variant="Variant.Filled"
+                               Color="Color.Secondary"
+                               OnClick="CreateTestDataAsync"
+                               StartIcon="@Icons.Material.Filled.PlayArrow"
+                               Disabled="_isGenerating"
+                               FullWidth="true">
+                        @if (_isGenerating)
+                        {
+                            <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" />
+                            @:Generating...
+                        }
+                        else
+                        {
+                            @:Generate
+                        }
+                    </MudButton>
+                </MudItem>
+                <MudItem xs="12" sm="6" md="3" Class="d-flex align-center">
+                    <MudButton Variant="Variant.Outlined"
+                               Color="Color.Error"
+                               OnClick="ClearAllDataAsync"
+                               StartIcon="@Icons.Material.Filled.DeleteSweep"
+                               FullWidth="true"
+                               Disabled="_isGenerating">
+                        Clear All
+                    </MudButton>
+                </MudItem>
+                <MudItem xs="12" sm="6" md="3" Class="d-flex align-center">
+                    <MudButton Variant="Variant.Outlined"
+                               Color="Color.Info"
+                               OnClick="OptimizeFTS5IndexAsync"
+                               StartIcon="@Icons.Material.Filled.Tune"
+                               FullWidth="true"
+                               Disabled="_isGenerating">
+                        Optimize FTS5
+                    </MudButton>
+                </MudItem>
+            </MudGrid>
+            <MudGrid Spacing="2">
+                <MudItem xs="12" sm="6" md="4" Class="d-flex align-center">
+                    <MudButton Variant="Variant.Outlined"
+                               Color="Color.Warning"
+                               OnClick="ResetDatabaseAsync"
+                               StartIcon="@Icons.Material.Filled.RestartAlt"
+                               FullWidth="true"
+                               Disabled="_isGenerating">
+                        Reset Database
+                    </MudButton>
+                </MudItem>
+                <MudItem xs="12" sm="6" md="4" Class="d-flex align-center">
+                    <MudButton Variant="Variant.Outlined"
+                               Color="Color.Secondary"
+                               OnClick="RebuildFTS5IndexAsync"
+                               StartIcon="@Icons.Material.Filled.Build"
+                               FullWidth="true"
+                               Disabled="_isGenerating">
+                        Rebuild FTS5 Index
+                    </MudButton>
+                </MudItem>
+                <MudItem xs="12" sm="6" md="4" Class="d-flex align-center">
+                    <MudButton Variant="Variant.Outlined"
+                               Color="Color.Primary"
+                               OnClick="CheckFTS5IntegrityAsync"
+                               StartIcon="@Icons.Material.Filled.VerifiedUser"
+                               FullWidth="true"
+                               Disabled="_isGenerating">
+                        Check FTS5 Integrity
+                    </MudButton>
+                </MudItem>
+            </MudGrid>
+
+            @if (!string.IsNullOrEmpty(_performanceInfo))
+            {
+                <MudAlert Severity="Severity.Success" Variant="Variant.Outlined">
+                    @_performanceInfo
+                </MudAlert>
+            }
+        </MudStack>
+    </MudPaper>
+</MudContainer>
+
+@code {
+    private string _performanceInfo = string.Empty;
+    private bool _isGenerating;
+    private int _generatedFakeEntries = 10000;
+
+    private static readonly string[] TaskPrefixes = ["Task", "Work", "Project", "Meeting", "Call", "Email", "Review", "Plan", "Design", "Test"];
+    private static readonly string[] TaskTypes = ["urgent", "important", "routine", "followup", "research", "development", "documentation", "deployment"];
+    private static readonly Random Random = new();
+
+    private void RefreshDataAsync()
+    {
+        // Called after import - just trigger state refresh
+        StateHasChanged();
+    }
+
+    private async Task CreateTestDataAsync()
+    {
+        _isGenerating = true;
+        _performanceInfo = string.Empty;
+        StateHasChanged();
+
+        var stopwatch = Stopwatch.StartNew();
+
+        await using var context = await DbContextFactory.CreateDbContextAsync();
+
+        // Generate all items first
+        var items = new List<TodoItem>();
+        for (var i = 0; i < _generatedFakeEntries; i++)
+        {
+            var prefix = TaskPrefixes[Random.Next(TaskPrefixes.Length)];
+            var type = TaskTypes[Random.Next(TaskTypes.Length)];
+
+            items.Add(new TodoItem
+            {
+                Title = $"{prefix} #{i + 1}",
+                Description = $"{type} task - {Guid.NewGuid()}",
+                CreatedAt = DateTime.UtcNow.AddMinutes(-Random.Next(10000)),
+                IsCompleted = Random.Next(100) < 30
+            });
+        }
+
+        // Use raw SQL with multi-row INSERT for true batching
+        // SQLite supports up to 999 parameters per statement, so with 5 columns we can insert ~199 rows per statement
+        using var transaction = await context.Database.BeginTransactionAsync();
+        try
+        {
+            const int rowsPerBatch = 199; // 199 rows * 5 columns = 995 parameters (under SQLite's 999 limit)
+            var batchCount = 0;
+
+            for (var i = 0; i < items.Count; i += rowsPerBatch)
+            {
+                var batch = items.Skip(i).Take(rowsPerBatch).ToList();
+
+                // Build multi-row INSERT statement
+                var valuesClauses = new List<string>();
+                var parameters = new List<object?>();
+
+                for (var j = 0; j < batch.Count; j++)
+                {
+                    var item = batch[j];
+                    var baseIndex = j * 5;
+                    valuesClauses.Add($"({{{baseIndex}}}, {{{baseIndex + 1}}}, {{{baseIndex + 2}}}, {{{baseIndex + 3}}}, {{{baseIndex + 4}}})");
+
+                    parameters.Add(item.Title);
+                    parameters.Add(item.Description);
+                    parameters.Add(item.CreatedAt);
+                    parameters.Add(item.IsCompleted ? 1 : 0);
+                    parameters.Add(item.CompletedAt?.ToString("O"));
+                }
+
+                var sql = $@"
+                    INSERT INTO TodoItems (Title, Description, CreatedAt, IsCompleted, CompletedAt)
+                    VALUES {string.Join(", ", valuesClauses)}";
+
+                await context.Database.ExecuteSqlRawAsync(sql, parameters.ToArray()!);
+                batchCount++;
+            }
+
+            await transaction.CommitAsync();
+
+            stopwatch.Stop();
+
+            var itemsPerSecond = _generatedFakeEntries / stopwatch.Elapsed.TotalSeconds;
+            _performanceInfo = $"Generated {_generatedFakeEntries:N0} entries in {stopwatch.ElapsedMilliseconds}ms ({itemsPerSecond:F0} items/sec) - {batchCount} SQL batches";
+            _isGenerating = false;
+
+            StateHasChanged();
+            Snackbar.Add($"Generated {_generatedFakeEntries:N0} entries in {stopwatch.ElapsedMilliseconds}ms ({batchCount} SQL batches)", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            await transaction.RollbackAsync();
+            _isGenerating = false;
+            Snackbar.Add($"Generation failed: {ex.Message}", Severity.Error);
+            throw;
+        }
+
+        // Optimize FTS5 index after bulk inserts (outside transaction to avoid rollback issues)
+        try
+        {
+            await context.OptimizeTodoItemFts5IndexAsync();
+        }
+        catch
+        {
+            // FTS5 might be missing/corrupted after import - try to rebuild it
+            try
+            {
+                Snackbar.Add("FTS5 index missing or corrupted - rebuilding...", Severity.Warning);
+                await context.RebuildTodoItemFts5IndexAsync();
+                Snackbar.Add("FTS5 index rebuilt successfully", Severity.Success);
+            }
+            catch (Exception rebuildEx)
+            {
+                // If rebuild fails, log but don't fail the entire operation
+                Snackbar.Add($"FTS5 rebuild failed: {rebuildEx.Message}. Use 'Rebuild FTS5 Index' button.", Severity.Warning);
+            }
+        }
+    }
+
+    private async Task ClearAllDataAsync()
+    {
+        var stopwatch = Stopwatch.StartNew();
+
+        await using var context = await DbContextFactory.CreateDbContextAsync();
+        await context.Database.ExecuteSqlRawAsync("DELETE FROM TodoItems");
+
+        // Rebuild FTS5 index after bulk delete to ensure index is synchronized
+        await context.RebuildTodoItemFts5IndexAsync();
+
+        stopwatch.Stop();
+
+        _performanceInfo = $"All data cleared in {stopwatch.ElapsedMilliseconds}ms";
+        Snackbar.Add($"All todos deleted in {stopwatch.ElapsedMilliseconds}ms", Severity.Warning);
+    }
+
+    private async Task ResetDatabaseAsync()
+    {
+        var stopwatch = Stopwatch.StartNew();
+
+        try
+        {
+            // Delete the database file from OPFS SAHPool
+            await SqliteWasmWorkerBridge.Instance.DeleteDatabaseAsync("TodoDb.db");
+
+            // Recreate database schema using migrations (required for FTS5)
+            await using var context = await DbContextFactory.CreateDbContextAsync();
+            await context.Database.MigrateAsync(); // Use MigrateAsync to create FTS5 virtual tables
+
+            stopwatch.Stop();
+
+            _performanceInfo = $"Database reset in {stopwatch.ElapsedMilliseconds}ms - FTS5 search enabled";
+            Snackbar.Add($"Database completely reset in {stopwatch.ElapsedMilliseconds}ms", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Database reset failed: {ex.Message}", Severity.Error);
+            _performanceInfo = $"Reset failed: {ex.Message}";
+        }
+    }
+
+    private async Task OptimizeFTS5IndexAsync()
+    {
+        var stopwatch = Stopwatch.StartNew();
+
+        try
+        {
+            await using var context = await DbContextFactory.CreateDbContextAsync();
+
+            // Optimize FTS5 index (reduces size and improves performance)
+            await context.OptimizeTodoItemFts5IndexAsync();
+
+            stopwatch.Stop();
+
+            _performanceInfo = $"FTS5 index optimized in {stopwatch.ElapsedMilliseconds}ms - Index size reduced, query performance improved";
+            Snackbar.Add($"FTS5 index optimized in {stopwatch.ElapsedMilliseconds}ms", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"FTS5 optimization failed: {ex.Message}", Severity.Error);
+            _performanceInfo = $"Optimization error: {ex.Message}";
+        }
+    }
+
+    private async Task RebuildFTS5IndexAsync()
+    {
+        var stopwatch = Stopwatch.StartNew();
+
+        try
+        {
+            await using var context = await DbContextFactory.CreateDbContextAsync();
+            await context.RebuildTodoItemFts5IndexAsync();
+
+            stopwatch.Stop();
+
+            _performanceInfo = $"FTS5 index rebuilt in {stopwatch.ElapsedMilliseconds}ms - Full index reconstruction completed";
+            Snackbar.Add($"FTS5 index rebuilt in {stopwatch.ElapsedMilliseconds}ms", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"FTS5 rebuild failed: {ex.Message}", Severity.Error);
+            _performanceInfo = $"Rebuild error: {ex.Message}";
+        }
+    }
+
+    private async Task CheckFTS5IntegrityAsync()
+    {
+        var stopwatch = Stopwatch.StartNew();
+
+        try
+        {
+            await using var context = await DbContextFactory.CreateDbContextAsync();
+
+            // Check FTS5 index integrity
+            await context.CheckTodoItemFts5IntegrityAsync();
+
+            stopwatch.Stop();
+
+            _performanceInfo = $"FTS5 integrity check passed in {stopwatch.ElapsedMilliseconds}ms - No corruption detected";
+            Snackbar.Add($"FTS5 integrity check passed in {stopwatch.ElapsedMilliseconds}ms", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"FTS5 integrity check failed: {ex.Message}", Severity.Error);
+            _performanceInfo = $"FTS5 integrity check FAILED: {ex.Message}";
+        }
+    }
+}
