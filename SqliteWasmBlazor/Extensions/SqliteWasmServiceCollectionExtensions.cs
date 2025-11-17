@@ -92,7 +92,19 @@ Please close any other tabs running this application and refresh the page.
                     // Tables exist but migration history is missing/corrupted
                     // This can happen if database was created with EnsureCreated or __EFMigrationsHistory was deleted
                     // Attempt to recover by recreating the migration history table
-                    await RecoverMigrationHistoryAsync(dbContext);
+                    var recovered = await RecoverMigrationHistoryAsync(dbContext);
+
+                    if (!recovered)
+                    {
+                        initService.ErrorMessage =
+"""
+Database schema is incompatible with the current version.
+This can happen after updating the application or testing with different database formats.
+
+Click the "Reset Database" button below to delete the incompatible database and recreate it with the correct schema.
+""";
+                        return;
+                    }
                 }
             }
         }
@@ -115,14 +127,17 @@ Please close any other tabs running this application and refresh the page.
 
     /// <summary>
     /// Recovers the migration history table when it's missing or corrupted.
+    /// Verifies the schema matches expectations after recovery.
     /// </summary>
-    private static async Task RecoverMigrationHistoryAsync(DbContext dbContext)
+    /// <returns>True if recovery succeeded and schema is valid, false otherwise.</returns>
+    private static async Task<bool> RecoverMigrationHistoryAsync(DbContext dbContext)
     {
         var connection = dbContext.Database.GetDbConnection();
-        await connection.OpenAsync();
 
         try
         {
+            await connection.OpenAsync();
+
             // Create migrations history table if missing
             await using var cmd = connection.CreateCommand();
             cmd.CommandText = @"
@@ -153,10 +168,86 @@ Please close any other tabs running this application and refresh the page.
 
                 await cmd.ExecuteNonQueryAsync();
             }
+
+            // Verify the schema is actually compatible
+            // Note: GetPendingMigrationsAsync will return empty since we just marked them all as applied,
+            // so we need to actually test if the schema works
+
+            // Check if tables exist
+            cmd.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name != '__EFMigrationsHistory';";
+            cmd.Parameters.Clear();
+            var tableCount = await cmd.ExecuteScalarAsync();
+
+            if (tableCount is null || Convert.ToInt64(tableCount) == 0)
+            {
+                // No tables exist - schema is wrong
+                return false;
+            }
+
+            // Try to actually use the DbContext to verify the schema matches
+            // This will throw if column names/types don't match
+            var modelEntityTypes = dbContext.Model.GetEntityTypes();
+            foreach (var entityType in modelEntityTypes)
+            {
+                var tableName = entityType.GetTableName();
+                if (string.IsNullOrEmpty(tableName))
+                {
+                    continue;
+                }
+
+                // Query with SELECT * to force column mapping validation
+                // This will fail if column names or types don't match the model
+                cmd.CommandText = $"SELECT * FROM \"{tableName}\" LIMIT 0";
+                cmd.Parameters.Clear();
+
+                // ExecuteReader will force schema validation
+                await using var reader = await cmd.ExecuteReaderAsync();
+
+                // Get expected columns from the EF Core model (exclude shadow properties)
+                // Only include properties that map to database columns
+                var expectedColumns = entityType.GetProperties()
+                    .Where(p => !p.IsShadowProperty())
+                    .Select(p => p.GetColumnName())
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+                // Get actual columns from the database
+                var actualColumns = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                for (int i = 0; i < reader.FieldCount; i++)
+                {
+                    actualColumns.Add(reader.GetName(i));
+                }
+
+                // Check if all expected columns exist in the database
+                foreach (var expectedColumn in expectedColumns)
+                {
+                    if (!actualColumns.Contains(expectedColumn))
+                    {
+                        // Missing column - schema is incompatible (e.g., missing "CreatedAt")
+                        return false;
+                    }
+                }
+
+                // Check if column counts match (catches extra columns in DB)
+                if (actualColumns.Count != expectedColumns.Count)
+                {
+                    // Column count mismatch - schema is incompatible
+                    return false;
+                }
+            }
+
+            return true;
+        }
+        catch
+        {
+            // Recovery or verification failed
+            return false;
         }
         finally
         {
-            await connection.CloseAsync();
+            if (connection.State == System.Data.ConnectionState.Open)
+            {
+                await connection.CloseAsync();
+            }
         }
     }
 }
