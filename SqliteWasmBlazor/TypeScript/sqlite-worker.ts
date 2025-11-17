@@ -328,6 +328,53 @@ function extractTableName(sql: string): string | null {
     return match ? match[1] : null;
 }
 
+/**
+ * Converts parameters with type metadata for proper SQLite binding
+ * Expects parameters in format: { value: any, type: "blob" | "text" | "integer" | "real" | "null" }
+ */
+function convertParametersForBinding(parameters: Record<string, any>): Record<string, any> {
+    const converted: Record<string, any> = {};
+
+    for (const [key, paramData] of Object.entries(parameters)) {
+        // Handle new format with type metadata
+        if (paramData && typeof paramData === 'object' && 'value' in paramData && 'type' in paramData) {
+            const { value, type } = paramData;
+
+            if (value === null || value === undefined) {
+                converted[key] = null;
+                logger.debug(MODULE_NAME, `[PARAM] ${key}: null`);
+            }
+            else if (type === 'blob' && typeof value === 'string') {
+                // Decode base64 to Uint8Array for BLOB binding
+                try {
+                    const binaryString = atob(value);
+                    const bytes = new Uint8Array(binaryString.length);
+                    for (let i = 0; i < binaryString.length; i++) {
+                        bytes[i] = binaryString.charCodeAt(i);
+                    }
+                    converted[key] = bytes;
+                    logger.debug(MODULE_NAME, `[PARAM] ${key}: blob (${bytes.length} bytes from base64)`);
+                } catch (e) {
+                    logger.error(MODULE_NAME, `[PARAM] Failed to decode blob ${key}:`, e);
+                    converted[key] = value;
+                }
+            }
+            else {
+                // For text, integer, real - use value as-is
+                converted[key] = value;
+                logger.debug(MODULE_NAME, `[PARAM] ${key}: ${type} = ${typeof value === 'string' && value.length > 50 ? value.substring(0, 50) + '...' : value}`);
+            }
+        }
+        else {
+            // Fallback for old format (backwards compatibility)
+            logger.warn(MODULE_NAME, `[PARAM] ${key}: using legacy format (no type metadata)`);
+            converted[key] = paramData;
+        }
+    }
+
+    return converted;
+}
+
 async function executeSql(dbName: string, sql: string, parameters: Record<string, any>) {
     const db = openDatabases.get(dbName);
     if (!db) {
@@ -337,10 +384,13 @@ async function executeSql(dbName: string, sql: string, parameters: Record<string
     try {
         logger.debug(MODULE_NAME, 'Executing SQL:', sql.substring(0, 100));
 
+        // Convert parameters with type metadata for proper SQLite binding
+        const convertedParams = convertParametersForBinding(parameters);
+
         // Execute SQL - use returnValue to get the result
         const result = db.exec({
             sql: sql,
-            bind: Object.keys(parameters).length > 0 ? parameters : undefined,
+            bind: Object.keys(convertedParams).length > 0 ? convertedParams : undefined,
             returnValue: 'resultRows',
             rowMode: 'array'
         });

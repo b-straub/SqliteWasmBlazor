@@ -201,6 +201,7 @@ public sealed class SqliteWasmParameterCollection : DbParameterCollection
 
     /// <summary>
     /// Gets parameter values as dictionary for sending to worker.
+    /// Each parameter includes value and type metadata for proper SQLite binding.
     /// </summary>
     internal Dictionary<string, object?> GetParameterValues()
     {
@@ -209,27 +210,57 @@ public sealed class SqliteWasmParameterCollection : DbParameterCollection
         {
             // Convert parameter value to JSON-serializable primitive
             var value = param.Value;
-            if (value is DBNull)
+            string sqliteType;
+
+            if (value is null or DBNull)
             {
                 value = null;
+                sqliteType = "null";
             }
             else if (value is DateTime dt)
             {
                 // Convert DateTime to ISO 8601 string for JSON serialization
                 value = dt.ToString("O");
+                sqliteType = "text";
             }
             else if (value is DateTimeOffset dto)
             {
                 value = dto.ToString("O");
+                sqliteType = "text";
             }
             else if (value is Guid guid)
             {
-                value = guid.ToString();
+                // Convert Guid to byte array, then base64 for binary(16) columns
+                value = Convert.ToBase64String(guid.ToByteArray());
+                sqliteType = "blob";
             }
             else if (value is byte[] bytes)
             {
                 // Convert byte array to base64 for JSON serialization
                 value = Convert.ToBase64String(bytes);
+                sqliteType = "blob";
+            }
+            else if (value is bool)
+            {
+                // SQLite stores booleans as integers
+                sqliteType = "integer";
+            }
+            else if (value is sbyte or byte or short or ushort or int or uint or long or ulong)
+            {
+                sqliteType = "integer";
+            }
+            else if (value is float or double or decimal)
+            {
+                sqliteType = "real";
+            }
+            else if (value is string)
+            {
+                sqliteType = "text";
+            }
+            else
+            {
+                // Fallback for unknown types
+                sqliteType = "text";
             }
 
             // Ensure parameter name has @ prefix for SQLite compatibility
@@ -239,7 +270,12 @@ public sealed class SqliteWasmParameterCollection : DbParameterCollection
                 paramName = "@" + paramName;
             }
 
-            result[paramName] = value;
+            // Send parameter with type metadata
+            result[paramName] = new Dictionary<string, object?>
+            {
+                ["value"] = value,
+                ["type"] = sqliteType
+            };
         }
         return result;
     }

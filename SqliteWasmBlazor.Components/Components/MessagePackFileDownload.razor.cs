@@ -76,7 +76,7 @@ public partial class MessagePackFileDownload<T>
             var header = MessagePackFileHeader.Create<T>(TotalRecords, SchemaVersion, AppIdentifier);
             Logger.LogDebug("Writing header: Type={Type}, Version={Version}, Records={Count}",
                 header.DataType, header.SchemaVersion, header.RecordCount);
-            await MessagePack.MessagePackSerializer.SerializeAsync(memoryStream, header);
+            await MessagePackSerializer.SerializeAsync(memoryStream, header);
 
             // Fetch and serialize each page (items only, no header per page)
             for (var pageIndex = 0; pageIndex < TotalPages; pageIndex++)
@@ -97,7 +97,7 @@ public partial class MessagePackFileDownload<T>
                 // Serialize items directly (no header)
                 foreach (var item in pageItems)
                 {
-                    await MessagePack.MessagePackSerializer.SerializeAsync(memoryStream, item);
+                    await MessagePackSerializer.SerializeAsync(memoryStream, item);
                 }
 
                 // Update progress after each page
