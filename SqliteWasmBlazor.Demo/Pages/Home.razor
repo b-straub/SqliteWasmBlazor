@@ -1,5 +1,4 @@
 ﻿@page "/"
-@inject IDBInitializationService DBInitializationService
 
 <PageTitle>SqliteWasmBlazor</PageTitle>
 
@@ -9,10 +8,7 @@
         Blazor WebAssembly.
     </MudText>
 
-    @if (DBInitializationService.ErrorMessage is not null)
-    {
-        <MudText Color="Color.Error">@DBInitializationService.ErrorMessage</MudText>
-    }
+    <DatabaseErrorAlert />
 
     <MudText Typo="Typo.caption" Color="Color.Secondary">
         Build: @_buildTime

@@ -1,0 +1,70 @@
+@using Microsoft.EntityFrameworkCore
+@using SqliteWasmBlazor.Models
+@inject IDBInitializationService DBInitializationService
+@inject IDbContextFactory<TodoDbContext> DbContextFactory
+@inject ISnackbar Snackbar
+@inject NavigationManager NavigationManager
+
+@if (DBInitializationService.ErrorMessage is not null)
+{
+    <MudAlert Severity="Severity.Error" Class="mb-6" Variant="Variant.Filled">
+        <MudText Typo="Typo.h6" Class="mb-2">Database Error</MudText>
+        <MudText Typo="Typo.body1" Style="white-space: pre-line;" Class="mb-3">
+            @DBInitializationService.ErrorMessage
+        </MudText>
+        <MudButton Variant="Variant.Filled"
+                   Color="Color.Warning"
+                   OnClick="ResetDatabaseAsync"
+                   StartIcon="@Icons.Material.Filled.RestartAlt"
+                   Disabled="_isResetting">
+            @if (_isResetting)
+            {
+                <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" />
+                <span>Resetting...</span>
+            }
+            else
+            {
+                <span>Reset Database</span>
+            }
+        </MudButton>
+    </MudAlert>
+}
+
+@code {
+    private bool _isResetting;
+
+    private async Task ResetDatabaseAsync()
+    {
+        _isResetting = true;
+        StateHasChanged();
+
+        try
+        {
+            // Delete the database file from OPFS SAHPool
+            await SqliteWasmWorkerBridge.Instance.DeleteDatabaseAsync("TodoDb.db");
+
+            // Clear the error message
+            DBInitializationService.ErrorMessage = null;
+
+            // Recreate database schema using migrations
+            await using var context = await DbContextFactory.CreateDbContextAsync();
+            await context.Database.MigrateAsync();
+
+            Snackbar.Add("Database reset successfully! Reloading page...", Severity.Success);
+
+            // Reload the page to reinitialize everything
+            await Task.Delay(1000);
+            NavigationManager.NavigateTo("/", forceLoad: true);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Database reset failed: {ex.Message}", Severity.Error);
+            DBInitializationService.ErrorMessage += $"\n\nReset failed: {ex.Message}";
+        }
+        finally
+        {
+            _isResetting = false;
+            StateHasChanged();
+        }
+    }
+}

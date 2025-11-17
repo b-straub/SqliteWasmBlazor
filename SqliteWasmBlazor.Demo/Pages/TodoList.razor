@@ -6,6 +6,7 @@
 @using SqliteWasmBlazor.Models.Extensions
 @inject IDbContextFactory<TodoDbContext> DbContextFactory
 @inject ISnackbar Snackbar
+@inject IDBInitializationService DBInitializationService
 @implements IDisposable
 
 <PageTitle>Todo List</PageTitle>
@@ -18,6 +19,13 @@
     <MudText Typo="Typo.body1" Color="Color.Secondary" Class="mb-6">
         Persistent storage using SQLite WASM with OPFS - Data survives page refresh!
     </MudText>
+
+    <DatabaseErrorAlert />
+
+    @if (DBInitializationService.ErrorMessage is not null)
+    {
+        return;
+    }
 
     <!-- Add New Todo Card -->
     <MudPaper Elevation="2" Class="pa-4 mb-6">
