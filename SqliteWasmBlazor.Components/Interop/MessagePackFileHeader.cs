@@ -17,13 +17,12 @@ public class MessagePackFileHeader
     public string MagicNumber { get; set; } = "SWBMP";
 
     /// <summary>
-    /// Schema version (incremented when TodoItemDto structure changes)
-    /// Format: MAJOR.MINOR (e.g., "1.0")
-    /// - MAJOR: Breaking changes (incompatible schema)
-    /// - MINOR: Non-breaking changes (optional fields added)
+    /// Schema hash (computed from MessagePack [Key] attributes and property types)
+    /// Automatically detects schema changes - no manual versioning needed
+    /// 16-character hex string (first 64 bits of SHA256)
     /// </summary>
     [Key(1)]
-    public string SchemaVersion { get; set; } = string.Empty;
+    public string SchemaHash { get; set; } = string.Empty;
 
     /// <summary>
     /// Full type name of serialized data (e.g., "SqliteWasmBlazor.Models.DTOs.TodoItemDto")
@@ -54,10 +53,10 @@ public class MessagePackFileHeader
     /// Validate that this header is compatible with expected schema
     /// </summary>
     /// <param name="expectedType">Expected data type</param>
-    /// <param name="expectedVersion">Expected schema version (or null to skip version check)</param>
+    /// <param name="expectedSchemaHash">Expected schema hash (or null to skip schema check)</param>
     /// <param name="expectedAppId">Expected app identifier (or null to skip app check)</param>
     /// <exception cref="InvalidOperationException">Thrown if header validation fails</exception>
-    public void Validate(string expectedType, string? expectedVersion = null, string? expectedAppId = null)
+    public void Validate(string expectedType, string? expectedSchemaHash = null, string? expectedAppId = null)
     {
         if (MagicNumber != "SWBMP")
         {
@@ -71,11 +70,11 @@ public class MessagePackFileHeader
                 $"Incompatible data type: expected '{expectedType}', file contains '{DataType}'");
         }
 
-        if (expectedVersion is not null && SchemaVersion != expectedVersion)
+        if (expectedSchemaHash is not null && SchemaHash != expectedSchemaHash)
         {
             throw new InvalidOperationException(
-                $"Incompatible schema version: expected '{expectedVersion}', file has '{SchemaVersion}'. " +
-                $"This file may be from a different version of the application.");
+                $"Incompatible schema: export schema (hash {SchemaHash}) does not match current schema (hash {expectedSchemaHash}). " +
+                $"The export file structure may have changed. Expected: {expectedSchemaHash}, Got: {SchemaHash}");
         }
 
         if (expectedAppId is not null && AppIdentifier != expectedAppId)
@@ -92,13 +91,14 @@ public class MessagePackFileHeader
 
     /// <summary>
     /// Create a header for export
+    /// Schema hash is computed automatically from the type's MessagePack structure
     /// </summary>
-    public static MessagePackFileHeader Create<T>(int recordCount, string schemaVersion, string? appIdentifier = null)
+    public static MessagePackFileHeader Create<T>(int recordCount, string? appIdentifier = null)
     {
         return new MessagePackFileHeader
         {
             MagicNumber = "SWBMP",
-            SchemaVersion = schemaVersion,
+            SchemaHash = SchemaHashGenerator.ComputeHash<T>(),
             DataType = typeof(T).FullName ?? typeof(T).Name,
             AppIdentifier = appIdentifier,
             ExportedAt = DateTime.UtcNow,

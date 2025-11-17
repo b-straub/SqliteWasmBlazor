@@ -2,7 +2,6 @@ using Microsoft.EntityFrameworkCore;
 using SqliteWasmBlazor.Components.Interop;
 using SqliteWasmBlazor.Models;
 using SqliteWasmBlazor.Models.DTOs;
-using SqliteWasmBlazor.Models.Extensions;
 using SqliteWasmBlazor.Models.Models;
 
 namespace SqliteWasmBlazor.TestApp.TestInfrastructure.Tests.ImportExport;
@@ -16,7 +15,7 @@ internal class ExportImportIncrementalBatchesTest(IDbContextFactory<TodoDbContex
     {
         const int itemCount = 2500;
         const int batchSize = 500;
-        const string schemaVersion = "1.0";
+        var schemaHash = SchemaHashGenerator.ComputeHash<TodoItemDto>();
         const string appId = "SqliteWasmBlazor.Test";
 
         // Create test data
@@ -27,10 +26,11 @@ internal class ExportImportIncrementalBatchesTest(IDbContextFactory<TodoDbContex
             {
                 items.Add(new TodoItem
                 {
+                    Id = Guid.NewGuid(),
                     Title = $"Task {i}",
                     Description = $"Description {i}",
                     IsCompleted = i % 3 == 0,
-                    CreatedAt = DateTime.UtcNow.AddHours(-i),
+                    UpdatedAt = DateTime.UtcNow.AddHours(-i),
                     CompletedAt = i % 3 == 0 ? DateTime.UtcNow.AddHours(-i / 2) : null
                 });
             }
@@ -49,7 +49,6 @@ internal class ExportImportIncrementalBatchesTest(IDbContextFactory<TodoDbContex
             await MessagePackSerializer<TodoItemDto>.SerializeStreamAsync(
                 dtos,
                 exportStream,
-                schemaVersion,
                 appId);
         }
 
@@ -75,7 +74,7 @@ internal class ExportImportIncrementalBatchesTest(IDbContextFactory<TodoDbContex
                 await using var context = await Factory.CreateDbContextAsync();
                 await ImportExportTestHelper.BulkInsertTodoItemsAsync(context, dtos);
             },
-            schemaVersion,
+            schemaHash,
             appId,
             batchSize: batchSize);
 

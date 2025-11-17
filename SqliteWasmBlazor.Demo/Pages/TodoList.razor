@@ -120,9 +120,9 @@
                                      UseHighlighting="@(_searchMode != TodoSearchComponent.SearchDisplayMode.Normal)"
                                      Strikethrough="@context.IsCompleted" />
                 </MudTd>
-                <MudTd DataLabel="Created">
+                <MudTd DataLabel="Updated">
                     <MudChip T="string" Size="Size.Small" Variant="Variant.Text">
-                        @context.CreatedAt.ToString("g")
+                        @context.UpdatedAt.ToString("g")
                     </MudChip>
                 </MudTd>
                 <MudTd DataLabel="Actions" Style="text-align: right;">
@@ -200,7 +200,7 @@
     private Fts5QueryMode _fts5QueryMode = Fts5QueryMode.Processed;
     private CancellationTokenSource? _searchCts;
     private Timer? _debounceTimer;
-    private Dictionary<int, (string Title, string Description)> _highlightCache = new();
+    private Dictionary<Guid, (string Title, string Description)> _highlightCache = new();
 
     protected override async Task OnInitializedAsync()
     {
@@ -308,8 +308,10 @@
         }
         else
         {
-            // Regular query when no search
-            var query = context.TodoItems.OrderByDescending(t => t.CreatedAt);
+            // Regular query when no search - exclude soft-deleted items
+            var query = context.TodoItems
+                .Where(t => !t.IsDeleted)
+                .OrderByDescending(t => t.UpdatedAt);
             var count = await query.CountAsync(cancellationToken);
             _totalCount = count;
 
@@ -326,7 +328,7 @@
         }
     }
 
-    private string? GetHighlightedText(int itemId, bool isTitle)
+    private string? GetHighlightedText(Guid itemId, bool isTitle)
     {
         // Return highlighted text from FTS5 cache if available (already contains <mark> tags)
         if (_highlightCache.TryGetValue(itemId, out var highlighted))
@@ -350,7 +352,8 @@
         }
         else
         {
-            query = context.TodoItems;
+            // Exclude soft-deleted items
+            query = context.TodoItems.Where(t => !t.IsDeleted);
         }
 
         _totalCount = await query.CountAsync();
@@ -404,9 +407,10 @@
 
         var todo = new TodoItem
         {
+            Id = Guid.NewGuid(),
             Title = _newTitle,
             Description = _newDescription,
-            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow,
             IsCompleted = false
         };
 
@@ -447,7 +451,14 @@
         var stopwatch = Stopwatch.StartNew();
 
         await using var context = await DbContextFactory.CreateDbContextAsync();
-        context.TodoItems.Remove(todo);
+
+        // Soft delete for delta sync (set IsDeleted flag instead of removing from database)
+        var trackedItem = await context.TodoItems.FindAsync(todo.Id);
+        if (trackedItem is not null)
+        {
+            trackedItem.IsDeleted = true;
+            trackedItem.DeletedAt = DateTime.UtcNow;
+        }
 
         try
         {

@@ -1,5 +1,6 @@
 ﻿using System;
 using Microsoft.EntityFrameworkCore.Migrations;
+using SqliteWasmBlazor.Models.Extensions;
 
 #nullable disable
 
@@ -12,16 +13,34 @@ namespace SqliteWasmBlazor.Models.Migrations
         protected override void Up(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.CreateTable(
-                name: "TodoItems",
+                name: "SyncState",
                 columns: table => new
                 {
                     Id = table.Column<int>(type: "INTEGER", nullable: false)
                         .Annotation("Sqlite:Autoincrement", true),
+                    CreatedAt = table.Column<DateTime>(type: "TEXT", nullable: false),
+                    Description = table.Column<string>(type: "TEXT", maxLength: 200, nullable: false),
+                    ActiveItemCount = table.Column<int>(type: "INTEGER", nullable: false),
+                    TombstoneCount = table.Column<int>(type: "INTEGER", nullable: false),
+                    CheckpointType = table.Column<string>(type: "TEXT", maxLength: 50, nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_SyncState", x => x.Id);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "TodoItems",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "BLOB", nullable: false),
                     Title = table.Column<string>(type: "TEXT", maxLength: 200, nullable: false),
                     Description = table.Column<string>(type: "TEXT", maxLength: 1000, nullable: false),
                     IsCompleted = table.Column<bool>(type: "INTEGER", nullable: false),
-                    CreatedAt = table.Column<DateTime>(type: "TEXT", nullable: false),
-                    CompletedAt = table.Column<DateTime>(type: "TEXT", nullable: true)
+                    UpdatedAt = table.Column<DateTime>(type: "TEXT", nullable: false),
+                    CompletedAt = table.Column<DateTime>(type: "TEXT", nullable: true),
+                    IsDeleted = table.Column<bool>(type: "INTEGER", nullable: false),
+                    DeletedAt = table.Column<DateTime>(type: "TEXT", nullable: true)
                 },
                 constraints: table =>
                 {
@@ -32,7 +51,7 @@ namespace SqliteWasmBlazor.Models.Migrations
                 name: "todoLists",
                 columns: table => new
                 {
-                    Id = table.Column<Guid>(type: "binary(16)", nullable: false),
+                    Id = table.Column<Guid>(type: "BLOB", nullable: false),
                     Title = table.Column<string>(type: "TEXT", maxLength: 255, nullable: false),
                     IsActive = table.Column<bool>(type: "INTEGER", nullable: false),
                     CreatedAt = table.Column<DateTime>(type: "TEXT", nullable: false)
@@ -86,55 +105,17 @@ namespace SqliteWasmBlazor.Models.Migrations
                     table.PrimaryKey("PK_TypeTests", x => x.Id);
                 });
 
-            // Create FTS5 virtual table for full-text search on TodoItems
-            // Note: EF Core cannot auto-generate FTS5 syntax, so we use raw SQL
-            migrationBuilder.Sql(@"
-                CREATE VIRTUAL TABLE FTSTodoItem USING fts5(
-                    Title,
-                    Description,
-                    content=TodoItems,
-                    content_rowid=Id
-                );
-            ");
-
-            // Create triggers to keep FTS5 table synchronized with TodoItems
-            // Insert trigger
-            migrationBuilder.Sql(@"
-                CREATE TRIGGER FTSTodoItem_ai AFTER INSERT ON TodoItems BEGIN
-                    INSERT INTO FTSTodoItem(rowid, Title, Description)
-                    VALUES (new.Id, new.Title, new.Description);
-                END;
-            ");
-
-            // Update trigger
-            migrationBuilder.Sql(@"
-                CREATE TRIGGER FTSTodoItem_au AFTER UPDATE ON TodoItems BEGIN
-                    INSERT INTO FTSTodoItem(FTSTodoItem, rowid, Title, Description)
-                    VALUES('delete', old.Id, old.Title, old.Description);
-                    INSERT INTO FTSTodoItem(rowid, Title, Description)
-                    VALUES(new.Id, new.Title, new.Description);
-                END;
-            ");
-
-            // Delete trigger
-            migrationBuilder.Sql(@"
-                CREATE TRIGGER FTSTodoItem_ad AFTER DELETE ON TodoItems BEGIN
-                    INSERT INTO FTSTodoItem(FTSTodoItem, rowid, Title, Description)
-                    VALUES('delete', old.Id, old.Title, old.Description);
-                END;
-            ");
-
             migrationBuilder.CreateTable(
                 name: "todos",
                 columns: table => new
                 {
-                    Id = table.Column<Guid>(type: "binary(16)", nullable: false),
+                    Id = table.Column<Guid>(type: "BLOB", nullable: false),
                     Title = table.Column<string>(type: "TEXT", maxLength: 255, nullable: false),
                     Description = table.Column<string>(type: "TEXT", maxLength: 255, nullable: true),
                     DueDate = table.Column<DateTime>(type: "TEXT", nullable: true),
                     Completed = table.Column<bool>(type: "INTEGER", nullable: false),
                     Priority = table.Column<int>(type: "INTEGER", nullable: false),
-                    TodoListId = table.Column<Guid>(type: "binary(16)", nullable: false),
+                    TodoListId = table.Column<Guid>(type: "BLOB", nullable: false),
                     CompletedAt = table.Column<DateTime>(type: "TEXT", nullable: true)
                 },
                 constraints: table =>
@@ -152,27 +133,28 @@ namespace SqliteWasmBlazor.Models.Migrations
                 name: "IX_todos_TodoListId",
                 table: "todos",
                 column: "TodoListId");
+
+            // Setup FTS5 virtual table and triggers (one-liner!)
+            migrationBuilder.CreateTodoItemsFts5();
         }
 
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
-            // Drop FTS5 triggers
-            migrationBuilder.Sql("DROP TRIGGER IF EXISTS FTSTodoItem_ai;");
-            migrationBuilder.Sql("DROP TRIGGER IF EXISTS FTSTodoItem_au;");
-            migrationBuilder.Sql("DROP TRIGGER IF EXISTS FTSTodoItem_ad;");
+            // Drop FTS5 virtual table and triggers
+            migrationBuilder.DropTodoItemsFts5();
 
-            // Drop FTS5 virtual table
-            migrationBuilder.Sql("DROP TABLE IF EXISTS FTSTodoItem;");
+            migrationBuilder.DropTable(
+                name: "SyncState");
+
+            migrationBuilder.DropTable(
+                name: "TodoItems");
 
             migrationBuilder.DropTable(
                 name: "todos");
 
             migrationBuilder.DropTable(
                 name: "TypeTests");
-
-            migrationBuilder.DropTable(
-                name: "TodoItems");
 
             migrationBuilder.DropTable(
                 name: "todoLists");

@@ -16,9 +16,10 @@ internal class BulkInsert100EntitiesTest(IDbContextFactory<TodoDbContext> factor
         var items = Enumerable.Range(1, 100)
             .Select(i => new TodoItem
             {
+                Id = Guid.NewGuid(),
                 Title = $"Item {i}",
                 Description = $"Description {i}",
-                CreatedAt = DateTime.UtcNow
+                UpdatedAt = DateTime.UtcNow
             })
             .ToList();
 

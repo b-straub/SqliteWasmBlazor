@@ -27,32 +27,36 @@ internal class FTS5SearchTest(IDbContextFactory<TodoDbContext> factory)
         {
             new TodoItem
             {
+                Id = Guid.NewGuid(),
                 Title = "Buy groceries",
                 Description = "Get milk, eggs, and bread from the store",
                 IsCompleted = false,
-                CreatedAt = DateTime.UtcNow
+                UpdatedAt = DateTime.UtcNow
             },
             new TodoItem
             {
+                Id = Guid.NewGuid(),
                 Title = "Write report",
                 Description = "Complete the quarterly financial report",
                 IsCompleted = false,
-                CreatedAt = DateTime.UtcNow
+                UpdatedAt = DateTime.UtcNow
             },
             new TodoItem
             {
+                Id = Guid.NewGuid(),
                 Title = "Call dentist",
                 Description = "Schedule appointment for teeth cleaning",
                 IsCompleted = true,
-                CreatedAt = DateTime.UtcNow.AddDays(-1),
+                UpdatedAt = DateTime.UtcNow.AddDays(-1),
                 CompletedAt = DateTime.UtcNow
             },
             new TodoItem
             {
+                Id = Guid.NewGuid(),
                 Title = "Meeting preparation",
                 Description = "Prepare slides for the quarterly review meeting",
                 IsCompleted = false,
-                CreatedAt = DateTime.UtcNow
+                UpdatedAt = DateTime.UtcNow
             }
         };
 

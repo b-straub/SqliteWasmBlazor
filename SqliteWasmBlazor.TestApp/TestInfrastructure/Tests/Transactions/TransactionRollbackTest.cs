@@ -26,9 +26,10 @@ internal class TransactionRollbackTest(IDbContextFactory<TodoDbContext> factory)
 
             var item = new TodoItem
             {
+                Id = Guid.NewGuid(),
                 Title = "Rollback Test",
                 Description = "Test",
-                CreatedAt = DateTime.UtcNow
+                UpdatedAt = DateTime.UtcNow
             };
 
             context.TodoItems.Add(item);

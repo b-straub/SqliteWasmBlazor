@@ -15,16 +15,17 @@ internal class CreateSingleEntityTest(IDbContextFactory<TodoDbContext> factory)
 
         var item = new TodoItem
         {
+            Id = Guid.NewGuid(),
             Title = "Test Todo",
             Description = "Test Description",
             IsCompleted = false,
-            CreatedAt = DateTime.UtcNow
+            UpdatedAt = DateTime.UtcNow
         };
 
         context.TodoItems.Add(item);
         await context.SaveChangesAsync();
 
-        if (item.Id <= 0)
+        if (item.Id == Guid.Empty)
         {
             throw new InvalidOperationException("ID was not generated");
         }

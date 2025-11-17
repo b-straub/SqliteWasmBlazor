@@ -1,6 +1,5 @@
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
-using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Playwright;
 using Xunit.Abstractions;
@@ -24,7 +23,7 @@ public class WaFixtureBase : WebApplicationFactory<TestHost.Program>
         _output = output;
 
         // Use the new .NET 10 API - must be called in constructor before server initialization
-        this.UseKestrel(port);
+        UseKestrel(port);
     }
 
     protected async Task InitializeAsync(IWaFixture.BrowserType browserType, bool onePass, bool headless)
@@ -34,7 +33,7 @@ public class WaFixtureBase : WebApplicationFactory<TestHost.Program>
         // Start the Kestrel server if not already started
         if (!_serverStarted)
         {
-            this.StartServer();
+            StartServer();
             _serverStarted = true;
         }
 
@@ -170,7 +169,7 @@ public class WaFixtureBase : WebApplicationFactory<TestHost.Program>
         {
             logging.ClearProviders();
             logging.AddConsole();
-            logging.SetMinimumLevel(Microsoft.Extensions.Logging.LogLevel.Warning);
+            logging.SetMinimumLevel(LogLevel.Warning);
         });
     }
 

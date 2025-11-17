@@ -2,7 +2,6 @@ using Microsoft.EntityFrameworkCore;
 using SqliteWasmBlazor.Components.Interop;
 using SqliteWasmBlazor.Models;
 using SqliteWasmBlazor.Models.DTOs;
-using SqliteWasmBlazor.Models.Extensions;
 using SqliteWasmBlazor.Models.Models;
 
 namespace SqliteWasmBlazor.TestApp.TestInfrastructure.Tests.ImportExport;
@@ -14,7 +13,7 @@ internal class ImportIncompatibleAppIdTest(IDbContextFactory<TodoDbContext> fact
 
     public override async ValueTask<string?> RunTestAsync()
     {
-        const string schemaVersion = "1.0";
+        var schemaHash = SchemaHashGenerator.ComputeHash<TodoItemDto>();
         const string exportAppId = "AnotherApp";
         const string importAppId = "SqliteWasmBlazor.Test";
 
@@ -23,10 +22,11 @@ internal class ImportIncompatibleAppIdTest(IDbContextFactory<TodoDbContext> fact
         {
             var item = new TodoItem
             {
+                Id = Guid.NewGuid(),
                 Title = "Test Task",
                 Description = "Test Description",
                 IsCompleted = false,
-                CreatedAt = DateTime.UtcNow
+                UpdatedAt = DateTime.UtcNow
             };
 
             context.TodoItems.Add(item);
@@ -43,7 +43,6 @@ internal class ImportIncompatibleAppIdTest(IDbContextFactory<TodoDbContext> fact
             await MessagePackSerializer<TodoItemDto>.SerializeStreamAsync(
                 dtos,
                 exportStream,
-                schemaVersion,
                 exportAppId);
         }
 
@@ -62,7 +61,7 @@ internal class ImportIncompatibleAppIdTest(IDbContextFactory<TodoDbContext> fact
                     context.TodoItems.AddRange(entities);
                     await context.SaveChangesAsync();
                 },
-                schemaVersion,
+                schemaHash,
                 importAppId);
         }
         catch (InvalidOperationException ex) when (ex.Message.Contains("Incompatible application"))

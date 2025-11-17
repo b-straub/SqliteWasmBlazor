@@ -14,12 +14,6 @@ public partial class MessagePackFileDownload<T>
     private ILogger<MessagePackFileDownload<T>> Logger { get; set; } = default!;
 
     /// <summary>
-    /// Schema version for this data type (increment when structure changes)
-    /// </summary>
-    [Parameter]
-    public string SchemaVersion { get; set; } = "1.0";
-
-    /// <summary>
     /// Application identifier (optional - for validating imports)
     /// </summary>
     [Parameter]
@@ -73,9 +67,9 @@ public partial class MessagePackFileDownload<T>
             using var memoryStream = new MemoryStream();
 
             // Write header once with total record count
-            var header = MessagePackFileHeader.Create<T>(TotalRecords, SchemaVersion, AppIdentifier);
-            Logger.LogDebug("Writing header: Type={Type}, Version={Version}, Records={Count}",
-                header.DataType, header.SchemaVersion, header.RecordCount);
+            var header = MessagePackFileHeader.Create<T>(TotalRecords, AppIdentifier);
+            Logger.LogDebug("Writing header: Type={Type}, SchemaHash={Hash}, Records={Count}",
+                header.DataType, header.SchemaHash, header.RecordCount);
             await MessagePackSerializer.SerializeAsync(memoryStream, header);
 
             // Fetch and serialize each page (items only, no header per page)

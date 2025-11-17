@@ -10,7 +10,7 @@ var builder = WebAssemblyHostBuilder.CreateDefault(args);
 
 // Reduce EF Core logging verbosity
 #if DEBUG
-builder.Logging.AddFilter("Microsoft.EntityFrameworkCore.Database.Command", LogLevel.Debug);
+builder.Logging.AddFilter("Microsoft.EntityFrameworkCore.Database.Command", LogLevel.Information);
 #else
 builder.Logging.AddFilter("Microsoft.EntityFrameworkCore.Infrastructure", LogLevel.Error);
 builder.Logging.AddFilter("Microsoft.EntityFrameworkCore.Database.Command", LogLevel.Error);
@@ -29,7 +29,7 @@ builder.Services.AddMudServices();
 builder.Services.AddDbContextFactory<TodoDbContext>(options =>
 {
 #if DEBUG
-    var connection = new SqliteWasmConnection("Data Source=TodoDb.db", LogLevel.Debug);
+    var connection = new SqliteWasmConnection("Data Source=TodoDb.db", LogLevel.Information);
 #else
     var connection = new SqliteWasmConnection("Data Source=TodoDb.db", LogLevel.Error);
 #endif

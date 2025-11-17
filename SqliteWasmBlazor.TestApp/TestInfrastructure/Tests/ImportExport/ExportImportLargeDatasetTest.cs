@@ -2,7 +2,6 @@ using Microsoft.EntityFrameworkCore;
 using SqliteWasmBlazor.Components.Interop;
 using SqliteWasmBlazor.Models;
 using SqliteWasmBlazor.Models.DTOs;
-using SqliteWasmBlazor.Models.Extensions;
 using SqliteWasmBlazor.Models.Models;
 
 namespace SqliteWasmBlazor.TestApp.TestInfrastructure.Tests.ImportExport;
@@ -24,7 +23,7 @@ internal class ExportImportLargeDatasetTest(IDbContextFactory<TodoDbContext> fac
         }
 
         const int itemCount = 10000;
-        const string schemaVersion = "1.0";
+        var schemaHash = SchemaHashGenerator.ComputeHash<TodoItemDto>();
         const string appId = "SqliteWasmBlazor.Test";
 
         // Create large dataset
@@ -35,10 +34,11 @@ internal class ExportImportLargeDatasetTest(IDbContextFactory<TodoDbContext> fac
             {
                 items.Add(new TodoItem
                 {
+                    Id = Guid.NewGuid(),
                     Title = $"Task {i}",
                     Description = $"Description for task {i}",
                     IsCompleted = i % 2 == 0,
-                    CreatedAt = DateTime.UtcNow.AddDays(-i),
+                    UpdatedAt = DateTime.UtcNow.AddDays(-i),
                     CompletedAt = i % 2 == 0 ? DateTime.UtcNow.AddDays(-i / 2) : null
                 });
             }
@@ -67,7 +67,7 @@ internal class ExportImportLargeDatasetTest(IDbContextFactory<TodoDbContext> fac
             // Only write header on first page
             if (page == 0)
             {
-                var header = MessagePackFileHeader.Create<TodoItemDto>(itemCount, schemaVersion, appId);
+                var header = MessagePackFileHeader.Create<TodoItemDto>(itemCount, appId);
                 await MessagePack.MessagePackSerializer.SerializeAsync(exportStream, header);
             }
 
@@ -94,7 +94,7 @@ internal class ExportImportLargeDatasetTest(IDbContextFactory<TodoDbContext> fac
                 await using var context = await Factory.CreateDbContextAsync();
                 await ImportExportTestHelper.BulkInsertTodoItemsAsync(context, dtos);
             },
-            schemaVersion,
+            schemaHash,
             appId,
             batchSize: 500);
 
@@ -113,17 +113,33 @@ internal class ExportImportLargeDatasetTest(IDbContextFactory<TodoDbContext> fac
                 throw new InvalidOperationException($"Expected {itemCount} items in database, got {count}");
             }
 
-            // Sample check: verify first and last item
-            var firstItem = await verifyContext.TodoItems.OrderBy(t => t.Id).FirstAsync();
-            if (firstItem.Title != "Task 0")
+            // Sample check: verify specific items exist (can't rely on Guid ordering)
+            // Task 0: i=0, IsCompleted = 0 % 2 == 0 = true
+            var task0 = await verifyContext.TodoItems.FirstOrDefaultAsync(t => t.Title == "Task 0");
+            if (task0 is null || !task0.IsCompleted || task0.CompletedAt is null)
             {
-                throw new InvalidOperationException("First item title mismatch");
+                throw new InvalidOperationException("Task 0 not found or incorrect data");
             }
 
-            var lastItem = await verifyContext.TodoItems.OrderBy(t => t.Id).LastAsync();
-            if (lastItem.Title != $"Task {itemCount - 1}")
+            // Task 1: i=1, IsCompleted = 1 % 2 == 0 = false
+            var task1 = await verifyContext.TodoItems.FirstOrDefaultAsync(t => t.Title == "Task 1");
+            if (task1 is null || task1.IsCompleted)
             {
-                throw new InvalidOperationException("Last item title mismatch");
+                throw new InvalidOperationException("Task 1 not found or incorrect data");
+            }
+
+            // Last task: i=9999 (for 10000 items), IsCompleted = 9999 % 2 == 0 = false
+            var lastTask = await verifyContext.TodoItems.FirstOrDefaultAsync(t => t.Title == $"Task {itemCount - 1}");
+            if (lastTask is null || lastTask.Description != $"Description for task {itemCount - 1}" || lastTask.IsCompleted)
+            {
+                throw new InvalidOperationException($"Task {itemCount - 1} not found or incorrect data");
+            }
+
+            // Verify half are completed (even indexes)
+            var completedCount = await verifyContext.TodoItems.CountAsync(t => t.IsCompleted);
+            if (completedCount != itemCount / 2)
+            {
+                throw new InvalidOperationException($"Expected {itemCount / 2} completed items, got {completedCount}");
             }
         }
 

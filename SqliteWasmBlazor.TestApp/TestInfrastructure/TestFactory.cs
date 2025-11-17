@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using SqliteWasmBlazor.Models;
 using SqliteWasmBlazor.TestApp.TestInfrastructure.Tests;
+using SqliteWasmBlazor.TestApp.TestInfrastructure.Tests.Checkpoints;
 using SqliteWasmBlazor.TestApp.TestInfrastructure.Tests.CRUD;
 using SqliteWasmBlazor.TestApp.TestInfrastructure.Tests.EFCoreFunctions;
 using SqliteWasmBlazor.TestApp.TestInfrastructure.Tests.ImportExport;
@@ -86,8 +87,10 @@ internal class TestFactory
         _tests.Add(("EF Core Functions", new DecimalArithmeticTest(factory)));
         _tests.Add(("EF Core Functions", new DecimalAggregatesTest(factory)));
         _tests.Add(("EF Core Functions", new DecimalComparisonTest(factory)));
+        _tests.Add(("EF Core Functions", new DecimalComparisonSimpleTest(factory)));
         _tests.Add(("EF Core Functions", new RegexPatternTest(factory)));
         _tests.Add(("EF Core Functions", new ComplexDecimalQueryTest(factory)));
+        _tests.Add(("EF Core Functions", new AggregateBuiltInTest(factory)));
 
         // Import/Export Tests (MessagePack serialization with schema validation)
         _tests.Add(("Import/Export", new ExportImportRoundTripTest(factory)));
@@ -96,6 +99,17 @@ internal class TestFactory
         _tests.Add(("Import/Export", new ImportIncompatibleAppIdTest(factory)));
         _tests.Add(("Import/Export", new ExportImportEmptyDatabaseTest(factory)));
         _tests.Add(("Import/Export", new ExportImportIncrementalBatchesTest(factory)));
+
+        // Delta Import/Export Tests (incremental sync with conflict resolution)
+        _tests.Add(("Import/Export", new ExportImportDeltaBasicTest(factory)));
+        _tests.Add(("Import/Export", new ExportImportDeltaConflictTest(factory)));
+        _tests.Add(("Import/Export", new ExportImportDeltaConflictLocalWinsTest(factory)));
+        _tests.Add(("Import/Export", new ExportImportDeltaConflictDeltaWinsTest(factory)));
+        _tests.Add(("Import/Export", new ExportImportDeltaDeletionTest(factory)));
+
+        // Checkpoint Tests (rollback and restore functionality)
+        _tests.Add(("Checkpoints", new RestoreToCheckpointBasicTest(factory)));
+        _tests.Add(("Checkpoints", new RestoreToCheckpointWithDeltaReapplyTest(factory)));
     }
 }
 

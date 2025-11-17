@@ -7,7 +7,7 @@ namespace SqliteWasmBlazor.Models.Models;
 public class Todo
 {
     [Key]
-    [Column(TypeName = "binary(16)")]
+    [Column(TypeName = "BLOB")]
     public Guid Id { get; set; }
 
     [Required]
@@ -26,7 +26,7 @@ public class Todo
     public int Priority { get; set; } = 0;
 
     [Required]
-    [Column(TypeName = "binary(16)")]
+    [Column(TypeName = "BLOB")]
     public required Guid TodoListId { get; set; }
 
     public DateTime? CompletedAt { get; set; }

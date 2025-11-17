@@ -17,9 +17,10 @@ internal class TransactionCommitTest(IDbContextFactory<TodoDbContext> factory)
 
         var item = new TodoItem
         {
+            Id = Guid.NewGuid(),
             Title = "Transaction Test",
             Description = "Test",
-            CreatedAt = DateTime.UtcNow
+            UpdatedAt = DateTime.UtcNow
         };
 
         context.TodoItems.Add(item);

@@ -9,9 +9,11 @@ namespace SqliteWasmBlazor.Models.Models;
 public class FTSTodoItem
 {
     /// <summary>
-    /// RowId maps to TodoItem.Id for the one-to-one relationship
+    /// Id maps to TodoItem.Id for the one-to-one relationship
+    /// Stored as UNINDEXED column in FTS5
     /// </summary>
-    public int RowId { get; set; }
+    [Column(TypeName = "BLOB")]
+    public Guid Id { get; set; }
 
     /// <summary>
     /// Navigation property to the original TodoItem

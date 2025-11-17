@@ -47,9 +47,10 @@ internal class FreshDatabaseMigrateTest(IDbContextFactory<TodoDbContext> factory
         // Verify we can insert and query data
         var testItem = new TodoItem
         {
+            Id = Guid.NewGuid(),
             Title = "Migration Test",
             Description = "Testing migrations",
-            CreatedAt = DateTime.UtcNow
+            UpdatedAt = DateTime.UtcNow
         };
 
         context.TodoItems.Add(testItem);

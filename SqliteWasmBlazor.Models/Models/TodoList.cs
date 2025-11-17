@@ -7,7 +7,7 @@ namespace SqliteWasmBlazor.Models.Models;
 public class TodoList
 {
     [Key]
-    [Column(TypeName = "binary(16)")]
+    [Column(TypeName = "BLOB")]
     public Guid Id { get; set; }
 
     [Required]

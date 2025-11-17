@@ -11,7 +11,7 @@ namespace SqliteWasmBlazor.Models.DTOs;
 public class TodoItemDto
 {
     [Key(0)]
-    public int Id { get; set; }
+    public Guid Id { get; set; }
 
     [Key(1)]
     public string Title { get; set; } = string.Empty;
@@ -23,10 +23,16 @@ public class TodoItemDto
     public bool IsCompleted { get; set; }
 
     [Key(4)]
-    public DateTime CreatedAt { get; set; }
+    public DateTime UpdatedAt { get; set; }
 
     [Key(5)]
     public DateTime? CompletedAt { get; set; }
+
+    [Key(6)]
+    public bool IsDeleted { get; set; }
+
+    [Key(7)]
+    public DateTime? DeletedAt { get; set; }
 
     /// <summary>
     /// Convert DTO to entity model
@@ -37,8 +43,10 @@ public class TodoItemDto
         Title = Title,
         Description = Description,
         IsCompleted = IsCompleted,
-        CreatedAt = CreatedAt,
-        CompletedAt = CompletedAt
+        UpdatedAt = UpdatedAt,
+        CompletedAt = CompletedAt,
+        IsDeleted = IsDeleted,
+        DeletedAt = DeletedAt
     };
 
     /// <summary>
@@ -50,7 +58,9 @@ public class TodoItemDto
         Title = entity.Title,
         Description = entity.Description,
         IsCompleted = entity.IsCompleted,
-        CreatedAt = entity.CreatedAt,
-        CompletedAt = entity.CompletedAt
+        UpdatedAt = entity.UpdatedAt,
+        CompletedAt = entity.CompletedAt,
+        IsDeleted = entity.IsDeleted,
+        DeletedAt = entity.DeletedAt
     };
 }

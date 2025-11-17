@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.ChangeTracking;
+using SqliteWasmBlazor.Models.Interceptors;
 using SqliteWasmBlazor.Models.Models;
 
 namespace SqliteWasmBlazor.Models;
@@ -16,6 +17,15 @@ public class TodoDbContext : DbContext
     public DbSet<TypeTestEntity> TypeTests { get; set; }
     public DbSet<TodoList> TodoLists { get; set; }
     public DbSet<Todo> Todos { get; set; }
+    public DbSet<SyncState> SyncState { get; set; }
+
+    protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
+    {
+        base.OnConfiguring(optionsBuilder);
+
+        // Register automatic UpdatedAt timestamp interceptor for delta sync
+        optionsBuilder.AddInterceptors(new UpdatedAtInterceptor());
+    }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -50,8 +60,8 @@ public class TodoDbContext : DbContext
         // Configure FTS5 virtual table for TodoItem
         modelBuilder.Entity<FTSTodoItem>(entity =>
         {
-            // RowId is the primary key (maps to SQLite rowid)
-            entity.HasKey(fts => fts.RowId);
+            // Id is the primary key (stored as UNINDEXED in FTS5)
+            entity.HasKey(fts => fts.Id);
 
             // Match property maps to the table name (FTS5 requirement)
             entity.Property(fts => fts.Match)
@@ -60,17 +70,19 @@ public class TodoDbContext : DbContext
             // Configure one-to-one relationship with TodoItem
             entity.HasOne(fts => fts.TodoItem)
                 .WithOne(item => item.FTS)
-                .HasForeignKey<FTSTodoItem>(fts => fts.RowId);
+                .HasForeignKey<FTSTodoItem>(fts => fts.Id);
 
-            // Mark as ToTable to prevent EF from trying to create it as a regular table
-            entity.ToTable("FTSTodoItem");
+            // Exclude from migrations - FTS5 virtual table is created via raw SQL
+            entity.ToTable("FTSTodoItem", t => t.ExcludeFromMigrations());
         });
+
+        // SyncState checkpoints are created dynamically (no seeding needed)
     }
 
     /// <summary>
     /// Highlights matching text in FTS5 search results
     /// </summary>
-    [Microsoft.EntityFrameworkCore.DbFunction]
+    [DbFunction]
     public static string Highlight(string match, int column, string open, string close)
     {
         throw new NotImplementedException("This method is translated to SQL by EF Core");
@@ -79,7 +91,7 @@ public class TodoDbContext : DbContext
     /// <summary>
     /// Extracts snippet from FTS5 search results
     /// </summary>
-    [Microsoft.EntityFrameworkCore.DbFunction]
+    [DbFunction]
     public static string Snippet(string match, int column, string open, string close, string ellipsis, int tokens)
     {
         throw new NotImplementedException("This method is translated to SQL by EF Core");

@@ -12,7 +12,7 @@ internal class ExportImportEmptyDatabaseTest(IDbContextFactory<TodoDbContext> fa
 
     public override async ValueTask<string?> RunTestAsync()
     {
-        const string schemaVersion = "1.0";
+        var schemaHash = SchemaHashGenerator.ComputeHash<TodoItemDto>();
         const string appId = "SqliteWasmBlazor.Test";
 
         // Export empty database
@@ -31,7 +31,6 @@ internal class ExportImportEmptyDatabaseTest(IDbContextFactory<TodoDbContext> fa
             await MessagePackSerializer<TodoItemDto>.SerializeStreamAsync(
                 dtos,
                 exportStream,
-                schemaVersion,
                 appId);
         }
 
@@ -54,7 +53,7 @@ internal class ExportImportEmptyDatabaseTest(IDbContextFactory<TodoDbContext> fa
                 }
                 await Task.CompletedTask;
             },
-            schemaVersion,
+            schemaHash,
             appId);
 
         // Verify no items were imported

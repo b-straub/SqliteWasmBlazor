@@ -6,6 +6,7 @@
 @using SqliteWasmBlazor.Models.Extensions
 @inject IDbContextFactory<TodoDbContext> DbContextFactory
 @inject ISnackbar Snackbar
+@inject ILogger<Administration> Logger
 
 <PageTitle>Administration</PageTitle>
 
@@ -39,6 +40,154 @@
     <!-- Database Import/Export Card -->
     <TodoImportExport DatabaseName="TodoDb.db" OnDataChanged="RefreshDataAsync" />
 
+    <!-- Delta Sync Management Card -->
+    <MudPaper Elevation="2" Class="pa-4 mb-6">
+        <MudText Typo="Typo.h6" Class="mb-3">
+            <MudIcon Icon="@Icons.Material.Filled.Sync" Size="Size.Small" Class="mr-1" />
+            Delta Sync Management
+        </MudText>
+        <MudStack Spacing="3">
+            <MudGrid Spacing="2">
+                <MudItem xs="12" md="6">
+                    <MudPaper Elevation="0" Class="pa-3" Style="background-color: var(--mud-palette-background-grey);">
+                        <MudStack Spacing="2">
+                            <MudText Typo="Typo.subtitle2">Pending Delta Export</MudText>
+                            @if (_pendingDeltaCount > 0)
+                            {
+                                <MudText Typo="Typo.body2">
+                                    <MudChip T="string" Size="Size.Small" Color="Color.Info">@_pendingDeltaCount.ToString("N0") items</MudChip>
+                                    <span class="ml-2">ready to export</span>
+                                </MudText>
+                            }
+                            else
+                            {
+                                <MudText Typo="Typo.body2" Color="Color.Secondary">
+                                    @(_checkpoints.Any() ? "No changes since last checkpoint" : "No items to export")
+                                </MudText>
+                            }
+                            @if (_tombstoneCount > 0)
+                            {
+                                <MudAlert Severity="Severity.Info" Dense="true" Class="mt-2">
+                                    @_tombstoneCount soft-deleted item(s) waiting for cleanup
+                                </MudAlert>
+                            }
+                        </MudStack>
+                    </MudPaper>
+                </MudItem>
+                <MudItem xs="12" md="6">
+                    <MudPaper Elevation="0" Class="pa-3" Style="background-color: var(--mud-palette-background-grey);">
+                        <MudStack Spacing="2">
+                            <MudText Typo="Typo.subtitle2">Sync Actions</MudText>
+                            <MudButton OnClick="CreateCheckpointAsync"
+                                      Variant="Variant.Filled"
+                                      Color="Color.Primary"
+                                      StartIcon="@Icons.Material.Filled.Bookmark"
+                                      FullWidth="true"
+                                      Disabled="@_isCreatingCheckpoint">
+                                @if (_isCreatingCheckpoint)
+                                {
+                                    <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" />
+                                    <text>Creating Checkpoint...</text>
+                                }
+                                else
+                                {
+                                    <text>Create Checkpoint</text>
+                                }
+                            </MudButton>
+                            <MudText Typo="Typo.caption" Color="Color.Secondary">
+                                Sets current time as baseline and permanently deletes all tombstones
+                            </MudText>
+                            @if (_tombstoneCount > 0)
+                            {
+                                <MudButton OnClick="CleanupTombstonesAsync"
+                                          Variant="Variant.Outlined"
+                                          Color="Color.Warning"
+                                          StartIcon="@Icons.Material.Filled.DeleteSweep"
+                                          FullWidth="true"
+                                          Disabled="@_isCleaningTombstones">
+                                    @if (_isCleaningTombstones)
+                                    {
+                                        <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" />
+                                        <text>Cleaning...</text>
+                                    }
+                                    else
+                                    {
+                                        <text>Delete @_tombstoneCount Tombstone(s)</text>
+                                    }
+                                </MudButton>
+                            }
+                        </MudStack>
+                    </MudPaper>
+                </MudItem>
+            </MudGrid>
+
+            @if (_checkpoints.Any())
+            {
+                <MudDivider Class="my-4" />
+                <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Class="mb-3">
+                    <MudText Typo="Typo.subtitle1">
+                        <MudIcon Icon="@Icons.Material.Filled.History" Size="Size.Small" Class="mr-1" />
+                        Checkpoint History
+                    </MudText>
+                    <MudButton Size="Size.Small"
+                              Variant="Variant.Outlined"
+                              Color="Color.Primary"
+                              StartIcon="@Icons.Material.Filled.RestartAlt"
+                              OnClick="@ResetCheckpointsAsync"
+                              Disabled="@_isResettingCheckpoints">
+                        @if (_isResettingCheckpoints)
+                        {
+                            <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" />
+                            <text>Resetting...</text>
+                        }
+                        else
+                        {
+                            <text>Reset Checkpoint History</text>
+                        }
+                    </MudButton>
+                </MudStack>
+
+                <MudTable Items="@_checkpoints" Dense="true" Hover="true" Striped="true">
+                    <HeaderContent>
+                        <MudTh>Created</MudTh>
+                        <MudTh>Type</MudTh>
+                        <MudTh>Description</MudTh>
+                        <MudTh>Active Items</MudTh>
+                        <MudTh>Tombstones</MudTh>
+                        <MudTh>Actions</MudTh>
+                    </HeaderContent>
+                    <RowTemplate>
+                        <MudTd DataLabel="Created">
+                            <MudText Typo="Typo.body2">@context.CreatedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")</MudText>
+                            <MudText Typo="Typo.caption" Color="Color.Secondary">@GetTimeAgo(context.CreatedAt)</MudText>
+                        </MudTd>
+                        <MudTd DataLabel="Type">
+                            <MudChip T="string" Size="Size.Small" Color="@(context.CheckpointType == "Auto" ? Color.Primary : Color.Success)">
+                                @context.CheckpointType
+                            </MudChip>
+                        </MudTd>
+                        <MudTd DataLabel="Description">@context.Description</MudTd>
+                        <MudTd DataLabel="Active Items">@context.ActiveItemCount.ToString("N0")</MudTd>
+                        <MudTd DataLabel="Tombstones">@context.TombstoneCount.ToString("N0")</MudTd>
+                        <MudTd DataLabel="Actions">
+                            @if (context.Id == _checkpoints.Last().Id)
+                            {
+                                <MudChip T="string" Size="Size.Small" Color="Color.Success">Current</MudChip>
+                            }
+                            <MudButton Size="Size.Small"
+                                      Variant="Variant.Text"
+                                      Color="Color.Warning"
+                                      StartIcon="@Icons.Material.Filled.Restore"
+                                      OnClick="@(() => RestoreToCheckpointAsync(context))">
+                                Restore
+                            </MudButton>
+                        </MudTd>
+                    </RowTemplate>
+                </MudTable>
+            }
+        </MudStack>
+    </MudPaper>
+
     <!-- Performance Testing Card -->
     <MudPaper Elevation="2" Class="pa-4 mb-6">
         <MudText Typo="Typo.h6" Class="mb-3">
@@ -56,6 +205,9 @@
                                Dense="true"
                                FullWidth="true"
                                Disabled="_isGenerating">
+                        <MudSelectItem Value="10">10</MudSelectItem>
+                        <MudSelectItem Value="100">100</MudSelectItem>
+                        <MudSelectItem Value="1000">1,000</MudSelectItem>
                         <MudSelectItem Value="10000">10,000</MudSelectItem>
                         <MudSelectItem Value="100000">100,000</MudSelectItem>
                         <MudSelectItem Value="1000000">1,000,000</MudSelectItem>
@@ -146,16 +298,260 @@
 @code {
     private string _performanceInfo = string.Empty;
     private bool _isGenerating;
-    private int _generatedFakeEntries = 10000;
+    private int _generatedFakeEntries = 100;
+
+    // Delta Sync Management
+    private int _tombstoneCount;
+    private int _pendingDeltaCount;
+    private bool _isCreatingCheckpoint;
+    private bool _isCleaningTombstones;
+    private bool _isResettingCheckpoints;
+    private List<SyncState> _checkpoints = new();
 
     private static readonly string[] TaskPrefixes = ["Task", "Work", "Project", "Meeting", "Call", "Email", "Review", "Plan", "Design", "Test"];
     private static readonly string[] TaskTypes = ["urgent", "important", "routine", "followup", "research", "development", "documentation", "deployment"];
     private static readonly Random Random = new();
 
-    private void RefreshDataAsync()
+    protected override async Task OnInitializedAsync()
     {
-        // Called after import - just trigger state refresh
+        await LoadSyncStateAsync();
+    }
+
+    private async void RefreshDataAsync()
+    {
+        // Called after import - reload sync state and trigger refresh
+        await LoadSyncStateAsync();
         StateHasChanged();
+    }
+
+    private async Task LoadSyncStateAsync()
+    {
+        try
+        {
+            await using var context = await DbContextFactory.CreateDbContextAsync();
+
+            // Load all checkpoints (oldest first - chronological order)
+            _checkpoints = await context.SyncState
+                .OrderBy(s => s.Id)
+                .ToListAsync();
+
+            // Calculate current pending delta (items changed since last checkpoint)
+            var latestCheckpoint = _checkpoints.LastOrDefault();
+            var lastCheckpointTime = latestCheckpoint?.CreatedAt ?? DateTime.MinValue;
+
+            _pendingDeltaCount = await context.TodoItems
+                .Where(t =>
+                    (t.UpdatedAt > lastCheckpointTime && !t.IsDeleted) ||
+                    (t.IsDeleted && t.DeletedAt.HasValue && t.DeletedAt.Value > lastCheckpointTime))
+                .CountAsync();
+
+            // Count tombstones
+            _tombstoneCount = await context.TodoItems.CountAsync(t => t.IsDeleted);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Failed to load sync state: {ex.Message}", Severity.Error);
+        }
+    }
+
+    private string GetTimeAgo(DateTime dateTime)
+    {
+        var timeSpan = DateTime.UtcNow - dateTime;
+
+        if (timeSpan.TotalMinutes < 1)
+        {
+            return "just now";
+        }
+
+        if (timeSpan.TotalHours < 1)
+        {
+            return $"{(int)timeSpan.TotalMinutes}m ago";
+        }
+
+        if (timeSpan.TotalDays < 1)
+        {
+            return $"{(int)timeSpan.TotalHours}h ago";
+        }
+
+        if (timeSpan.TotalDays < 7)
+        {
+            return $"{(int)timeSpan.TotalDays}d ago";
+        }
+
+        return dateTime.ToString("yyyy-MM-dd");
+    }
+
+    private async Task RestoreToCheckpointAsync(SyncState checkpoint)
+    {
+        try
+        {
+            await using var context = await DbContextFactory.CreateDbContextAsync();
+
+            // Check if this is the last checkpoint BEFORE any deletions
+            var isLastCheckpoint = checkpoint.Id == _checkpoints.Last().Id;
+
+            // Delete all items created/modified/deleted after checkpoint timestamp
+            // This includes both active items and tombstones
+            var itemsToDelete = await context.TodoItems
+                .Where(t => t.UpdatedAt > checkpoint.CreatedAt ||
+                           (t.IsDeleted && t.DeletedAt.HasValue && t.DeletedAt.Value > checkpoint.CreatedAt))
+                .ToListAsync();
+
+            if (itemsToDelete.Count > 0)
+            {
+                context.TodoItems.RemoveRange(itemsToDelete);
+                await context.SaveChangesAsync();
+            }
+
+            // Delete checkpoints created after this one
+            // If restoring to the last checkpoint, delete it too (we're reverting to before it)
+            // Otherwise, keep the checkpoint we're restoring to
+            var checkpointsToDelete = await context.SyncState
+                .Where(s => isLastCheckpoint ? s.Id >= checkpoint.Id : s.Id > checkpoint.Id)
+                .ToListAsync();
+
+            if (checkpointsToDelete.Count > 0)
+            {
+                context.SyncState.RemoveRange(checkpointsToDelete);
+                await context.SaveChangesAsync();
+            }
+
+            // Rebuild FTS5 index to reflect restored state
+            await context.RebuildTodoItemFts5IndexAsync();
+
+            // Reload checkpoint list
+            await LoadSyncStateAsync();
+
+            var message = isLastCheckpoint
+                ? $"Restored to state before last checkpoint. Removed {itemsToDelete.Count} item(s) added after {checkpoint.CreatedAt:yyyy-MM-dd HH:mm:ss}."
+                : $"Restored to checkpoint from {checkpoint.CreatedAt:yyyy-MM-dd HH:mm:ss}. Removed {itemsToDelete.Count} item(s).";
+
+            Snackbar.Add(message, Severity.Success);
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to restore checkpoint");
+            Snackbar.Add($"Failed to restore checkpoint: {ex.Message}", Severity.Error);
+        }
+    }
+
+    private async Task ResetCheckpointsAsync()
+    {
+        _isResettingCheckpoints = true;
+
+        try
+        {
+            await using var context = await DbContextFactory.CreateDbContextAsync();
+
+            // Check for tombstones
+            var tombstoneCount = await context.TodoItems.CountAsync(t => t.IsDeleted);
+            var deletedTombstones = 0;
+
+            // If tombstones exist, clean them up automatically
+            if (tombstoneCount > 0)
+            {
+                var tombstones = await context.TodoItems.Where(t => t.IsDeleted).ToListAsync();
+                context.TodoItems.RemoveRange(tombstones);
+                await context.SaveChangesAsync();
+                deletedTombstones = tombstones.Count;
+                Logger.LogInformation("Deleted {Count} tombstones during checkpoint reset", deletedTombstones);
+            }
+
+            // Delete all existing checkpoints - no new checkpoint created
+            var allCheckpoints = await context.SyncState.ToListAsync();
+            if (allCheckpoints.Count > 0)
+            {
+                context.SyncState.RemoveRange(allCheckpoints);
+                await context.SaveChangesAsync();
+            }
+
+            await LoadSyncStateAsync();
+
+            var activeCount = await context.TodoItems.CountAsync(t => !t.IsDeleted);
+            var message = deletedTombstones > 0
+                ? $"Checkpoint history reset. {deletedTombstones} tombstone(s) cleaned. Database has {activeCount} active item(s)."
+                : $"Checkpoint history reset. Database has {activeCount} active item(s).";
+
+            Snackbar.Add(message, Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to reset checkpoints");
+            Snackbar.Add($"Failed to reset checkpoints: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _isResettingCheckpoints = false;
+        }
+    }
+
+    private async Task CreateCheckpointAsync()
+    {
+        _isCreatingCheckpoint = true;
+
+        try
+        {
+            await using var context = await DbContextFactory.CreateDbContextAsync();
+
+            var deletedCount = 0;
+
+            // Hard delete all tombstones
+            var tombstones = await context.TodoItems.Where(t => t.IsDeleted).ToListAsync();
+            if (tombstones.Count > 0)
+            {
+                context.TodoItems.RemoveRange(tombstones);
+                await context.SaveChangesAsync();
+                deletedCount = tombstones.Count;
+            }
+
+            // Create new manual checkpoint
+            var checkpoint = await context.CreateCheckpointAsync(
+                $"Manual checkpoint ({deletedCount} tombstones cleaned)",
+                "Manual");
+
+            await LoadSyncStateAsync();
+            Snackbar.Add($"Checkpoint created. {deletedCount} tombstone(s) permanently deleted.", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to create checkpoint");
+            Snackbar.Add($"Failed to create checkpoint: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _isCreatingCheckpoint = false;
+        }
+    }
+
+    private async Task CleanupTombstonesAsync()
+    {
+        _isCleaningTombstones = true;
+
+        try
+        {
+            await using var context = await DbContextFactory.CreateDbContextAsync();
+
+            // Hard delete all tombstones
+            var tombstones = await context.TodoItems.Where(t => t.IsDeleted).ToListAsync();
+            if (tombstones.Count > 0)
+            {
+                var count = tombstones.Count;
+                context.TodoItems.RemoveRange(tombstones);
+                await context.SaveChangesAsync();
+
+                await LoadSyncStateAsync();
+                Snackbar.Add($"{count} tombstone(s) permanently deleted.", Severity.Success);
+            }
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Failed to cleanup tombstones: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _isCleaningTombstones = false;
+        }
     }
 
     private async Task CreateTestDataAsync()
@@ -177,19 +573,20 @@
 
             items.Add(new TodoItem
             {
+                Id = Guid.NewGuid(),
                 Title = $"{prefix} #{i + 1}",
                 Description = $"{type} task - {Guid.NewGuid()}",
-                CreatedAt = DateTime.UtcNow.AddMinutes(-Random.Next(10000)),
+                UpdatedAt = DateTime.UtcNow, // Use current time for delta sync to work correctly
                 IsCompleted = Random.Next(100) < 30
             });
         }
 
         // Use raw SQL with multi-row INSERT for true batching
-        // SQLite supports up to 999 parameters per statement, so with 5 columns we can insert ~199 rows per statement
+        // SQLite supports up to 999 parameters per statement, so with 8 columns we can insert ~124 rows per statement
         using var transaction = await context.Database.BeginTransactionAsync();
         try
         {
-            const int rowsPerBatch = 199; // 199 rows * 5 columns = 995 parameters (under SQLite's 999 limit)
+            const int rowsPerBatch = 124; // 124 rows * 8 columns = 992 parameters (under SQLite's 999 limit)
             var batchCount = 0;
 
             for (var i = 0; i < items.Count; i += rowsPerBatch)
@@ -203,18 +600,21 @@
                 for (var j = 0; j < batch.Count; j++)
                 {
                     var item = batch[j];
-                    var baseIndex = j * 5;
-                    valuesClauses.Add($"({{{baseIndex}}}, {{{baseIndex + 1}}}, {{{baseIndex + 2}}}, {{{baseIndex + 3}}}, {{{baseIndex + 4}}})");
+                    var baseIndex = j * 8;
+                    valuesClauses.Add($"({{{baseIndex}}}, {{{baseIndex + 1}}}, {{{baseIndex + 2}}}, {{{baseIndex + 3}}}, {{{baseIndex + 4}}}, {{{baseIndex + 5}}}, {{{baseIndex + 6}}}, {{{baseIndex + 7}}})");
 
+                    parameters.Add(item.Id.ToByteArray());
                     parameters.Add(item.Title);
                     parameters.Add(item.Description);
-                    parameters.Add(item.CreatedAt);
+                    parameters.Add(item.UpdatedAt);
                     parameters.Add(item.IsCompleted ? 1 : 0);
                     parameters.Add(item.CompletedAt?.ToString("O"));
+                    parameters.Add(item.IsDeleted ? 1 : 0);
+                    parameters.Add(item.DeletedAt?.ToString("O"));
                 }
 
                 var sql = $@"
-                    INSERT INTO TodoItems (Title, Description, CreatedAt, IsCompleted, CompletedAt)
+                    INSERT INTO TodoItems (Id, Title, Description, UpdatedAt, IsCompleted, CompletedAt, IsDeleted, DeletedAt)
                     VALUES {string.Join(", ", valuesClauses)}";
 
                 await context.Database.ExecuteSqlRawAsync(sql, parameters.ToArray()!);
@@ -228,6 +628,9 @@
             var itemsPerSecond = _generatedFakeEntries / stopwatch.Elapsed.TotalSeconds;
             _performanceInfo = $"Generated {_generatedFakeEntries:N0} entries in {stopwatch.ElapsedMilliseconds}ms ({itemsPerSecond:F0} items/sec) - {batchCount} SQL batches";
             _isGenerating = false;
+
+            // Refresh sync state to update pending delta count
+            await LoadSyncStateAsync();
 
             StateHasChanged();
             Snackbar.Add($"Generated {_generatedFakeEntries:N0} entries in {stopwatch.ElapsedMilliseconds}ms ({batchCount} SQL batches)", Severity.Success);
@@ -269,11 +672,15 @@
         await using var context = await DbContextFactory.CreateDbContextAsync();
         await context.Database.ExecuteSqlRawAsync("DELETE FROM TodoItems");
 
+        // Clear all checkpoints since data is cleared
+        await context.Database.ExecuteSqlRawAsync("DELETE FROM SyncState");
+
         // Rebuild FTS5 index after bulk delete to ensure index is synchronized
         await context.RebuildTodoItemFts5IndexAsync();
 
         stopwatch.Stop();
 
+        await LoadSyncStateAsync(); // Reload sync state display
         _performanceInfo = $"All data cleared in {stopwatch.ElapsedMilliseconds}ms";
         Snackbar.Add($"All todos deleted in {stopwatch.ElapsedMilliseconds}ms", Severity.Warning);
     }
@@ -287,12 +694,13 @@
             // Delete the database file from OPFS SAHPool
             await SqliteWasmWorkerBridge.Instance.DeleteDatabaseAsync("TodoDb.db");
 
-            // Recreate database schema using migrations (required for FTS5)
+            // Recreate database schema (migrations include FTS5 setup)
             await using var context = await DbContextFactory.CreateDbContextAsync();
-            await context.Database.MigrateAsync(); // Use MigrateAsync to create FTS5 virtual tables
+            await context.Database.MigrateAsync();
 
             stopwatch.Stop();
 
+            await LoadSyncStateAsync(); // Reload sync state display
             _performanceInfo = $"Database reset in {stopwatch.ElapsedMilliseconds}ms - FTS5 search enabled";
             Snackbar.Add($"Database completely reset in {stopwatch.ElapsedMilliseconds}ms", Severity.Success);
         }

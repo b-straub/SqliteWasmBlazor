@@ -1,6 +1,5 @@
 using MessagePack;
 using Microsoft.Extensions.Logging;
-using System.Buffers;
 
 namespace SqliteWasmBlazor.Components.Interop;
 
@@ -20,12 +19,11 @@ public static class MessagePackSerializer<T>
 
     /// <summary>
     /// Serialize entities to a stream one by one (chunked format)
-    /// First writes a header with schema metadata, then each entity as a separate MessagePack object
+    /// First writes a header with schema metadata (hash computed automatically), then each entity as a separate MessagePack object
     /// This allows streaming without loading entire dataset into memory
     /// </summary>
     /// <param name="items">Items to serialize</param>
     /// <param name="stream">Target stream</param>
-    /// <param name="schemaVersion">Schema version for validation (e.g., "1.0")</param>
     /// <param name="appIdentifier">Optional application identifier</param>
     /// <param name="logger">Optional logger for diagnostics</param>
     /// <param name="progress">Optional progress callback (current, total)</param>
@@ -33,7 +31,6 @@ public static class MessagePackSerializer<T>
     public static async Task SerializeStreamAsync(
         IEnumerable<T> items,
         Stream stream,
-        string schemaVersion,
         string? appIdentifier = null,
         ILogger? logger = null,
         IProgress<(int current, int total)>? progress = null,
@@ -49,21 +46,16 @@ public static class MessagePackSerializer<T>
             throw new ArgumentNullException(nameof(stream));
         }
 
-        if (string.IsNullOrWhiteSpace(schemaVersion))
-        {
-            throw new ArgumentException("Schema version is required", nameof(schemaVersion));
-        }
-
         var itemList = items.ToList();
         var total = itemList.Count;
         var current = 0;
 
         logger?.LogDebug("Starting serialization of {Count} {Type} items", total, typeof(T).Name);
 
-        // Write header first for schema validation
-        var header = MessagePackFileHeader.Create<T>(total, schemaVersion, appIdentifier);
-        logger?.LogDebug("Writing header: Type={Type}, Version={Version}, Records={Count}",
-            header.DataType, header.SchemaVersion, header.RecordCount);
+        // Write header first for schema validation (hash computed automatically)
+        var header = MessagePackFileHeader.Create<T>(total, appIdentifier);
+        logger?.LogDebug("Writing header: Type={Type}, SchemaHash={Hash}, Records={Count}",
+            header.DataType, header.SchemaHash, header.RecordCount);
 
         await MessagePackSerializer.SerializeAsync(stream, header, Options, cancellationToken);
 
@@ -87,7 +79,7 @@ public static class MessagePackSerializer<T>
     /// </summary>
     /// <param name="stream">Source stream</param>
     /// <param name="onBatch">Callback invoked for each batch of items</param>
-    /// <param name="expectedSchemaVersion">Expected schema version (or null to skip version check)</param>
+    /// <param name="expectedSchemaHash">Expected schema hash (or null to skip schema check)</param>
     /// <param name="expectedAppIdentifier">Expected application identifier (or null to skip app check)</param>
     /// <param name="logger">Optional logger for diagnostics</param>
     /// <param name="batchSize">Number of items per batch</param>
@@ -97,7 +89,7 @@ public static class MessagePackSerializer<T>
     public static async Task<int> DeserializeStreamAsync(
         Stream stream,
         Func<List<T>, Task> onBatch,
-        string? expectedSchemaVersion = null,
+        string? expectedSchemaHash = null,
         string? expectedAppIdentifier = null,
         ILogger? logger = null,
         int batchSize = 1000,
@@ -136,15 +128,15 @@ public static class MessagePackSerializer<T>
                 "Invalid or missing file header. This file may not be a valid export from this application.", ex);
         }
 
-        logger?.LogDebug("Read header: Type={Type}, Version={Version}, Records={Count}, Exported={ExportDate}",
-            header.DataType, header.SchemaVersion, header.RecordCount, header.ExportedAt);
+        logger?.LogDebug("Read header: Type={Type}, SchemaHash={Hash}, Records={Count}, Exported={ExportDate}",
+            header.DataType, header.SchemaHash, header.RecordCount, header.ExportedAt);
 
         // Validate header compatibility
         var expectedType = typeof(T).FullName ?? typeof(T).Name;
-        header.Validate(expectedType, expectedSchemaVersion, expectedAppIdentifier);
+        header.Validate(expectedType, expectedSchemaHash, expectedAppIdentifier);
 
-        logger?.LogInformation("Importing {Count} {Type} records (schema v{Version})",
-            header.RecordCount, typeof(T).Name, header.SchemaVersion);
+        logger?.LogInformation("Importing {Count} {Type} records (schema hash {Hash})",
+            header.RecordCount, typeof(T).Name, header.SchemaHash);
 
         var batch = new List<T>(batchSize);
         var totalCount = 0;

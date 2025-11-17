@@ -15,9 +15,10 @@ internal class DeleteSingleEntityTest(IDbContextFactory<TodoDbContext> factory)
 
         var item = new TodoItem
         {
+            Id = Guid.NewGuid(),
             Title = "To Delete",
             Description = "Test",
-            CreatedAt = DateTime.UtcNow
+            UpdatedAt = DateTime.UtcNow
         };
 
         context.TodoItems.Add(item);

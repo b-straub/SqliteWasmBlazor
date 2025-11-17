@@ -26,9 +26,10 @@ internal class ExistingDatabaseMigrateIdempotentTest(IDbContextFactory<TodoDbCon
         // Add test data
         var item1 = new TodoItem
         {
+            Id = Guid.NewGuid(),
             Title = "Before Migration 1",
             Description = "Test",
-            CreatedAt = DateTime.UtcNow
+            UpdatedAt = DateTime.UtcNow
         };
 
         context.TodoItems.Add(item1);

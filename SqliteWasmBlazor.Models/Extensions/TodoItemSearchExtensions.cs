@@ -1,4 +1,3 @@
-using System.Linq;
 using Microsoft.EntityFrameworkCore;
 using SqliteWasmBlazor.Models.Models;
 
@@ -153,7 +152,7 @@ public static class TodoItemSearchExtensions
     {
         if (string.IsNullOrWhiteSpace(searchQuery))
         {
-            return dbContext.TodoItems.AsQueryable();
+            return dbContext.TodoItems.Where(t => !t.IsDeleted).AsQueryable();
         }
 
         // Prepare query based on the specified mode
@@ -165,12 +164,13 @@ public static class TodoItemSearchExtensions
             return dbContext.TodoItems.Where(t => false).AsQueryable();
         }
 
-        // Query FTS5 table and join with TodoItems
+        // Query FTS5 table and join with TodoItems, excluding soft-deleted items
         // The Match property is used with equality to generate the FTS5 MATCH operator
         return dbContext.FTSTodoItems
             .Where(fts => fts.Match == preparedQuery)
             .OrderBy(fts => fts.Rank)
             .Select(fts => fts.TodoItem!)
+            .Where(t => !t.IsDeleted)
             .AsNoTracking();
     }
 
@@ -194,12 +194,13 @@ public static class TodoItemSearchExtensions
         if (string.IsNullOrWhiteSpace(searchQuery))
         {
             return dbContext.TodoItems
+                .Where(t => !t.IsDeleted)
                 .Select(item => new TodoItemSearchResult
                 {
                     Id = item.Id,
                     Title = item.Title,
                     Description = item.Description,
-                    CreatedAt = item.CreatedAt,
+                    UpdatedAt = item.UpdatedAt,
                     IsCompleted = item.IsCompleted,
                     CompletedAt = item.CompletedAt,
                     HighlightedTitle = null,
@@ -221,7 +222,7 @@ public static class TodoItemSearchExtensions
                     Id = item.Id,
                     Title = item.Title,
                     Description = item.Description,
-                    CreatedAt = item.CreatedAt,
+                    UpdatedAt = item.UpdatedAt,
                     IsCompleted = item.IsCompleted,
                     CompletedAt = item.CompletedAt,
                     HighlightedTitle = null,
@@ -233,21 +234,24 @@ public static class TodoItemSearchExtensions
         // Use raw SQL with SqlQuery to avoid EF Core's subquery generation
         // This is necessary because FTS5's highlight() function must be called directly on the FTS table
         // SqlQuery (not SqlQueryRaw) provides automatic SQL injection protection
+        // Note: FTS5 column indices are 0=Id (UNINDEXED), 1=Title, 2=Description
         return dbContext.Database
             .SqlQuery<TodoItemSearchResult>($@"
                 SELECT
                     t.Id,
                     t.Title,
                     t.Description,
-                    t.CreatedAt,
+                    t.UpdatedAt,
                     t.IsCompleted,
                     t.CompletedAt,
-                    highlight(FTSTodoItem, 0, {highlightOpen}, {highlightClose}) AS HighlightedTitle,
-                    highlight(FTSTodoItem, 1, {highlightOpen}, {highlightClose}) AS HighlightedDescription,
+                    t.IsDeleted,
+                    t.DeletedAt,
+                    highlight(FTSTodoItem, 1, {highlightOpen}, {highlightClose}) AS HighlightedTitle,
+                    highlight(FTSTodoItem, 2, {highlightOpen}, {highlightClose}) AS HighlightedDescription,
                     rank AS Rank
                 FROM FTSTodoItem
-                INNER JOIN TodoItems t ON FTSTodoItem.rowid = t.Id
-                WHERE FTSTodoItem MATCH {preparedQuery}
+                INNER JOIN TodoItems t ON FTSTodoItem.Id = t.Id
+                WHERE FTSTodoItem MATCH {preparedQuery} AND t.IsDeleted = 0
                 ORDER BY rank")
             .AsNoTracking();
     }
@@ -276,12 +280,13 @@ public static class TodoItemSearchExtensions
         if (string.IsNullOrWhiteSpace(searchQuery))
         {
             return dbContext.TodoItems
+                .Where(t => !t.IsDeleted)
                 .Select(item => new TodoItemSnippetResult
                 {
                     Id = item.Id,
                     Title = item.Title,
                     Description = item.Description,
-                    CreatedAt = item.CreatedAt,
+                    UpdatedAt = item.UpdatedAt,
                     IsCompleted = item.IsCompleted,
                     CompletedAt = item.CompletedAt,
                     TitleSnippet = null,
@@ -305,7 +310,7 @@ public static class TodoItemSearchExtensions
                     Id = item.Id,
                     Title = item.Title,
                     Description = item.Description,
-                    CreatedAt = item.CreatedAt,
+                    UpdatedAt = item.UpdatedAt,
                     IsCompleted = item.IsCompleted,
                     CompletedAt = item.CompletedAt,
                     TitleSnippet = null,
@@ -320,21 +325,24 @@ public static class TodoItemSearchExtensions
         // snippet() function requires direct FTS5 table cursor access (same limitation as highlight())
         // SqlQuery (not SqlQueryRaw) provides automatic SQL injection protection
         // Note: We select snippet columns for display, NOT the full Title/Description
+        // FTS5 column indices: 0=Id (UNINDEXED), 1=Title, 2=Description
         return dbContext.Database
             .SqlQuery<TodoItemSnippetResult>($@"
                 SELECT
                     t.Id,
-                    snippet(FTSTodoItem, 0, {snippetOpen}, {snippetClose}, {ellipsis}, {maxTokens}) AS Title,
-                    snippet(FTSTodoItem, 1, {snippetOpen}, {snippetClose}, {ellipsis}, {maxTokens}) AS Description,
-                    t.CreatedAt,
+                    snippet(FTSTodoItem, 1, {snippetOpen}, {snippetClose}, {ellipsis}, {maxTokens}) AS Title,
+                    snippet(FTSTodoItem, 2, {snippetOpen}, {snippetClose}, {ellipsis}, {maxTokens}) AS Description,
+                    t.UpdatedAt,
                     t.IsCompleted,
                     t.CompletedAt,
-                    snippet(FTSTodoItem, 0, {snippetOpen}, {snippetClose}, {ellipsis}, {maxTokens}) AS TitleSnippet,
-                    snippet(FTSTodoItem, 1, {snippetOpen}, {snippetClose}, {ellipsis}, {maxTokens}) AS DescriptionSnippet,
+                    t.IsDeleted,
+                    t.DeletedAt,
+                    snippet(FTSTodoItem, 1, {snippetOpen}, {snippetClose}, {ellipsis}, {maxTokens}) AS TitleSnippet,
+                    snippet(FTSTodoItem, 2, {snippetOpen}, {snippetClose}, {ellipsis}, {maxTokens}) AS DescriptionSnippet,
                     rank AS Rank
                 FROM FTSTodoItem
-                INNER JOIN TodoItems t ON FTSTodoItem.rowid = t.Id
-                WHERE FTSTodoItem MATCH {preparedQuery}
+                INNER JOIN TodoItems t ON FTSTodoItem.Id = t.Id
+                WHERE FTSTodoItem MATCH {preparedQuery} AND t.IsDeleted = 0
                 ORDER BY rank")
             .AsNoTracking();
     }

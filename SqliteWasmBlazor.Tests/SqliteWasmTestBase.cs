@@ -26,6 +26,10 @@ public abstract class SqliteWasmTestBase(IWaFixture fixture, ITestOutputHelper o
     [InlineData("NullableTypes_AllNull")]
     [InlineData("BinaryData_LargeBlob")]
     [InlineData("StringValue_Unicode")]
+    [InlineData("DateTimeOffset_TextStorage")]
+    [InlineData("TimeSpan_Conversion")]
+    [InlineData("Char_SingleCharString")]
+    [InlineData("Guid_Utf8ByteArray")]
     // JSON Collections Tests
     [InlineData("IntList_RoundTrip")]
     [InlineData("IntList_Empty")]
@@ -36,6 +40,7 @@ public abstract class SqliteWasmTestBase(IWaFixture fixture, ITestOutputHelper o
     [InlineData("UpdateModifyProperty")]
     [InlineData("Delete_SingleEntity")]
     [InlineData("BulkInsert_100Entities")]
+    [InlineData("FTS5_Search")]
     // Transaction Tests
     [InlineData("Transaction_Commit")]
     [InlineData("Transaction_Rollback")]
@@ -46,16 +51,39 @@ public abstract class SqliteWasmTestBase(IWaFixture fixture, ITestOutputHelper o
     [InlineData("TodoList_CascadeDelete")]
     [InlineData("Todo_ComplexQueryWithJoin")]
     [InlineData("Todo_NullableDateTime")]
+    // Migration Tests
+    [InlineData("Migration_FreshDatabaseMigrate")]
+    [InlineData("Migration_ExistingDatabaseIdempotent")]
+    [InlineData("Migration_HistoryTableTracking")]
+    [InlineData("Migration_GetAppliedMigrations")]
+    [InlineData("Migration_DatabaseExistsCheck")]
+    [InlineData("Migration_EnsureCreatedVsMigrateConflict")]
     // Race Condition Tests
     [InlineData("RaceCondition_PurgeThenLoad")]
     [InlineData("RaceCondition_PurgeThenLoadWithTransaction")]
+    // EF Core Functions Tests
+    [InlineData("EFCoreFunctions_DecimalArithmetic")]
+    [InlineData("EFCoreFunctions_DecimalAggregates")]
+    [InlineData("EFCoreFunctions_DecimalComparison")]
+    [InlineData("EFCoreFunctions_DecimalComparisonSimple")]
+    [InlineData("EFCoreFunctions_RegexPattern")]
+    [InlineData("EFCoreFunctions_ComplexDecimalQuery")]
+    [InlineData("EFCoreFunctions_AggregateBuiltIn")]
     // Import/Export Tests
     [InlineData("ExportImport_RoundTrip")]
     [InlineData("ExportImport_LargeDataset")]
-    [InlineData("ImportIncompatibleSchemaVersion")]
+    [InlineData("ImportIncompatibleSchemaHash")]
     [InlineData("ImportIncompatibleAppId")]
     [InlineData("ExportImport_EmptyDatabase")]
     [InlineData("ExportImport_IncrementalBatches")]
+    [InlineData("ExportImport_DeltaBasic")]
+    [InlineData("ExportImport_DeltaConflict")]
+    [InlineData("ExportImport_DeltaConflict_LocalWins")]
+    [InlineData("ExportImport_DeltaConflict_DeltaWins")]
+    [InlineData("ExportImport_DeltaDeletion")]
+    // Checkpoint Tests
+    [InlineData("RestoreToCheckpoint_Basic")]
+    [InlineData("RestoreToCheckpoint_WithDeltaReapply")]
     public async Task TestCaseAsync(string name)
     {
         Assert.NotNull(_fixture.Page);

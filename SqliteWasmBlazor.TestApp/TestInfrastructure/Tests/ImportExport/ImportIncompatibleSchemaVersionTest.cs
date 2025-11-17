@@ -2,7 +2,6 @@ using Microsoft.EntityFrameworkCore;
 using SqliteWasmBlazor.Components.Interop;
 using SqliteWasmBlazor.Models;
 using SqliteWasmBlazor.Models.DTOs;
-using SqliteWasmBlazor.Models.Extensions;
 using SqliteWasmBlazor.Models.Models;
 
 namespace SqliteWasmBlazor.TestApp.TestInfrastructure.Tests.ImportExport;
@@ -10,12 +9,10 @@ namespace SqliteWasmBlazor.TestApp.TestInfrastructure.Tests.ImportExport;
 internal class ImportIncompatibleSchemaVersionTest(IDbContextFactory<TodoDbContext> factory)
     : SqliteWasmTest(factory)
 {
-    public override string Name => "ImportIncompatibleSchemaVersion";
+    public override string Name => "ImportIncompatibleSchemaHash";
 
     public override async ValueTask<string?> RunTestAsync()
     {
-        const string exportSchemaVersion = "2.0";
-        const string importSchemaVersion = "1.0";
         const string appId = "SqliteWasmBlazor.Test";
 
         // Create test data
@@ -23,17 +20,18 @@ internal class ImportIncompatibleSchemaVersionTest(IDbContextFactory<TodoDbConte
         {
             var item = new TodoItem
             {
+                Id = Guid.NewGuid(),
                 Title = "Test Task",
                 Description = "Test Description",
                 IsCompleted = false,
-                CreatedAt = DateTime.UtcNow
+                UpdatedAt = DateTime.UtcNow
             };
 
             context.TodoItems.Add(item);
             await context.SaveChangesAsync();
         }
 
-        // Export with version 2.0
+        // Export with automatic schema hash computation
         using var exportStream = new MemoryStream();
         await using (var context = await Factory.CreateDbContextAsync())
         {
@@ -43,14 +41,14 @@ internal class ImportIncompatibleSchemaVersionTest(IDbContextFactory<TodoDbConte
             await MessagePackSerializer<TodoItemDto>.SerializeStreamAsync(
                 dtos,
                 exportStream,
-                exportSchemaVersion,
                 appId);
         }
 
         exportStream.Position = 0;
 
-        // Try to import expecting version 1.0 - should fail
+        // Try to import with incorrect schema hash - should fail
         var exceptionThrown = false;
+        var fakeSchemaHash = "0000000000000000"; // Fake hash that won't match
         try
         {
             await MessagePackSerializer<TodoItemDto>.DeserializeStreamAsync(
@@ -62,17 +60,17 @@ internal class ImportIncompatibleSchemaVersionTest(IDbContextFactory<TodoDbConte
                     context.TodoItems.AddRange(entities);
                     await context.SaveChangesAsync();
                 },
-                importSchemaVersion,
+                fakeSchemaHash,
                 appId);
         }
-        catch (InvalidOperationException ex) when (ex.Message.Contains("Incompatible schema version"))
+        catch (InvalidOperationException ex) when (ex.Message.Contains("Incompatible schema"))
         {
             exceptionThrown = true;
         }
 
         if (!exceptionThrown)
         {
-            throw new InvalidOperationException("Expected schema version mismatch exception was not thrown");
+            throw new InvalidOperationException("Expected schema hash mismatch exception was not thrown");
         }
 
         return "OK";

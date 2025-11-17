@@ -19,8 +19,8 @@ namespace SqliteWasmBlazor.Models.Migrations
 
             modelBuilder.Entity("SqliteWasmBlazor.Models.Models.FTSTodoItem", b =>
                 {
-                    b.Property<int>("RowId")
-                        .HasColumnType("INTEGER");
+                    b.Property<Guid>("Id")
+                        .HasColumnType("BLOB");
 
                     b.Property<string>("Description")
                         .IsRequired()
@@ -38,16 +38,49 @@ namespace SqliteWasmBlazor.Models.Migrations
                         .IsRequired()
                         .HasColumnType("TEXT");
 
-                    b.HasKey("RowId");
+                    b.HasKey("Id");
 
-                    b.ToTable("FTSTodoItem", (string)null);
+                    b.ToTable("FTSTodoItem", null, t =>
+                        {
+                            t.ExcludeFromMigrations();
+                        });
+                });
+
+            modelBuilder.Entity("SqliteWasmBlazor.Models.Models.SyncState", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("ActiveItemCount")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("CheckpointType")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("TombstoneCount")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("SyncState");
                 });
 
             modelBuilder.Entity("SqliteWasmBlazor.Models.Models.Todo", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("binary(16)");
+                        .HasColumnType("BLOB");
 
                     b.Property<bool>("Completed")
                         .HasColumnType("INTEGER");
@@ -71,7 +104,7 @@ namespace SqliteWasmBlazor.Models.Migrations
                         .HasColumnType("TEXT");
 
                     b.Property<Guid>("TodoListId")
-                        .HasColumnType("binary(16)");
+                        .HasColumnType("BLOB");
 
                     b.HasKey("Id");
 
@@ -82,14 +115,14 @@ namespace SqliteWasmBlazor.Models.Migrations
 
             modelBuilder.Entity("SqliteWasmBlazor.Models.Models.TodoItem", b =>
                 {
-                    b.Property<int>("Id")
+                    b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("BLOB");
 
                     b.Property<DateTime?>("CompletedAt")
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTime>("CreatedAt")
+                    b.Property<DateTime?>("DeletedAt")
                         .HasColumnType("TEXT");
 
                     b.Property<string>("Description")
@@ -100,9 +133,15 @@ namespace SqliteWasmBlazor.Models.Migrations
                     b.Property<bool>("IsCompleted")
                         .HasColumnType("INTEGER");
 
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("INTEGER");
+
                     b.Property<string>("Title")
                         .IsRequired()
                         .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("UpdatedAt")
                         .HasColumnType("TEXT");
 
                     b.HasKey("Id");
@@ -114,7 +153,7 @@ namespace SqliteWasmBlazor.Models.Migrations
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("binary(16)");
+                        .HasColumnType("BLOB");
 
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("TEXT");
@@ -247,7 +286,7 @@ namespace SqliteWasmBlazor.Models.Migrations
                 {
                     b.HasOne("SqliteWasmBlazor.Models.Models.TodoItem", "TodoItem")
                         .WithOne("FTS")
-                        .HasForeignKey("SqliteWasmBlazor.Models.Models.FTSTodoItem", "RowId")
+                        .HasForeignKey("SqliteWasmBlazor.Models.Models.FTSTodoItem", "Id")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 

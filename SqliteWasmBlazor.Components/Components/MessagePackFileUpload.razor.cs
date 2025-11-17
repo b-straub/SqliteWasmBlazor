@@ -13,18 +13,18 @@ public partial class MessagePackFileUpload<T>
     [Inject]
     private ILogger<MessagePackFileUpload<T>> Logger { get; set; } = default!;
     /// <summary>
-    /// Expected schema version for validation (or null to skip version check)
-    /// Set to enforce strict schema version matching
-    /// </summary>
-    [Parameter]
-    public string? ExpectedSchemaVersion { get; set; } = "1.0";
-
-    /// <summary>
     /// Expected application identifier for validation (or null to skip app check)
     /// Set to prevent importing data from different applications
     /// </summary>
     [Parameter]
     public string? ExpectedAppIdentifier { get; set; }
+
+    /// <summary>
+    /// Expected schema hash (computed automatically from type T)
+    /// Set to null to skip schema validation (not recommended)
+    /// </summary>
+    [Parameter]
+    public string? ExpectedSchemaHash { get; set; }
 
     private async Task HandleFileSelectedAsync(InputFileChangeEventArgs e)
     {
@@ -107,7 +107,7 @@ public partial class MessagePackFileUpload<T>
             var totalImported = await MessagePackSerializer<T>.DeserializeStreamAsync(
                 progressStream,
                 OnBulkInsertAsync,
-                ExpectedSchemaVersion,
+                ExpectedSchemaHash,
                 ExpectedAppIdentifier,
                 Logger,
                 BatchSize,

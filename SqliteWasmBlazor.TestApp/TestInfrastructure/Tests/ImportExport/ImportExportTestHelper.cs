@@ -9,7 +9,7 @@ namespace SqliteWasmBlazor.TestApp.TestInfrastructure.Tests.ImportExport;
 /// </summary>
 internal static class ImportExportTestHelper
 {
-    private const int DefaultColumnCount = 6; // TodoItem: Id, Title, Description, IsCompleted, CreatedAt, CompletedAt
+    private const int DefaultColumnCount = 6; // TodoItem: Id, Title, Description, IsCompleted, UpdatedAt, CompletedAt
 
     /// <summary>
     /// Bulk insert TodoItemDtos using raw SQL to preserve IDs
@@ -39,18 +39,20 @@ internal static class ImportExportTestHelper
             {
                 var dto = batch[j];
                 var baseIndex = j * columnCount;
-                valuesClauses.Add($"({{{baseIndex}}}, {{{baseIndex + 1}}}, {{{baseIndex + 2}}}, {{{baseIndex + 3}}}, {{{baseIndex + 4}}}, {{{baseIndex + 5}}})");
+                // Use named parameters @p0, @p1, etc. to match EF Core's parameter naming
+                valuesClauses.Add($"(@p{baseIndex}, @p{baseIndex + 1}, @p{baseIndex + 2}, @p{baseIndex + 3}, @p{baseIndex + 4}, @p{baseIndex + 5})");
 
+                // Pass Guid directly - SqliteWasmParameter will handle conversion to BLOB
                 parameters.Add(dto.Id);
                 parameters.Add(dto.Title);
                 parameters.Add(dto.Description);
                 parameters.Add(dto.IsCompleted ? 1 : 0);
-                parameters.Add(dto.CreatedAt.ToString("O"));
+                parameters.Add(dto.UpdatedAt.ToString("O"));
                 parameters.Add(dto.CompletedAt?.ToString("O"));
             }
 
             var sql = $@"
-                INSERT INTO TodoItems (Id, Title, Description, IsCompleted, CreatedAt, CompletedAt)
+                INSERT INTO TodoItems (Id, Title, Description, IsCompleted, UpdatedAt, CompletedAt)
                 VALUES {string.Join(", ", valuesClauses)}";
 
             await context.Database.ExecuteSqlRawAsync(sql, parameters.ToArray()!);

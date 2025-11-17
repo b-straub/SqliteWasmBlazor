@@ -11,16 +11,17 @@ internal class UpdateModifyPropertyTest(IDbContextFactory<TodoDbContext> factory
 
     public override async ValueTask<string?> RunTestAsync()
     {
-        int itemId;
+        Guid itemId;
 
         // Create entity
         await using (var context = await Factory.CreateDbContextAsync())
         {
             var item = new TodoItem
             {
+                Id = Guid.NewGuid(),
                 Title = "Original Title",
                 Description = "Original Description",
-                CreatedAt = DateTime.UtcNow
+                UpdatedAt = DateTime.UtcNow
             };
 
             context.TodoItems.Add(item);

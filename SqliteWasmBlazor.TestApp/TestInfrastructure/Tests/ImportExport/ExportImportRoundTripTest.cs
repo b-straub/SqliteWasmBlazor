@@ -2,7 +2,6 @@ using Microsoft.EntityFrameworkCore;
 using SqliteWasmBlazor.Components.Interop;
 using SqliteWasmBlazor.Models;
 using SqliteWasmBlazor.Models.DTOs;
-using SqliteWasmBlazor.Models.Extensions;
 using SqliteWasmBlazor.Models.Models;
 
 namespace SqliteWasmBlazor.TestApp.TestInfrastructure.Tests.ImportExport;
@@ -14,17 +13,17 @@ internal class ExportImportRoundTripTest(IDbContextFactory<TodoDbContext> factor
 
     public override async ValueTask<string?> RunTestAsync()
     {
-        const string schemaVersion = "1.0";
         const string appId = "SqliteWasmBlazor.Test";
+        var schemaHash = SchemaHashGenerator.ComputeHash<TodoItemDto>();
 
         // Create test data
         await using (var context = await Factory.CreateDbContextAsync())
         {
             var items = new List<TodoItem>
             {
-                new() { Title = "Task 1", Description = "Description 1", IsCompleted = false, CreatedAt = DateTime.UtcNow },
-                new() { Title = "Task 2", Description = "Description 2", IsCompleted = true, CreatedAt = DateTime.UtcNow, CompletedAt = DateTime.UtcNow },
-                new() { Title = "Task 3", Description = string.Empty, IsCompleted = false, CreatedAt = DateTime.UtcNow }
+                new() { Id = Guid.NewGuid(), Title = "Task 1", Description = "Description 1", IsCompleted = false, UpdatedAt = DateTime.UtcNow },
+                new() { Id = Guid.NewGuid(), Title = "Task 2", Description = "Description 2", IsCompleted = true, UpdatedAt = DateTime.UtcNow, CompletedAt = DateTime.UtcNow },
+                new() { Id = Guid.NewGuid(), Title = "Task 3", Description = string.Empty, IsCompleted = false, UpdatedAt = DateTime.UtcNow }
             };
 
             context.TodoItems.AddRange(items);
@@ -41,7 +40,6 @@ internal class ExportImportRoundTripTest(IDbContextFactory<TodoDbContext> factor
             await MessagePackSerializer<TodoItemDto>.SerializeStreamAsync(
                 dtos,
                 exportStream,
-                schemaVersion,
                 appId);
         }
 
@@ -79,7 +77,7 @@ internal class ExportImportRoundTripTest(IDbContextFactory<TodoDbContext> factor
                 await ImportExportTestHelper.BulkInsertTodoItemsAsync(context, dtos);
                 importedCount += dtos.Count;
             },
-            schemaVersion,
+            schemaHash,
             appId);
 
         // Verify import
@@ -93,27 +91,29 @@ internal class ExportImportRoundTripTest(IDbContextFactory<TodoDbContext> factor
             throw new InvalidOperationException($"Expected 3 items in batch, got {importedCount}");
         }
 
-        // Verify data matches
+        // Verify data matches (search by title, don't rely on Guid ordering)
         await using (var context = await Factory.CreateDbContextAsync())
         {
-            var items = await context.TodoItems.OrderBy(t => t.Id).ToListAsync();
-
-            if (items.Count != 3)
+            var count = await context.TodoItems.CountAsync();
+            if (count != 3)
             {
-                throw new InvalidOperationException($"Expected 3 items in database, got {items.Count}");
+                throw new InvalidOperationException($"Expected 3 items in database, got {count}");
             }
 
-            if (items[0].Title != "Task 1" || items[0].IsCompleted)
+            var task1 = await context.TodoItems.FirstOrDefaultAsync(t => t.Title == "Task 1");
+            if (task1 is null || task1.IsCompleted)
             {
                 throw new InvalidOperationException("Task 1 data mismatch");
             }
 
-            if (items[1].Title != "Task 2" || !items[1].IsCompleted || items[1].CompletedAt is null)
+            var task2 = await context.TodoItems.FirstOrDefaultAsync(t => t.Title == "Task 2");
+            if (task2 is null || !task2.IsCompleted || task2.CompletedAt is null)
             {
                 throw new InvalidOperationException("Task 2 data mismatch");
             }
 
-            if (items[2].Title != "Task 3" || items[2].Description != string.Empty)
+            var task3 = await context.TodoItems.FirstOrDefaultAsync(t => t.Title == "Task 3");
+            if (task3 is null || task3.Description != string.Empty)
             {
                 throw new InvalidOperationException("Task 3 data mismatch");
             }

@@ -30,9 +30,10 @@ internal class EnsureCreatedVsMigrateConflictTest(IDbContextFactory<TodoDbContex
         // Add test data
         var item1 = new TodoItem
         {
+            Id = Guid.NewGuid(),
             Title = "After EnsureCreated",
             Description = "Test",
-            CreatedAt = DateTime.UtcNow
+            UpdatedAt = DateTime.UtcNow
         };
 
         context.TodoItems.Add(item1);
@@ -75,9 +76,10 @@ internal class EnsureCreatedVsMigrateConflictTest(IDbContextFactory<TodoDbContex
 
             var item2 = new TodoItem
             {
+                Id = Guid.NewGuid(),
                 Title = "After Migrate",
                 Description = "Test",
-                CreatedAt = DateTime.UtcNow
+                UpdatedAt = DateTime.UtcNow
             };
 
             context2.TodoItems.Add(item2);
