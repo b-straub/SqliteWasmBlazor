@@ -54,7 +54,7 @@
 
             // Reload the page to reinitialize everything
             await Task.Delay(1000);
-            NavigationManager.NavigateTo("/", forceLoad: true);
+            NavigationManager.NavigateTo(NavigationManager.BaseUri, forceLoad: true);
         }
         catch (Exception ex)
         {
