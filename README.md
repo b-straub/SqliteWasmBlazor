@@ -228,7 +228,7 @@ var host = builder.Build();
 await host.Services.InitializeSqliteWasmDatabaseAsync<TodoDbContext>();
 
 // Configure logging (optional)
-SqliteWasmLogger.SetLogLevel(SqliteWasmLogLevel.WARNING);
+SqliteWasmLogger.SetLogLevel(LogLevel.Warning);
 
 await host.RunAsync();
 ```
