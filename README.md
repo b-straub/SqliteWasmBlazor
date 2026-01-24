@@ -228,7 +228,7 @@ var host = builder.Build();
 await host.Services.InitializeSqliteWasmDatabaseAsync<TodoDbContext>();
 
 // Configure logging (optional)
-SqliteWasmLogger.SetLogLevel(SqliteWasmLogLevel.WARNING);
+SqliteWasmLogger.SetLogLevel(LogLevel.Warning);
 
 await host.RunAsync();
 ```
@@ -332,7 +332,7 @@ var host = builder.Build();
 await host.Services.InitializeSqliteWasmAsync();
 
 // Configure logging (optional)
-SqliteWasmLogger.SetLogLevel(SqliteWasmLogLevel.WARNING);
+SqliteWasmLogger.SetLogLevel(LogLevel.Warning);
 
 await host.RunAsync();
 ```
@@ -652,7 +652,7 @@ entity.Property(e => e.Numbers)
 
 ```csharp
 // Set worker log level
-SqliteWasmLogger.SetLogLevel(SqliteWasmLogLevel.WARNING);
+SqliteWasmLogger.SetLogLevel(LogLevel.Warning);
 
 // Configure EF Core logging
 builder.Logging.AddFilter("Microsoft.EntityFrameworkCore.Database.Command", LogLevel.Warning);
