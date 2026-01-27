@@ -1,0 +1,16 @@
+<Solution>
+  <Configurations>
+    <Platform Name="Any CPU" />
+    <Platform Name="x64" />
+    <Platform Name="x86" />
+  </Configurations>
+  <Project Path="SqliteWasmBlazor.AdoNetSample/SqliteWasmBlazor.AdoNetSample.csproj" />
+  <Project Path="SqliteWasmBlazor.Components/SqliteWasmBlazor.Components.csproj" />
+  <Project Path="SqliteWasmBlazor.Demo/SqliteWasmBlazor.Demo.csproj" />
+  <Project Path="SqliteWasmBlazor.Models/SqliteWasmBlazor.Models.csproj" />
+  <Project Path="SqliteWasmBlazor.TestApp/SqliteWasmBlazor.TestApp.csproj" />
+  <Project Path="SqliteWasmBlazor.TestHost/SqliteWasmBlazor.TestHost.csproj" />
+  <Project Path="SqliteWasmBlazor.Tests/SqliteWasmBlazor.Tests.csproj" />
+  <Project Path="SqliteWasmBlazor.WindowHelper/SqliteWasmBlazor.WindowHelper.csproj" />
+  <Project Path="SqliteWasmBlazor/SqliteWasmBlazor.csproj" />
+</Solution>
