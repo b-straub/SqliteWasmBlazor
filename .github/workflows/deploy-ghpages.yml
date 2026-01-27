@@ -1,13 +1,10 @@
-name: Build and Test
+name: Deploy to GitHub Pages
 
 on:
-  push:
-    branches: [ master, develop ]
-  pull_request:
-    branches: [ master, develop ]
+  workflow_dispatch:  # Manual trigger only
 
 jobs:
-  build:
+  deploy:
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -32,20 +29,12 @@ jobs:
         node-version: '22'
 
     - name: Setup Emscripten
-      if: ${{ !env.ACT }}
       uses: mymindstorm/setup-emsdk@v14
       with:
         version: '3.1.56'
 
     - name: Build native stub
-      if: ${{ !env.ACT }}
       run: bash SqliteWasmBlazor/native/build_stub.sh
-
-    - name: Verify native stub was built
-      if: ${{ !env.ACT }}
-      run: |
-        ls -lh SqliteWasmBlazor/native/lib/e_sqlite3.a
-        file SqliteWasmBlazor/native/lib/e_sqlite3.a
 
     - name: Install npm dependencies (SqliteWasmBlazor)
       run: npm install
@@ -55,57 +44,26 @@ jobs:
       run: npm install
       working-directory: SqliteWasmBlazor.Components/TypeScript
 
-    - name: Restore SqliteWasmBlazor dependencies
-      run: dotnet restore SqliteWasmBlazor/SqliteWasmBlazor.csproj
-
-    - name: Build SqliteWasmBlazor
-      run: dotnet build SqliteWasmBlazor/SqliteWasmBlazor.csproj --configuration Release --no-restore
-
-    - name: Pack SqliteWasmBlazor
-      run: dotnet pack SqliteWasmBlazor/SqliteWasmBlazor.csproj --configuration Release --no-build
-
-    - name: Restore all dependencies
-      run: dotnet restore
-
-    - name: Build solution
-      run: dotnet build --configuration Release
-
-    - name: Install Playwright browsers
-      run: pwsh SqliteWasmBlazor.Tests/bin/Release/net10.0/playwright.ps1 install --with-deps
-
-    - name: Test
-      run: dotnet test --configuration Release --no-build --verbosity normal
-
-    # Deploy to GitHub Pages (only on push to master)
     - name: Set base path for GitHub Pages
-      if: github.event_name == 'push' && github.ref == 'refs/heads/master'
       run: |
         sed -i 's|<base href="/" />|<base href="/SqliteWasmBlazor/" />|g' SqliteWasmBlazor.Demo/wwwroot/index.html
         sed -i 's|const base = "/";|const base = "/SqliteWasmBlazor/";|g' SqliteWasmBlazor.Demo/wwwroot/service-worker.published.js
         sed -i 's|RewriteBase /|RewriteBase /SqliteWasmBlazor/|g' SqliteWasmBlazor.Demo/wwwroot/.htaccess
 
-    - name: Clean Demo build cache
-      if: github.event_name == 'push' && github.ref == 'refs/heads/master'
-      run: dotnet clean SqliteWasmBlazor.Demo/SqliteWasmBlazor.Demo.csproj -c Release --nologo
-
     - name: Publish Demo
-      if: github.event_name == 'push' && github.ref == 'refs/heads/master'
       run: dotnet publish SqliteWasmBlazor.Demo/SqliteWasmBlazor.Demo.csproj -c Release -o ./build --nologo
 
     - name: Add .nojekyll and 404.html
-      if: github.event_name == 'push' && github.ref == 'refs/heads/master'
       run: |
         cd build/wwwroot
         touch .nojekyll
         cp index.html 404.html
 
     - name: Upload artifact
-      if: github.event_name == 'push' && github.ref == 'refs/heads/master'
       uses: actions/upload-pages-artifact@v3
       with:
         path: ./build/wwwroot
 
     - name: Deploy to GitHub Pages
-      if: github.event_name == 'push' && github.ref == 'refs/heads/master'
       id: deployment
       uses: actions/deploy-pages@v4
