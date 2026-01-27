@@ -1,0 +1,206 @@
+@using Microsoft.EntityFrameworkCore
+@using SqliteWasmBlazor.Models
+@using SqliteWasmBlazor.Models.Models
+@inject IDbContextFactory<TodoDbContext> DbContextFactory
+@inject ISnackbar Snackbar
+@inject TodoDataNotifier Notifier
+@implements IDisposable
+
+<MudDialog>
+    <DialogContent>
+    <MudPaper Elevation="0" Class="pa-2 mb-4">
+        <MudGrid>
+            <MudItem xs="12" sm="5">
+                <MudTextField @bind-Value="_newTitle"
+                              Label="Title"
+                              Variant="Variant.Outlined"
+                              Required="true"
+                              Immediate="true"
+                              OnKeyDown="HandleKeyDownAsync" />
+            </MudItem>
+            <MudItem xs="12" sm="5">
+                <MudTextField @bind-Value="_newDescription"
+                              Label="Description"
+                              Variant="Variant.Outlined"
+                              OnKeyDown="HandleKeyDownAsync" />
+            </MudItem>
+            <MudItem xs="12" sm="2">
+                <MudButton Variant="Variant.Filled"
+                           Color="Color.Primary"
+                           OnClick="AddTodoAsync"
+                           FullWidth="true"
+                           StartIcon="@Icons.Material.Filled.Add"
+                           Size="Size.Large">
+                    Add
+                </MudButton>
+            </MudItem>
+        </MudGrid>
+    </MudPaper>
+
+    <MudTable ServerData="LoadServerDataAsync"
+              Hover="true"
+              Dense="true"
+              @ref="_table">
+        <HeaderContent>
+            <MudTh>Status</MudTh>
+            <MudTh>Title</MudTh>
+            <MudTh>Description</MudTh>
+            <MudTh Style="text-align: right;">Actions</MudTh>
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd DataLabel="Status">
+                <MudCheckBox T="bool"
+                             Value="@context.IsCompleted"
+                             ValueChanged="async (_) => await ToggleCompleteAsync(context)"
+                             Color="Color.Success" />
+            </MudTd>
+            <MudTd DataLabel="Title">
+                <MudText Style="@(context.IsCompleted ? "text-decoration: line-through;" : "")">
+                    @context.Title
+                </MudText>
+            </MudTd>
+            <MudTd DataLabel="Description">
+                <MudText Style="@(context.IsCompleted ? "text-decoration: line-through;" : "")">
+                    @context.Description
+                </MudText>
+            </MudTd>
+            <MudTd DataLabel="Actions" Style="text-align: right;">
+                <MudIconButton Icon="@Icons.Material.Filled.Delete"
+                               Color="Color.Error"
+                               Size="Size.Small"
+                               OnClick="async () => await DeleteTodoAsync(context)" />
+            </MudTd>
+        </RowTemplate>
+        <NoRecordsContent>
+            <MudText>No todos yet. Add one above!</MudText>
+        </NoRecordsContent>
+        <PagerContent>
+            <MudTablePager PageSizeOptions="[10, 25, 50]" />
+        </PagerContent>
+    </MudTable>
+    </DialogContent>
+</MudDialog>
+
+@code {
+    [CascadingParameter]
+    private IMudDialogInstance? MudDialog { get; set; }
+
+    private MudTable<TodoItem>? _table;
+    private string _newTitle = string.Empty;
+    private string _newDescription = string.Empty;
+
+    protected override void OnInitialized()
+    {
+        Notifier.OnDataChanged += OnDataChanged;
+    }
+
+    private void OnDataChanged()
+    {
+        _ = InvokeAsync(async () =>
+        {
+            if (_table is not null)
+            {
+                await _table.ReloadServerData();
+            }
+
+            StateHasChanged();
+        });
+    }
+
+    private async Task<TableData<TodoItem>> LoadServerDataAsync(TableState state, CancellationToken cancellationToken)
+    {
+        await using var context = await DbContextFactory.CreateDbContextAsync(cancellationToken);
+
+        var query = context.TodoItems
+            .Where(t => !t.IsDeleted)
+            .OrderByDescending(t => t.UpdatedAt);
+
+        var count = await query.CountAsync(cancellationToken);
+        var data = await query
+            .Skip(state.Page * state.PageSize)
+            .Take(state.PageSize)
+            .ToListAsync(cancellationToken);
+
+        return new TableData<TodoItem>
+        {
+            Items = data,
+            TotalItems = count
+        };
+    }
+
+    private async Task AddTodoAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_newTitle))
+        {
+            Snackbar.Add("Please enter a title", Severity.Warning);
+            return;
+        }
+
+        var todo = new TodoItem
+        {
+            Id = Guid.NewGuid(),
+            Title = _newTitle,
+            Description = _newDescription,
+            UpdatedAt = DateTime.UtcNow,
+            IsCompleted = false
+        };
+
+        await using var context = await DbContextFactory.CreateDbContextAsync();
+        context.TodoItems.Add(todo);
+        await context.SaveChangesAsync();
+
+        _newTitle = string.Empty;
+        _newDescription = string.Empty;
+
+        Notifier.NotifyDataChanged();
+        Snackbar.Add("Todo created", Severity.Success);
+    }
+
+    private async Task ToggleCompleteAsync(TodoItem todo)
+    {
+        todo.IsCompleted = !todo.IsCompleted;
+        todo.CompletedAt = todo.IsCompleted ? DateTime.UtcNow : null;
+
+        await using var context = await DbContextFactory.CreateDbContextAsync();
+        context.TodoItems.Update(todo);
+        await context.SaveChangesAsync();
+
+        Notifier.NotifyDataChanged();
+    }
+
+    private async Task DeleteTodoAsync(TodoItem todo)
+    {
+        await using var context = await DbContextFactory.CreateDbContextAsync();
+
+        var trackedItem = await context.TodoItems.FindAsync(todo.Id);
+        if (trackedItem is not null)
+        {
+            trackedItem.IsDeleted = true;
+            trackedItem.DeletedAt = DateTime.UtcNow;
+        }
+
+        try
+        {
+            await context.SaveChangesAsync();
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            Snackbar.Add("Item was already deleted", Severity.Warning);
+        }
+
+        Notifier.NotifyDataChanged();
+    }
+
+    private async Task HandleKeyDownAsync(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+            await AddTodoAsync();
+        }
+    }
+
+    public void Dispose()
+    {
+        Notifier.OnDataChanged -= OnDataChanged;
+    }
+}

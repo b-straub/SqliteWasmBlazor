@@ -1,6 +1,8 @@
 using Microsoft.AspNetCore.Components.Web;
 using Microsoft.AspNetCore.Components.WebAssembly.Hosting;
 using MudBlazor.Services;
+using SqliteWasmBlazor.Demo.Services;
+using SqliteWasmBlazor.WindowHelper;
 using SqliteWasmBlazor;
 using SqliteWasmBlazor.Components.Interop;
 using SqliteWasmBlazor.Demo;
@@ -24,6 +26,12 @@ builder.Services.AddScoped(_ => new HttpClient { BaseAddress = new Uri(builder.H
 
 // Add MudBlazor services
 builder.Services.AddMudServices();
+
+// Add floating dialog service (draggable/resizable dialogs)
+builder.Services.AddFloatingDialogService();
+
+// Add data change notification service for multi-view synchronization
+builder.Services.AddSingleton<TodoDataNotifier>();
 
 // Add DbContext with SqliteWasm provider
 builder.Services.AddDbContextFactory<TodoDbContext>(options =>

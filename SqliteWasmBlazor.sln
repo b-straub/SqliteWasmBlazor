@@ -19,6 +19,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SqliteWasmBlazor.AdoNetSamp
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SqliteWasmBlazor.Components", "SqliteWasmBlazor.Components\SqliteWasmBlazor.Components.csproj", "{359F47C1-124C-4FE0-8E83-E02E49BADD78}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SqliteWasmBlazor.WindowHelper", "SqliteWasmBlazor.WindowHelper\SqliteWasmBlazor.WindowHelper.csproj", "{C3A16454-1F9B-4487-A512-CDCE0E94C76C}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -125,6 +127,18 @@ Global
 		{359F47C1-124C-4FE0-8E83-E02E49BADD78}.Release|x64.Build.0 = Release|Any CPU
 		{359F47C1-124C-4FE0-8E83-E02E49BADD78}.Release|x86.ActiveCfg = Release|Any CPU
 		{359F47C1-124C-4FE0-8E83-E02E49BADD78}.Release|x86.Build.0 = Release|Any CPU
+		{C3A16454-1F9B-4487-A512-CDCE0E94C76C}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{C3A16454-1F9B-4487-A512-CDCE0E94C76C}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{C3A16454-1F9B-4487-A512-CDCE0E94C76C}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{C3A16454-1F9B-4487-A512-CDCE0E94C76C}.Debug|x64.Build.0 = Debug|Any CPU
+		{C3A16454-1F9B-4487-A512-CDCE0E94C76C}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{C3A16454-1F9B-4487-A512-CDCE0E94C76C}.Debug|x86.Build.0 = Debug|Any CPU
+		{C3A16454-1F9B-4487-A512-CDCE0E94C76C}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{C3A16454-1F9B-4487-A512-CDCE0E94C76C}.Release|Any CPU.Build.0 = Release|Any CPU
+		{C3A16454-1F9B-4487-A512-CDCE0E94C76C}.Release|x64.ActiveCfg = Release|Any CPU
+		{C3A16454-1F9B-4487-A512-CDCE0E94C76C}.Release|x64.Build.0 = Release|Any CPU
+		{C3A16454-1F9B-4487-A512-CDCE0E94C76C}.Release|x86.ActiveCfg = Release|Any CPU
+		{C3A16454-1F9B-4487-A512-CDCE0E94C76C}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

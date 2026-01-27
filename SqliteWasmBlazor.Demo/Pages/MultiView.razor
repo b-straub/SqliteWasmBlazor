@@ -1,0 +1,129 @@
+@page "/multiview"
+@using SqliteWasmBlazor.Demo.Components.Views
+@inject FloatingDialogService FloatingDialog
+
+<PageTitle>Multi View</PageTitle>
+
+<MudContainer MaxWidth="MaxWidth.Large" Class="mt-4">
+    <MudText Typo="Typo.h3" GutterBottom="true">
+        <MudIcon Icon="@Icons.Material.Filled.ViewQuilt" Class="mr-2" />
+        Multi-View Demo
+    </MudText>
+    <MudText Typo="Typo.body1" Color="Color.Secondary" Class="mb-6">
+        Open multiple floating windows on the same data. Changes in one window automatically update all others.
+        Each window uses its own DbContext via IDbContextFactory — no shared state conflicts.
+    </MudText>
+
+    <DatabaseErrorAlert />
+
+    <MudPaper Elevation="2" Class="pa-4 mb-6">
+        <MudText Typo="Typo.h6" Class="mb-3">
+            <MudIcon Icon="@Icons.Material.Filled.OpenInNew" Size="Size.Small" Class="mr-1" />
+            Open Views
+        </MudText>
+        <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-4">
+            Each view opens as a draggable, resizable floating window. Open multiple views
+            and modify data in one — the others will refresh automatically.
+        </MudText>
+        <MudStack Row="true" Spacing="3" Wrap="Wrap.Wrap">
+            <MudButton Variant="Variant.Filled"
+                       Color="Color.Primary"
+                       StartIcon="@Icons.Material.Filled.TableChart"
+                       OnClick="OpenTableViewAsync"
+                       Size="Size.Large">
+                Table View
+            </MudButton>
+            <MudButton Variant="Variant.Filled"
+                       Color="Color.Secondary"
+                       StartIcon="@Icons.Material.Filled.ViewModule"
+                       OnClick="OpenCardViewAsync"
+                       Size="Size.Large">
+                Card View
+            </MudButton>
+            <MudButton Variant="Variant.Filled"
+                       Color="Color.Tertiary"
+                       StartIcon="@Icons.Material.Filled.BarChart"
+                       OnClick="OpenStatsViewAsync"
+                       Size="Size.Large">
+                Stats View
+            </MudButton>
+        </MudStack>
+    </MudPaper>
+
+    <MudPaper Elevation="2" Class="pa-4">
+        <MudText Typo="Typo.h6" Class="mb-2">
+            <MudIcon Icon="@Icons.Material.Filled.Info" Size="Size.Small" Class="mr-1" />
+            How It Works
+        </MudText>
+        <MudStack Spacing="2">
+            <MudStack Row="true" AlignItems="AlignItems.Center">
+                <MudIcon Icon="@Icons.Material.Filled.Window" Size="Size.Small" Color="Color.Primary" />
+                <MudText Typo="Typo.body2">
+                    <strong>Floating Windows:</strong> Lightweight JS interop provides draggable, resizable dialog windows on top of standard MudBlazor dialogs
+                </MudText>
+            </MudStack>
+            <MudStack Row="true" AlignItems="AlignItems.Center">
+                <MudIcon Icon="@Icons.Material.Filled.Storage" Size="Size.Small" Color="Color.Primary" />
+                <MudText Typo="Typo.body2">
+                    <strong>Independent DbContexts:</strong> Each window creates its own short-lived DbContext per operation via IDbContextFactory
+                </MudText>
+            </MudStack>
+            <MudStack Row="true" AlignItems="AlignItems.Center">
+                <MudIcon Icon="@Icons.Material.Filled.Sync" Size="Size.Small" Color="Color.Primary" />
+                <MudText Typo="Typo.body2">
+                    <strong>Data Synchronization:</strong> A lightweight TodoDataNotifier service broadcasts change events to all open views
+                </MudText>
+            </MudStack>
+            <MudStack Row="true" AlignItems="AlignItems.Center">
+                <MudIcon Icon="@Icons.Material.Filled.Lock" Size="Size.Small" Color="Color.Primary" />
+                <MudText Typo="Typo.body2">
+                    <strong>Why not multiple tabs?</strong> OPFS (Origin Private File System) does not support concurrent access from multiple browser tabs
+                </MudText>
+            </MudStack>
+        </MudStack>
+    </MudPaper>
+</MudContainer>
+
+@code {
+    private async Task OpenTableViewAsync()
+    {
+        var options = new FloatingDialogOptions
+        {
+            CloseButton = true,
+            CloseOnEscapeKey = true,
+            MaxWidth = MaxWidth.Large,
+            FullWidth = true,
+            Position = DialogPosition.TopCenter
+        };
+
+        await FloatingDialog.ShowAsync<TodoTableView>("Todo Table", options);
+    }
+
+    private async Task OpenCardViewAsync()
+    {
+        var options = new FloatingDialogOptions
+        {
+            CloseButton = true,
+            CloseOnEscapeKey = true,
+            MaxWidth = MaxWidth.Large,
+            FullWidth = true,
+            Position = DialogPosition.CenterRight
+        };
+
+        await FloatingDialog.ShowAsync<TodoCardView>("Todo Cards", options);
+    }
+
+    private async Task OpenStatsViewAsync()
+    {
+        var options = new FloatingDialogOptions
+        {
+            CloseButton = true,
+            CloseOnEscapeKey = true,
+            MaxWidth = MaxWidth.Medium,
+            FullWidth = true,
+            Position = DialogPosition.CenterLeft
+        };
+
+        await FloatingDialog.ShowAsync<TodoStatsView>("Todo Statistics", options);
+    }
+}
