@@ -7,7 +7,7 @@
 
     <!-- Package Metadata -->
     <PackageId>SqliteWasmBlazor</PackageId>
-    <Version>0.7.0-pre</Version>
+    <Version>$(SqliteWasmBlazorVersion)</Version>
     <Authors>bernisoft</Authors>
     <Company>bernisoft</Company>
     <Product>SqliteWasmBlazor</Product>
@@ -20,7 +20,6 @@
     <RepositoryType>git</RepositoryType>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageReleaseNotes>
-      v0.7.0-pre - Initial Release
       - Full EF Core ADO.NET provider
       - OPFS SAHPool persistence
       - MessagePack binary protocol
@@ -56,10 +55,10 @@
   </ItemGroup>
   
   <ItemGroup>
-    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.2" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.2" />
-    <PackageReference Include="MessagePack" Version="3.1.4" />
-    <PackageReference Include="SQLitePCLRaw.lib.e_sqlite3" Version="2.1.11" ExcludeAssets="all" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="$(DotNetVersion)" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="$(DotNetVersion)" />
+    <PackageReference Include="MessagePack" Version="$(MessagePackVersion)" />
+    <PackageReference Include="SQLitePCLRaw.lib.e_sqlite3" Version="$(SqlitePCLRawVersion)" ExcludeAssets="all" PrivateAssets="all" />
   </ItemGroup>
   
   <!-- Custom SQLite minimal stub library (8KB, replaces packaged e_sqlite3.a) -->

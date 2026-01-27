@@ -1,5 +1,12 @@
 <Project>
   <PropertyGroup>
+    <!-- Centralized version management -->
+    <DotNetVersion>10.0.2</DotNetVersion>
+    <MudBlazorVersion>8.15.0</MudBlazorVersion>
+    <SqlitePCLRawVersion>2.1.11</SqlitePCLRawVersion>
+    <MessagePackVersion>3.1.4</MessagePackVersion>
+    <SqliteWasmBlazorVersion>0.7.1-pre</SqliteWasmBlazorVersion>
+
     <!-- Suppress WASM warnings globally for all projects in the solution -->
 
     <!-- WASM0001: varargs functions in native libraries (SQLite sqlite3_config, MSBuild GetModuleFileName) -->

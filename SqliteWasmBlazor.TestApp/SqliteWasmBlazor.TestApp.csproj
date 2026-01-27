@@ -10,12 +10,12 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly" Version="10.0.2" />
-        <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.DevServer" Version="10.0.2" PrivateAssets="all" />
-        <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.2" />
-        <PackageReference Include="MudBlazor" Version="8.15.0" />
+        <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly" Version="$(DotNetVersion)" />
+        <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.DevServer" Version="$(DotNetVersion)" PrivateAssets="all" />
+        <PackageReference Include="Microsoft.EntityFrameworkCore" Version="$(DotNetVersion)" />
+        <PackageReference Include="MudBlazor" Version="$(MudBlazorVersion)" />
         <!-- Exclude large (1.1MB) SQLitePCLRaw native library - SqliteWasmBlazor provides minimal (9.8KB) stub -->
-        <PackageReference Include="SQLitePCLRaw.lib.e_sqlite3" Version="2.1.11" ExcludeAssets="native;buildTransitive" />
+        <PackageReference Include="SQLitePCLRaw.lib.e_sqlite3" Version="$(SqlitePCLRawVersion)" ExcludeAssets="native;buildTransitive" />
     </ItemGroup>
     
     <!-- Use ProjectReference for all configurations - TestApp is for internal testing only -->

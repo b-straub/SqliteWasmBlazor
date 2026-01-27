@@ -7,16 +7,16 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="MessagePack" Version="3.1.4">
+    <PackageReference Include="MessagePack" Version="$(MessagePackVersion)">
       <PrivateAssets>none</PrivateAssets>
       <ExcludeAssets>analyzers</ExcludeAssets>
     </PackageReference>
-    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.2" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.2">
+    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="$(DotNetVersion)" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="$(DotNetVersion)">
       <IncludeAssets>runtime; analyzers</IncludeAssets>
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
-    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.2" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="$(DotNetVersion)" />
   </ItemGroup>
 
   <ItemGroup>
