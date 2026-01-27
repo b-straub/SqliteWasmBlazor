@@ -50,8 +50,20 @@ jobs:
         sed -i 's|const base = "/";|const base = "/SqliteWasmBlazor/";|g' SqliteWasmBlazor.Demo/wwwroot/service-worker.published.js
         sed -i 's|RewriteBase /|RewriteBase /SqliteWasmBlazor/|g' SqliteWasmBlazor.Demo/wwwroot/.htaccess
 
+    - name: Build Demo
+      run: dotnet build SqliteWasmBlazor.Demo/SqliteWasmBlazor.Demo.csproj -c Release --nologo
+
     - name: Publish Demo
-      run: dotnet publish SqliteWasmBlazor.Demo/SqliteWasmBlazor.Demo.csproj -c Release -o ./build --nologo
+      run: dotnet publish SqliteWasmBlazor.Demo/SqliteWasmBlazor.Demo.csproj -c Release -o ./build --nologo --no-build
+
+    - name: Verify publish output
+      run: |
+        echo "=== Checking _content directories ==="
+        find build/wwwroot/_content -type f | head -30 || echo "No _content directory found!"
+        echo "=== Checking index.html base href ==="
+        grep -o 'base href="[^"]*"' build/wwwroot/index.html
+        echo "=== Checking service-worker base ==="
+        grep -o 'const base = "[^"]*"' build/wwwroot/service-worker.published.js
 
     - name: Add .nojekyll and 404.html
       run: |
