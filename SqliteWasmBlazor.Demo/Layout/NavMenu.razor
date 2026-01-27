@@ -3,7 +3,9 @@
     @if (DBInitializationService.ErrorMessage is null)
     {
         <MudNavLink Href="todos" Icon="@Icons.Material.Filled.CheckBox">Todo List</MudNavLink>
-        <MudNavLink Href="multiview" Icon="@Icons.Material.Filled.ViewQuilt">Multi View</MudNavLink>
+        <MudHidden Breakpoint="Breakpoint.SmAndDown">
+            <MudNavLink Href="multiview" Icon="@Icons.Material.Filled.ViewQuilt">Multi View</MudNavLink>
+        </MudHidden>
         <MudNavLink Href="administration" Icon="@Icons.Material.Filled.Settings">Administration</MudNavLink>
     }
 </MudNavMenu>
