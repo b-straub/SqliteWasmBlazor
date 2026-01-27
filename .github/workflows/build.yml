@@ -77,20 +77,26 @@ jobs:
       run: dotnet test --configuration Release --no-build --verbosity normal
 
     # Deploy to GitHub Pages (only on push to master)
-    - name: Set base path for GitHub Pages
+    - name: Set rootFolder for GitHub Pages
       if: github.event_name == 'push' && github.ref == 'refs/heads/master'
       run: |
-        sed -i 's|<base href="/" />|<base href="/SqliteWasmBlazor/" />|g' SqliteWasmBlazor.Demo/wwwroot/index.html
-        sed -i 's|const base = "/";|const base = "/SqliteWasmBlazor/";|g' SqliteWasmBlazor.Demo/wwwroot/service-worker.published.js
-        sed -i 's|RewriteBase /|RewriteBase /SqliteWasmBlazor/|g' SqliteWasmBlazor.Demo/wwwroot/.htaccess
+        echo '{
+          "rootFolder": "/SqliteWasmBlazor/"
+        }' > SqliteWasmBlazor.Demo/appsettings.json
 
     - name: Clean Demo build cache
       if: github.event_name == 'push' && github.ref == 'refs/heads/master'
-      run: dotnet clean SqliteWasmBlazor.Demo/SqliteWasmBlazor.Demo.csproj -c Release --nologo
+      run: |
+        dotnet clean SqliteWasmBlazor.Demo/SqliteWasmBlazor.Demo.csproj -c Release --nologo
+        rm -rf SqliteWasmBlazor.Demo/bin/Release SqliteWasmBlazor.Demo/obj/Release
+
+    - name: Build Demo for GitHub Pages
+      if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+      run: dotnet build SqliteWasmBlazor.Demo/SqliteWasmBlazor.Demo.csproj -c Release --nologo
 
     - name: Publish Demo
       if: github.event_name == 'push' && github.ref == 'refs/heads/master'
-      run: dotnet publish SqliteWasmBlazor.Demo/SqliteWasmBlazor.Demo.csproj -c Release -o ./build --nologo
+      run: dotnet publish SqliteWasmBlazor.Demo/SqliteWasmBlazor.Demo.csproj -c Release -o ./build --nologo /p:UseSharedCompilation=false
 
     - name: Add .nojekyll and 404.html
       if: github.event_name == 'push' && github.ref == 'refs/heads/master'
