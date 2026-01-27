@@ -1,0 +1,41 @@
+diff --git a/node_modules/@sqlite.org/sqlite-wasm/dist/index.mjs b/node_modules/@sqlite.org/sqlite-wasm/dist/index.mjs
+index bb434be..01a127f 100644
+--- a/node_modules/@sqlite.org/sqlite-wasm/dist/index.mjs
++++ b/node_modules/@sqlite.org/sqlite-wasm/dist/index.mjs
+@@ -10230,7 +10230,25 @@ async function sqlite3InitModule(moduleArg = {}) {
+ 					}
+ 					return !!sah;
+ 				}
+-				storeErr(e, code) {
++				renameFile(oldPath, newPath) {
++				const sah = this.#mapFilenameToSAH.get(oldPath);
++				if (!sah) {
++					toss('File not found:', oldPath);
++				}
++
++				// Read current flags from SAH header
++				sah.read(this.#apBody, { at: 0 });
++				const flags = this.#dvBody.getUint32(HEADER_OFFSET_FLAGS);
++
++				// Remove old path mapping
++				this.#mapFilenameToSAH.delete(oldPath);
++
++				// Update SAH header with new path (physical file stays the same)
++				this.setAssociatedPath(sah, newPath, flags);
++
++				return true;
++			}
++			storeErr(e, code) {
+ 					if (e) {
+ 						e.sqlite3Rc = code || capi.SQLITE_IOERR;
+ 						this.error(e);
+@@ -10393,6 +10411,9 @@ async function sqlite3InitModule(moduleArg = {}) {
+ 				unlink(filename) {
+ 					return this.#p.deletePath(filename);
+ 				}
++				renameFile(oldPath, newPath) {
++					return this.#p.renameFile(oldPath, newPath);
++				}
+ 				async removeVfs() {
+ 					return this.#p.removeVfs();
+ 				}
