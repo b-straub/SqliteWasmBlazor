@@ -16,6 +16,7 @@ public class WaFixtureBase : WebApplicationFactory<TestHost.Program>
     private IBrowser? _browser;
     private IBrowserContext? _browserContext;
     private bool _serverStarted;
+    private static bool _playwrightInstalled;
 
     public WaFixtureBase(int port, ITestOutputHelper? output = null)
     {
@@ -175,6 +176,11 @@ public class WaFixtureBase : WebApplicationFactory<TestHost.Program>
 
     private static void InstallPlaywright()
     {
+        if (_playwrightInstalled)
+        {
+            return;
+        }
+
         var exitCode = Microsoft.Playwright.Program.Main(
           new[] { "install-deps" });
 
@@ -189,5 +195,7 @@ public class WaFixtureBase : WebApplicationFactory<TestHost.Program>
             throw new Exception(
               $"Playwright exited with code {exitCode} on install");
         }
+
+        _playwrightInstalled = true;
     }
 }

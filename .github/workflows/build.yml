@@ -29,7 +29,7 @@ jobs:
     - name: Setup Node.js
       uses: actions/setup-node@v4
       with:
-        node-version: '20'
+        node-version: '22'
 
     - name: Setup Emscripten
       if: ${{ !env.ACT }}
@@ -69,6 +69,9 @@ jobs:
 
     - name: Build solution
       run: dotnet build --configuration Release
+
+    - name: Install Playwright browsers
+      run: pwsh SqliteWasmBlazor.Tests/bin/Release/net10.0/playwright.ps1 install --with-deps
 
     - name: Test
       run: dotnet test --configuration Release --no-build --verbosity normal
