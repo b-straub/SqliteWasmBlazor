@@ -50,11 +50,8 @@ jobs:
         sed -i 's|const base = "/";|const base = "/SqliteWasmBlazor/";|g' SqliteWasmBlazor.Demo/wwwroot/service-worker.published.js
         sed -i 's|RewriteBase /|RewriteBase /SqliteWasmBlazor/|g' SqliteWasmBlazor.Demo/wwwroot/.htaccess
 
-    - name: Build Demo
-      run: dotnet build SqliteWasmBlazor.Demo/SqliteWasmBlazor.Demo.csproj -c Release --nologo
-
     - name: Publish Demo
-      run: dotnet publish SqliteWasmBlazor.Demo/SqliteWasmBlazor.Demo.csproj -c Release -o ./build --nologo --no-build
+      run: dotnet publish SqliteWasmBlazor.Demo/SqliteWasmBlazor.Demo.csproj -c Release -o ./build --nologo
 
     - name: Verify publish output
       run: |
