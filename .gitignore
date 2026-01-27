@@ -74,3 +74,5 @@ docs/internal/
 SqliteWasmBlazor/package-lock.json
 SqliteWasmBlazor/ARCHITECTURE.md
 SqliteWasmBlazor.Components/wwwroot/file-operations.js
+.claude/CLAUDE.md
+SqliteWasmBlazorInternal.slnx
