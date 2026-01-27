@@ -50,7 +50,7 @@ RemoveLanguage .br
 # Client-side routing fallback for Blazor (must match base href in index.html)
 <IfModule mod_rewrite.c>
     RewriteEngine On
-    RewriteBase /$3
+    RewriteBase /
 
     # Don't rewrite files or directories that exist
     RewriteCond %{REQUEST_FILENAME} !-f

@@ -9,6 +9,10 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pages: write
+      id-token: write
 
     steps:
     - name: Checkout code
@@ -68,3 +72,33 @@ jobs:
 
     - name: Test
       run: dotnet test --configuration Release --no-build --verbosity normal
+
+    # Deploy to GitHub Pages (only on push to master)
+    - name: Set base path for GitHub Pages
+      if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+      run: |
+        sed -i 's|<base href="/" />|<base href="/SqliteWasmBlazor/" />|g' SqliteWasmBlazor.Demo/wwwroot/index.html
+        sed -i 's|const base = "/";|const base = "/SqliteWasmBlazor/";|g' SqliteWasmBlazor.Demo/wwwroot/service-worker.published.js
+        sed -i 's|RewriteBase /|RewriteBase /SqliteWasmBlazor/|g' SqliteWasmBlazor.Demo/wwwroot/.htaccess
+
+    - name: Publish Demo
+      if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+      run: dotnet publish SqliteWasmBlazor.Demo/SqliteWasmBlazor.Demo.csproj -c Release -o ./build --nologo
+
+    - name: Add .nojekyll and 404.html
+      if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+      run: |
+        cd build/wwwroot
+        touch .nojekyll
+        cp index.html 404.html
+
+    - name: Upload artifact
+      if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+      uses: actions/upload-pages-artifact@v3
+      with:
+        path: ./build/wwwroot
+
+    - name: Deploy to GitHub Pages
+      if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+      id: deployment
+      uses: actions/deploy-pages@v4
