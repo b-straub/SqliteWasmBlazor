@@ -92,7 +92,13 @@ body.fw-resizing * {
     padding: 0 8px 0 12px;
     flex-shrink: 0;
     user-select: none;
+    -webkit-user-select: none;
     border-bottom: 1px solid var(--mud-palette-lines-default);
+}
+
+.fw-header * {
+    user-select: none;
+    -webkit-user-select: none;
 }
 
 .fw-header-draggable {
@@ -240,8 +246,9 @@ body.fw-resizing * {
     border-bottom: 2px solid var(--mud-palette-text-disabled);
 }
 
-/* Touch-friendly resize handles */
+/* Touch-friendly adjustments */
 @media (pointer: coarse) {
+    /* Larger resize handles */
     .fw-resize-n,
     .fw-resize-s {
         height: 12px;
@@ -278,6 +285,23 @@ body.fw-resizing * {
     .fw-resize-w {
         top: 20px;
         bottom: 20px;
+    }
+
+    /* Larger header for touch */
+    .fw-header {
+        height: 48px;
+        padding: 0 12px;
+    }
+
+    /* Larger touch targets for header buttons */
+    .fw-controls {
+        gap: 8px;
+    }
+
+    .fw-controls .mud-icon-button {
+        min-width: 44px;
+        min-height: 44px;
+        padding: 10px;
     }
 }
 

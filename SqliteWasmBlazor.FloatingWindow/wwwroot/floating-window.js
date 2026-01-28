@@ -119,7 +119,9 @@ export function initDrag(elementId, dotNetRef, canSnap = true, isSnapped = false
     let hasMoved = false;
     let startX = 0;
     let startY = 0;
-    const MOVE_THRESHOLD = 5; // pixels - minimum movement to count as a drag
+    // Higher threshold on touch devices to prevent accidental drags
+    const isTouchDevice = window.matchMedia('(pointer: coarse)').matches;
+    const MOVE_THRESHOLD = isTouchDevice ? 15 : 5; // pixels - minimum movement to count as a drag
 
     function onPointerDown(e) {
         if (e.button !== 0) {
