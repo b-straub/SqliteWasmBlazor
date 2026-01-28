@@ -28,11 +28,28 @@ function loadWindowState(windowId) {
     }
 }
 
-function findNewDialog() {
-    const dialog = document.querySelector(UNPROCESSED_SELECTOR);
-    if (!dialog) {
+function findNewDialog(expectedTitle) {
+    // Find ALL unprocessed dialogs
+    const dialogs = document.querySelectorAll(UNPROCESSED_SELECTOR);
+    if (dialogs.length === 0) {
         return null;
     }
+
+    // If we have an expected title, find the matching dialog by title
+    if (expectedTitle) {
+        for (const dialog of dialogs) {
+            const titleEl = dialog.querySelector(".mud-dialog-title");
+            if (titleEl && titleEl.textContent.trim() === expectedTitle) {
+                const container = dialog.closest(".mud-dialog-container");
+                if (container) {
+                    return { dialog, container };
+                }
+            }
+        }
+    }
+
+    // Fallback: take the last one (most recently created)
+    const dialog = dialogs[dialogs.length - 1];
     const container = dialog.closest(".mud-dialog-container");
     if (!container) {
         return null;
@@ -40,13 +57,29 @@ function findNewDialog() {
     return { dialog, container };
 }
 
+function findDialogByWindowId(windowId) {
+    if (!windowId) {
+        return null;
+    }
+    const dialog = document.querySelector(`.mud-dialog[data-floating-window-id="${windowId}"]`);
+    if (!dialog) {
+        return null;
+    }
+    const container = dialog.closest(".mud-dialog-container");
+    return container ? { dialog, container } : null;
+}
+
 function bringToFront(container) {
     container.style.zIndex = ++topZIndex;
 }
 
 function applyFloatingBehavior(dialog, container, options) {
-    // Mark as processed so we never touch it again
+    // Mark as processed with our windowId so we can identify it later
     dialog.setAttribute("data-floating-applied", "true");
+    if (options.windowId) {
+        dialog.setAttribute("data-floating-window-id", options.windowId);
+        container.setAttribute("data-floating-window-id", options.windowId);
+    }
 
     // Hide overlay and make container pass-through
     const overlay = container.querySelector(".mud-overlay-dialog");
@@ -55,9 +88,9 @@ function applyFloatingBehavior(dialog, container, options) {
     }
     container.classList.add("floating-dialog-container");
 
-    // Position absolutely with initial coordinates from current position
+    // Position fixed relative to viewport (not container) to prevent jumping when other dialogs close
     const rect = dialog.getBoundingClientRect();
-    dialog.style.position = "absolute";
+    dialog.style.position = "fixed";
     dialog.style.margin = "0";
     dialog.style.transform = "none";
 
@@ -98,9 +131,8 @@ function applyFloatingBehavior(dialog, container, options) {
 }
 
 export function initFloatingDialog(options) {
-    const found = findNewDialog();
+    const found = findNewDialog(options.title);
     if (!found) {
-        console.warn("FloatingDialog: no unprocessed .mud-dialog found");
         return;
     }
     applyFloatingBehavior(found.dialog, found.container, options);

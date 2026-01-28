@@ -1,5 +1,8 @@
 .floating-dialog-container {
     pointer-events: none;
+    /* Disable MudBlazor's centering so absolute positioned dialogs don't jump */
+    align-items: flex-start !important;
+    justify-content: flex-start !important;
 }
 
 .floating-dialog-container .mud-dialog {

@@ -1,6 +1,7 @@
 @page "/multiview"
 @using SqliteWasmBlazor.Demo.Components.Views
 @inject FloatingDialogService FloatingDialog
+@implements IDisposable
 
 <PageTitle>Multi View</PageTitle>
 
@@ -30,6 +31,7 @@
                        Color="Color.Primary"
                        StartIcon="@Icons.Material.Filled.TableChart"
                        OnClick="OpenTableViewAsync"
+                       Disabled="FloatingDialog.IsOpen(TableViewId)"
                        Size="Size.Large">
                 Table View
             </MudButton>
@@ -37,6 +39,7 @@
                        Color="Color.Secondary"
                        StartIcon="@Icons.Material.Filled.ViewModule"
                        OnClick="OpenCardViewAsync"
+                       Disabled="FloatingDialog.IsOpen(CardViewId)"
                        Size="Size.Large">
                 Card View
             </MudButton>
@@ -44,6 +47,7 @@
                        Color="Color.Tertiary"
                        StartIcon="@Icons.Material.Filled.BarChart"
                        OnClick="OpenStatsViewAsync"
+                       Disabled="FloatingDialog.IsOpen(StatsViewId)"
                        Size="Size.Large">
                 Stats View
             </MudButton>
@@ -85,11 +89,25 @@
 </MudContainer>
 
 @code {
+    private const string TableViewId = "todo-table-view";
+    private const string CardViewId = "todo-card-view";
+    private const string StatsViewId = "todo-stats-view";
+
+    protected override void OnInitialized()
+    {
+        FloatingDialog.OnDialogClosed += OnDialogClosed;
+    }
+
+    private void OnDialogClosed(string windowId)
+    {
+        InvokeAsync(StateHasChanged);
+    }
+
     private async Task OpenTableViewAsync()
     {
         var options = new FloatingDialogOptions
         {
-            WindowId = "todo-table-view",
+            WindowId = TableViewId,
             RememberState = true,
             CloseButton = true,
             CloseOnEscapeKey = true,
@@ -105,7 +123,7 @@
     {
         var options = new FloatingDialogOptions
         {
-            WindowId = "todo-card-view",
+            WindowId = CardViewId,
             RememberState = true,
             CloseButton = true,
             CloseOnEscapeKey = true,
@@ -121,7 +139,7 @@
     {
         var options = new FloatingDialogOptions
         {
-            WindowId = "todo-stats-view",
+            WindowId = StatsViewId,
             RememberState = true,
             CloseButton = true,
             CloseOnEscapeKey = true,
@@ -131,5 +149,12 @@
         };
 
         await FloatingDialog.ShowAsync<TodoStatsView>("Todo Statistics", options);
+    }
+
+    public void Dispose()
+    {
+        FloatingDialog.OnDialogClosed -= OnDialogClosed;
+        // Close all floating dialogs when navigating away to prevent focus errors
+        FloatingDialog.CloseAll();
     }
 }
