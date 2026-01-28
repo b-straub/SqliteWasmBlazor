@@ -200,7 +200,7 @@
     private Fts5QueryMode _fts5QueryMode = Fts5QueryMode.Processed;
     private CancellationTokenSource? _searchCts;
     private Timer? _debounceTimer;
-    private Dictionary<Guid, (string Title, string Description)> _highlightCache = new();
+    private readonly Dictionary<Guid, (string Title, string Description)> _highlightCache = new();
 
     protected override async Task OnInitializedAsync()
     {

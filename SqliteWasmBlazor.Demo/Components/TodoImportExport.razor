@@ -304,8 +304,7 @@
 
                 // Create checkpoint after delta export
                 var checkpoint = await context.CreateCheckpointAsync(
-                    $"Auto checkpoint after delta export ({count} items)",
-                    "Auto");
+                    $"Auto checkpoint after delta export ({count} items)");
 
                 Logger.LogInformation("Created checkpoint at {CheckpointTime} with {ActiveCount} active items, {TombstoneCount} tombstones",
                     checkpoint.CreatedAt, checkpoint.ActiveItemCount, checkpoint.TombstoneCount);
@@ -566,8 +565,7 @@
 
                 // Create auto checkpoint after delta import
                 var checkpoint = await context.CreateCheckpointAsync(
-                    $"Auto checkpoint after delta import ({totalCount} items)",
-                    "Auto");
+                    $"Auto checkpoint after delta import ({totalCount} items)");
 
                 Logger.LogInformation("Created checkpoint after delta import at {CheckpointTime}", checkpoint.CreatedAt);
 
@@ -637,8 +635,7 @@
             // Create auto checkpoint after full import (database has been swapped)
             await using var newContext = await DbContextFactory.CreateDbContextAsync();
             var checkpoint = await newContext.CreateCheckpointAsync(
-                $"Auto checkpoint after full import ({totalCount} items)",
-                "Auto");
+                $"Auto checkpoint after full import ({totalCount} items)");
 
             Logger.LogInformation("Created checkpoint after full import at {CheckpointTime}", checkpoint.CreatedAt);
 

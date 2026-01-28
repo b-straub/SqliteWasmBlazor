@@ -36,7 +36,7 @@
                     <MudText Typo="Typo.body2" Color="Color.Warning" Align="Align.Center">
                         If you encounter any issues after updating, please use "Reset Database" from the TodoList page.
                     </MudText>
-                    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="UpdateApp">Update</MudButton>
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="UpdateAppAsync">Update</MudButton>
                 </MudStack>
             </MudPaper>,
             Severity.Info,
@@ -47,7 +47,7 @@
             });
     }
 
-    private async Task UpdateApp()
+    private async Task UpdateAppAsync()
     {
         if (_updateSnackbar is not null)
         {

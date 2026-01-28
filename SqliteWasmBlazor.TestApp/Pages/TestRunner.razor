@@ -36,7 +36,7 @@
     private int _failedCount;
     private int _completedTests;
     private int _totalTests;
-    private List<(string Name, string Error)> _failedTests = new();
+    private readonly List<(string Name, string Error)> _failedTests = new();
 
     protected override async Task OnInitializedAsync()
     {

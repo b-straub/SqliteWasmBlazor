@@ -65,7 +65,7 @@ public class ProgressStream : Stream
             // Only report progress every 64KB to avoid too many UI updates
             if (_bytesRead - _lastReportedBytes >= 65536 || _bytesRead >= _totalBytes)
             {
-                _onProgress?.Invoke(_bytesRead);
+                _onProgress(_bytesRead);
                 _lastReportedBytes = _bytesRead;
             }
         }

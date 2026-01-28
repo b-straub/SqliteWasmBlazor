@@ -1,7 +1,6 @@
 // SqliteWasmBlazor - Minimal EF Core compatible provider
 // MIT License
 
-using System.Data.Common;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -115,7 +114,6 @@ This can happen after updating the application or testing with different databas
 
 Click the "Reset Database" button below to delete the incompatible database and recreate it with the correct schema.
 """;
-                        return;
                     }
                 }
             }

@@ -7,22 +7,22 @@
 
 <p>This sample demonstrates using SqliteWasmBlazor without Entity Framework Core, using raw ADO.NET.</p>
 
-@if (errorMessage is not null)
+@if (_errorMessage is not null)
 {
     <div style="color: red; margin: 1em 0;">
-        <strong>Error:</strong> @errorMessage
+        <strong>Error:</strong> @_errorMessage
     </div>
 }
 
 <h2>Users</h2>
 
 <div style="margin: 1em 0;">
-    <input @bind="newUserName" placeholder="Name" />
-    <input @bind="newUserEmail" placeholder="Email" />
-    <button @onclick="AddUser">Add User</button>
+    <input @bind="_newUserName" placeholder="Name" />
+    <input @bind="_newUserEmail" placeholder="Email" />
+    <button @onclick="AddUserAsync">Add User</button>
 </div>
 
-@if (users.Count == 0)
+@if (_users.Count == 0)
 {
     <p><em>No users yet. Add one above!</em></p>
 }
@@ -39,7 +39,7 @@ else
             </tr>
         </thead>
         <tbody>
-            @foreach (var user in users)
+            @foreach (var user in _users)
             {
                 <tr>
                     <td>@user.Id</td>
@@ -47,7 +47,7 @@ else
                     <td>@user.Email</td>
                     <td>@user.CreatedAt.ToString("g")</td>
                     <td>
-                        <button @onclick="() => DeleteUser(user.Id)">Delete</button>
+                        <button @onclick="() => DeleteUserAsync(user.Id)">Delete</button>
                     </td>
                 </tr>
             }
@@ -57,28 +57,28 @@ else
 
 <h2>Database Statistics</h2>
 <ul>
-    <li>Total Users: @users.Count</li>
+    <li>Total Users: @_users.Count</li>
     <li>Database File: SimpleApp.db (stored in OPFS)</li>
     <li>Using: Raw ADO.NET (no EF Core!)</li>
 </ul>
 
 @code {
-    private SqliteWasmConnection? connection;
-    private List<User> users = new();
-    private string? errorMessage;
-    private string newUserName = "";
-    private string newUserEmail = "";
+    private SqliteWasmConnection? _connection;
+    private readonly List<User> _users = new();
+    private string? _errorMessage;
+    private string _newUserName = "";
+    private string _newUserEmail = "";
 
     protected override async Task OnInitializedAsync()
     {
         try
         {
             // Create and open connection
-            connection = new SqliteWasmConnection("Data Source=SimpleApp.db");
-            await connection.OpenAsync();
+            _connection = new SqliteWasmConnection("Data Source=SimpleApp.db");
+            await _connection.OpenAsync();
 
             // Create table if not exists
-            await using (var createCmd = connection.CreateCommand())
+            await using (var createCmd = _connection.CreateCommand())
             {
                 createCmd.CommandText = @"
                     CREATE TABLE IF NOT EXISTS Users (
@@ -91,30 +91,30 @@ else
             }
 
             // Load existing users
-            await LoadUsers();
+            await LoadUsersAsync();
         }
         catch (Exception ex)
         {
-            errorMessage = $"Initialization failed: {ex.Message}";
+            _errorMessage = $"Initialization failed: {ex.Message}";
         }
     }
 
-    private async Task LoadUsers()
+    private async Task LoadUsersAsync()
     {
-        if (connection is null)
+        if (_connection is null)
         {
             return;
         }
 
-        users.Clear();
+        _users.Clear();
 
-        await using var cmd = connection.CreateCommand();
+        await using var cmd = _connection.CreateCommand();
         cmd.CommandText = "SELECT Id, Name, Email, CreatedAt FROM Users ORDER BY CreatedAt DESC";
 
         await using var reader = await cmd.ExecuteReaderAsync();
         while (await reader.ReadAsync())
         {
-            users.Add(new User
+            _users.Add(new User
             {
                 Id = reader.GetInt32(0),
                 Name = reader.GetString(1),
@@ -124,71 +124,71 @@ else
         }
     }
 
-    private async Task AddUser()
+    private async Task AddUserAsync()
     {
-        if (connection is null || string.IsNullOrWhiteSpace(newUserName) || string.IsNullOrWhiteSpace(newUserEmail))
+        if (_connection is null || string.IsNullOrWhiteSpace(_newUserName) || string.IsNullOrWhiteSpace(_newUserEmail))
         {
             return;
         }
 
         try
         {
-            errorMessage = null;
+            _errorMessage = null;
 
-            await using var cmd = connection.CreateCommand();
+            await using var cmd = _connection.CreateCommand();
             cmd.CommandText = "INSERT INTO Users (Name, Email, CreatedAt) VALUES ($name, $email, $date)";
 
-            cmd.Parameters.Add(new SqliteWasmParameter { ParameterName = "$name", Value = newUserName });
-            cmd.Parameters.Add(new SqliteWasmParameter { ParameterName = "$email", Value = newUserEmail });
+            cmd.Parameters.Add(new SqliteWasmParameter { ParameterName = "$name", Value = _newUserName });
+            cmd.Parameters.Add(new SqliteWasmParameter { ParameterName = "$email", Value = _newUserEmail });
             cmd.Parameters.Add(new SqliteWasmParameter { ParameterName = "$date", Value = DateTime.UtcNow.ToString("O") });
 
             await cmd.ExecuteNonQueryAsync();
 
             // Clear form
-            newUserName = "";
-            newUserEmail = "";
+            _newUserName = "";
+            _newUserEmail = "";
 
             // Reload users
-            await LoadUsers();
+            await LoadUsersAsync();
         }
         catch (Exception ex)
         {
-            errorMessage = $"Failed to add user: {ex.Message}";
+            _errorMessage = $"Failed to add user: {ex.Message}";
         }
     }
 
-    private async Task DeleteUser(int id)
+    private async Task DeleteUserAsync(int id)
     {
-        if (connection is null)
+        if (_connection is null)
         {
             return;
         }
 
         try
         {
-            errorMessage = null;
+            _errorMessage = null;
 
-            await using var cmd = connection.CreateCommand();
+            await using var cmd = _connection.CreateCommand();
             cmd.CommandText = "DELETE FROM Users WHERE Id = $id";
             cmd.Parameters.Add(new SqliteWasmParameter { ParameterName = "$id", Value = id });
 
             await cmd.ExecuteNonQueryAsync();
 
             // Reload users
-            await LoadUsers();
+            await LoadUsersAsync();
         }
         catch (Exception ex)
         {
-            errorMessage = $"Failed to delete user: {ex.Message}";
+            _errorMessage = $"Failed to delete user: {ex.Message}";
         }
     }
 
     public async ValueTask DisposeAsync()
     {
-        if (connection is not null)
+        if (_connection is not null)
         {
-            await connection.CloseAsync();
-            await connection.DisposeAsync();
+            await _connection.CloseAsync();
+            await _connection.DisposeAsync();
         }
     }
 

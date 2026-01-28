@@ -150,7 +150,7 @@ internal class FTS5SearchTest(IDbContextFactory<TodoDbContext> factory)
         // Test 7: Processed mode - tokenize and add wildcards
         // Search for "quar repo" should match "quarterly" and "report"
         var processedResults = await context
-            .SearchTodoItems("quar repo", Fts5QueryMode.Processed)
+            .SearchTodoItems("quar repo")
             .ToListAsync();
 
         if (processedResults.Count != 1)
@@ -162,7 +162,7 @@ internal class FTS5SearchTest(IDbContextFactory<TodoDbContext> factory)
         // Test 8: Processed mode with special characters (should be stripped)
         // "#quarter#ly #report#" should become "quarterly* AND report*"
         var processedSpecialChars = await context
-            .SearchTodoItems("#quarter#ly #report#", Fts5QueryMode.Processed)
+            .SearchTodoItems("#quarter#ly #report#")
             .ToListAsync();
 
         if (processedSpecialChars.Count != 1)
@@ -173,7 +173,7 @@ internal class FTS5SearchTest(IDbContextFactory<TodoDbContext> factory)
 
         // Test 9: Processed mode - partial matching with single word
         var processedSingleWord = await context
-            .SearchTodoItems("gro", Fts5QueryMode.Processed)
+            .SearchTodoItems("gro")
             .ToListAsync();
 
         if (processedSingleWord.Count != 1) // Should match "groceries"
