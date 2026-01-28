@@ -43,7 +43,9 @@ public class FloatingDialogService : IAsyncDisposable
         await _jsModule!.InvokeVoidAsync("initFloatingDialog", new
         {
             draggable = options.Draggable,
-            resizable = options.Resizable
+            resizable = options.Resizable,
+            windowId = options.RememberState ? options.WindowId : null,
+            rememberState = options.RememberState && !string.IsNullOrEmpty(options.WindowId)
         });
 
         return dialogReference;

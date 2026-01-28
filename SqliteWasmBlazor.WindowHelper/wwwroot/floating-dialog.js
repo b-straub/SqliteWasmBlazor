@@ -3,6 +3,30 @@
 let topZIndex = 1400;
 
 const UNPROCESSED_SELECTOR = ".mud-dialog:not([data-floating-applied])";
+const STORAGE_PREFIX = "floating-window:";
+
+function saveWindowState(windowId, state) {
+    if (!windowId) {
+        return;
+    }
+    try {
+        localStorage.setItem(STORAGE_PREFIX + windowId, JSON.stringify(state));
+    } catch {
+        // localStorage might be full or disabled
+    }
+}
+
+function loadWindowState(windowId) {
+    if (!windowId) {
+        return null;
+    }
+    try {
+        const json = localStorage.getItem(STORAGE_PREFIX + windowId);
+        return json ? JSON.parse(json) : null;
+    } catch {
+        return null;
+    }
+}
 
 function findNewDialog() {
     const dialog = document.querySelector(UNPROCESSED_SELECTOR);
@@ -34,10 +58,27 @@ function applyFloatingBehavior(dialog, container, options) {
     // Position absolutely with initial coordinates from current position
     const rect = dialog.getBoundingClientRect();
     dialog.style.position = "absolute";
-    dialog.style.left = rect.left + "px";
-    dialog.style.top = rect.top + "px";
     dialog.style.margin = "0";
     dialog.style.transform = "none";
+
+    // Try to restore saved state
+    const savedState = options.rememberState ? loadWindowState(options.windowId) : null;
+
+    if (savedState) {
+        // Apply saved position and size
+        dialog.style.left = savedState.x + "px";
+        dialog.style.top = savedState.y + "px";
+        if (savedState.width) {
+            dialog.style.width = savedState.width + "px";
+        }
+        if (savedState.height) {
+            dialog.style.height = savedState.height + "px";
+        }
+    } else {
+        // Use current position
+        dialog.style.left = rect.left + "px";
+        dialog.style.top = rect.top + "px";
+    }
 
     // Z-index must be on the container (each dialog is in its own full-viewport container)
     bringToFront(container);
@@ -48,11 +89,11 @@ function applyFloatingBehavior(dialog, container, options) {
     });
 
     if (options.draggable) {
-        initDrag(dialog);
+        initDrag(dialog, options);
     }
 
     if (options.resizable) {
-        initResize(dialog);
+        initResize(dialog, options);
     }
 }
 
@@ -80,7 +121,7 @@ function isClickable(el) {
     return false;
 }
 
-function initDrag(dialog) {
+function initDrag(dialog, options) {
     const titleBar = dialog.querySelector(".mud-dialog-title");
     if (!titleBar) {
         return;
@@ -141,6 +182,15 @@ function initDrag(dialog) {
             cancelAnimationFrame(rafId);
             rafId = 0;
         }
+        // Save state on drag end
+        if (options.rememberState) {
+            saveWindowState(options.windowId, {
+                x: parseFloat(dialog.style.left),
+                y: parseFloat(dialog.style.top),
+                width: dialog.offsetWidth,
+                height: dialog.offsetHeight
+            });
+        }
     }
 
     titleBar.addEventListener("pointerdown", onPointerDown);
@@ -148,7 +198,7 @@ function initDrag(dialog) {
     titleBar.addEventListener("pointerup", onPointerUp);
 }
 
-function initResize(dialog) {
+function initResize(dialog, options) {
     const grip = document.createElement("div");
     grip.className = "floating-dialog-resize-grip";
     dialog.style.overflow = "hidden";
@@ -198,6 +248,15 @@ function initResize(dialog) {
         if (rafId) {
             cancelAnimationFrame(rafId);
             rafId = 0;
+        }
+        // Save state on resize end
+        if (options.rememberState) {
+            saveWindowState(options.windowId, {
+                x: parseFloat(dialog.style.left),
+                y: parseFloat(dialog.style.top),
+                width: dialog.offsetWidth,
+                height: dialog.offsetHeight
+            });
         }
     });
 }
