@@ -9,10 +9,6 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      pages: write
-      id-token: write
 
     steps:
     - name: Checkout code
@@ -75,43 +71,3 @@ jobs:
 
     - name: Test
       run: dotnet test --configuration Release --no-build --verbosity normal
-
-    # Deploy to GitHub Pages (only on push to master)
-    - name: Set rootFolder for GitHub Pages
-      if: github.event_name == 'push' && github.ref == 'refs/heads/master'
-      run: |
-        echo '{
-          "rootFolder": "/SqliteWasmBlazor/"
-        }' > SqliteWasmBlazor.Demo/appsettings.json
-
-    - name: Clean Demo build cache
-      if: github.event_name == 'push' && github.ref == 'refs/heads/master'
-      run: |
-        dotnet clean SqliteWasmBlazor.Demo/SqliteWasmBlazor.Demo.csproj -c Release --nologo
-        rm -rf SqliteWasmBlazor.Demo/bin/Release SqliteWasmBlazor.Demo/obj/Release
-
-    - name: Build Demo for GitHub Pages
-      if: github.event_name == 'push' && github.ref == 'refs/heads/master'
-      run: dotnet build SqliteWasmBlazor.Demo/SqliteWasmBlazor.Demo.csproj -c Release --nologo
-
-    - name: Publish Demo
-      if: github.event_name == 'push' && github.ref == 'refs/heads/master'
-      run: dotnet publish SqliteWasmBlazor.Demo/SqliteWasmBlazor.Demo.csproj -c Release -o ./build --nologo /p:UseSharedCompilation=false
-
-    - name: Add .nojekyll and 404.html
-      if: github.event_name == 'push' && github.ref == 'refs/heads/master'
-      run: |
-        cd build/wwwroot
-        touch .nojekyll
-        cp index.html 404.html
-
-    - name: Upload artifact
-      if: github.event_name == 'push' && github.ref == 'refs/heads/master'
-      uses: actions/upload-pages-artifact@v3
-      with:
-        path: ./build/wwwroot
-
-    - name: Deploy to GitHub Pages
-      if: github.event_name == 'push' && github.ref == 'refs/heads/master'
-      id: deployment
-      uses: actions/deploy-pages@v4
