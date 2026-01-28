@@ -12,6 +12,7 @@ public partial class FloatingWindow : IAsyncDisposable
     private bool _isInitialized;
     private bool _jsInteropInitialized;
     private bool _needsResizeReinit;
+    private bool _wasMinimized;
 
     #region Parameters
 
@@ -180,6 +181,19 @@ public partial class FloatingWindow : IAsyncDisposable
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        // Check if window was just restored from minimized (DOM was re-created)
+        if (_state is not null && _wasMinimized && !_state.IsMinimized)
+        {
+            _wasMinimized = false;
+            _jsInteropInitialized = false;
+        }
+
+        // Track minimized state for next render
+        if (_state is not null && _state.IsMinimized)
+        {
+            _wasMinimized = true;
+        }
+
         if (IsOpen && _isInitialized && !_jsInteropInitialized)
         {
             await InitializeJsInteropAsync();
@@ -187,8 +201,8 @@ public partial class FloatingWindow : IAsyncDisposable
         else if (_needsResizeReinit && _jsModule is not null)
         {
             _needsResizeReinit = false;
-            // Reinitialize resize handlers after restore from maximized
-            // (the resize handles were removed from DOM when maximized)
+            // Reinitialize resize handlers after restore from maximized/snapped
+            // (the resize handles were removed from DOM)
             if (Resizable)
             {
                 await _jsModule.InvokeVoidAsync("initResize", $"fw-{Id}", _dotNetRef);

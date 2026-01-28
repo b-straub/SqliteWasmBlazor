@@ -283,19 +283,24 @@ export function initTouchCapture(elementId) {
         return;
     }
 
-    // Stop touch events from propagating to elements behind the window
+    const body = win.querySelector('.fw-body');
+    if (!body) {
+        return;
+    }
+
+    // Only stop propagation on the body content, not controls
     function stopTouchPropagation(e) {
         e.stopPropagation();
     }
 
-    win.addEventListener('touchstart', stopTouchPropagation, { passive: true });
-    win.addEventListener('touchmove', stopTouchPropagation, { passive: true });
-    win.addEventListener('touchend', stopTouchPropagation, { passive: true });
+    body.addEventListener('touchstart', stopTouchPropagation, { passive: true });
+    body.addEventListener('touchmove', stopTouchPropagation, { passive: true });
+    body.addEventListener('touchend', stopTouchPropagation, { passive: true });
 
     win._fwTouchCleanup = () => {
-        win.removeEventListener('touchstart', stopTouchPropagation);
-        win.removeEventListener('touchmove', stopTouchPropagation);
-        win.removeEventListener('touchend', stopTouchPropagation);
+        body.removeEventListener('touchstart', stopTouchPropagation);
+        body.removeEventListener('touchmove', stopTouchPropagation);
+        body.removeEventListener('touchend', stopTouchPropagation);
     };
 }
 

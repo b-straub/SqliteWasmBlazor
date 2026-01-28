@@ -292,7 +292,7 @@ body.fw-resizing * {
     padding: 4px 8px;
     background: var(--mud-palette-background-grey);
     border-top: 1px solid var(--mud-palette-lines-default);
-    z-index: 999;
+    z-index: 10000;
 }
 
 .fw-taskbar:empty {

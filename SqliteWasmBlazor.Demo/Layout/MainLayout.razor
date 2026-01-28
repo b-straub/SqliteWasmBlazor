@@ -1,28 +1,33 @@
 @inherits LayoutComponentBase
+@using SqliteWasmBlazor.FloatingWindow.Components
 
-<MudThemeProvider />
-<MudPopoverProvider />
-<MudDialogProvider />
-<MudSnackbarProvider />
+<MudThemeProvider/>
+<MudPopoverProvider/>
+<MudDialogProvider/>
+<MudSnackbarProvider/>
 
-<ServiceWorkerUpdateNotification />
+<ServiceWorkerUpdateNotification/>
 
-<MudLayout>
-    <MudAppBar Elevation="1">
-        <MudIconButton Icon="@Icons.Material.Filled.Menu" Color="Color.Inherit" Edge="Edge.Start" OnClick="@ToggleDrawer" />
-        <MudText Typo="Typo.h6">SqliteWasm Blazor Demo</MudText>
-        <MudSpacer />
-        <MudIconButton Icon="@Icons.Material.Filled.Info" Color="Color.Inherit" Href="https://github.com/b-straub/SqliteWasmBlazor" Target="_blank" />
-    </MudAppBar>
-    <MudDrawer @bind-Open="_drawerOpen" ClipMode="DrawerClipMode.Always" Elevation="2">
-        <NavMenu />
-    </MudDrawer>
-    <MudMainContent>
-        <MudContainer MaxWidth="MaxWidth.Large" Class="my-4">
-            @Body
-        </MudContainer>
-    </MudMainContent>
-</MudLayout>
+<WindowProvider>
+    <MudLayout>
+        <MudAppBar Elevation="1">
+            <MudIconButton Icon="@Icons.Material.Filled.Menu" Color="Color.Inherit" Edge="Edge.Start"
+                           OnClick="@ToggleDrawer"/>
+            <MudText Typo="Typo.h6">SqliteWasm Blazor Demo</MudText>
+            <MudSpacer/>
+            <MudIconButton Icon="@Icons.Material.Filled.Info" Color="Color.Inherit"
+                           Href="https://github.com/b-straub/SqliteWasmBlazor" Target="_blank"/>
+        </MudAppBar>
+        <MudDrawer @bind-Open="_drawerOpen" ClipMode="DrawerClipMode.Always" Elevation="2">
+            <NavMenu/>
+        </MudDrawer>
+        <MudMainContent>
+            <MudContainer MaxWidth="MaxWidth.Large" Class="my-4">
+                @Body
+            </MudContainer>
+        </MudMainContent>
+    </MudLayout>
+</WindowProvider>
 
 @code {
     private bool _drawerOpen = true;
@@ -31,4 +36,5 @@
     {
         _drawerOpen = !_drawerOpen;
     }
+
 }
