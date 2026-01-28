@@ -30,11 +30,12 @@
                 }
                 @if (CanMaximize)
                 {
-                    <MudTooltip Text="@(_state.IsMaximized ? "Restore" : "Maximize")">
-                        <MudIconButton Icon="@(_state.IsMaximized ? Icons.Material.Filled.FilterNone : Icons.Material.Filled.CropSquare)"
+                    var isSnapped = _state.SnapState != SnapZone.None;
+                    <MudTooltip Text="@(_state.IsMaximized ? "Restore" : (isSnapped ? "Unsnap" : "Maximize"))">
+                        <MudIconButton Icon="@(_state.IsMaximized ? Icons.Material.Filled.FilterNone : (isSnapped ? Icons.Material.Filled.Fullscreen : Icons.Material.Filled.CropSquare))"
                                        Size="Size.Small"
                                        Ripple="false"
-                                       OnClick="ToggleMaximize" />
+                                       OnClick="ToggleMaximizeOrUnsnap" />
                     </MudTooltip>
                 }
                 @if (CanClose)

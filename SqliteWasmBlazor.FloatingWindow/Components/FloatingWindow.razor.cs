@@ -311,6 +311,24 @@ public partial class FloatingWindow : IAsyncDisposable
         await OnMinimize.InvokeAsync();
     }
 
+    private async Task ToggleMaximizeOrUnsnap()
+    {
+        if (_state is null)
+        {
+            return;
+        }
+
+        // If snapped, unsnap first
+        if (_state.SnapState != Services.SnapZone.None)
+        {
+            await UnsnapWindow();
+            return;
+        }
+
+        // Otherwise toggle maximize
+        await ToggleMaximize();
+    }
+
     private async Task ToggleMaximize()
     {
         if (_state is null)
@@ -344,6 +362,40 @@ public partial class FloatingWindow : IAsyncDisposable
         }
 
         SaveStateIfNeeded();
+        WindowManager.NotifyStateChanged();
+    }
+
+    private async Task UnsnapWindow()
+    {
+        if (_state is null)
+        {
+            return;
+        }
+
+        // Restore pre-snap geometry
+        if (_state.PreSnapX.HasValue)
+        {
+            _state.X = _state.PreSnapX.Value;
+            _state.Y = _state.PreSnapY!.Value;
+            _state.Width = _state.PreSnapWidth!.Value;
+            _state.Height = _state.PreSnapHeight!.Value;
+        }
+
+        // Clear snap state
+        _state.SnapState = Services.SnapZone.None;
+        _state.PreSnapX = null;
+        _state.PreSnapY = null;
+        _state.PreSnapWidth = null;
+        _state.PreSnapHeight = null;
+
+        // Update JS snap state
+        if (_jsModule is not null)
+        {
+            await _jsModule.InvokeVoidAsync("updateSnapState", $"fw-{Id}", CanSnap, false, null, null);
+        }
+
+        SaveStateIfNeeded();
+        await OnRestore.InvokeAsync();
         WindowManager.NotifyStateChanged();
     }
 

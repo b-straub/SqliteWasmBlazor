@@ -116,6 +116,10 @@ export function initDrag(elementId, dotNetRef, canSnap = true, isSnapped = false
     let restoreWidth = preSnapWidth;
     let restoreHeight = preSnapHeight;
     let hasRestoredFromSnap = false;
+    let hasMoved = false;
+    let startX = 0;
+    let startY = 0;
+    const MOVE_THRESHOLD = 5; // pixels - minimum movement to count as a drag
 
     function onPointerDown(e) {
         if (e.button !== 0) {
@@ -128,6 +132,9 @@ export function initDrag(elementId, dotNetRef, canSnap = true, isSnapped = false
 
         isDragging = true;
         hasRestoredFromSnap = false;
+        hasMoved = false;
+        startX = e.clientX;
+        startY = e.clientY;
 
         const rect = win.getBoundingClientRect();
         offsetX = e.clientX - rect.left;
@@ -150,6 +157,16 @@ export function initDrag(elementId, dotNetRef, canSnap = true, isSnapped = false
     function onPointerMove(e) {
         if (!isDragging) {
             return;
+        }
+
+        // Check if we've moved beyond the threshold to count as an actual drag
+        if (!hasMoved) {
+            const deltaX = Math.abs(e.clientX - startX);
+            const deltaY = Math.abs(e.clientY - startY);
+            if (deltaX < MOVE_THRESHOLD && deltaY < MOVE_THRESHOLD) {
+                return; // Not moved enough yet
+            }
+            hasMoved = true;
         }
 
         // If snapped and moving, restore to pre-snap size
@@ -197,11 +214,16 @@ export function initDrag(elementId, dotNetRef, canSnap = true, isSnapped = false
         isDragging = false;
         header.releasePointerCapture(e.pointerId);
         stopDragging();
+        hideSnapPreview();
+
+        // Only process drag end if we actually moved
+        if (!hasMoved) {
+            return;
+        }
 
         // Check if we should snap
         if (snapEnabled) {
             const zone = getSnapZone(e.clientX, e.clientY);
-            hideSnapPreview();
 
             if (zone !== null) {
                 // Notify Blazor about snap
