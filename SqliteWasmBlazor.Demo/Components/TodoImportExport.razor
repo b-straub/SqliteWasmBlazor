@@ -10,6 +10,7 @@
 @inject IDbContextFactory<TodoDbContext> DbContextFactory
 @inject ISnackbar Snackbar
 @inject ILogger<TodoImportExport> Logger
+@inject ISqliteWasmDatabaseService DatabaseService
 @implements IAsyncDisposable
 
 <MudPaper Elevation="2" Class="pa-4 mb-6">
@@ -368,10 +369,10 @@
         try
         {
             // Delete temp database if it exists from previous failed import
-            if (await SqliteWasmWorkerBridge.Instance.ExistsDatabaseAsync(ImportDatabaseName))
+            if (await DatabaseService.ExistsDatabaseAsync(ImportDatabaseName))
             {
                 Logger.LogDebug("Deleting existing temporary database: {DatabaseName}", ImportDatabaseName);
-                await SqliteWasmWorkerBridge.Instance.DeleteDatabaseAsync(ImportDatabaseName);
+                await DatabaseService.DeleteDatabaseAsync(ImportDatabaseName);
             }
 
             var tempConnection = new SqliteWasmConnection($"Data Source={ImportDatabaseName}");
@@ -624,14 +625,14 @@
 
             // Close both databases before swap to ensure clean file handles
             Logger.LogDebug("Closing import database: {DatabaseName}", ImportDatabaseName);
-            await SqliteWasmWorkerBridge.Instance.CloseDatabaseAsync(ImportDatabaseName);
+            await DatabaseService.CloseDatabaseAsync(ImportDatabaseName);
 
             Logger.LogDebug("Closing main database: {DatabaseName}", DatabaseName);
-            await SqliteWasmWorkerBridge.Instance.CloseDatabaseAsync(DatabaseName);
+            await DatabaseService.CloseDatabaseAsync(DatabaseName);
 
             // Perform atomic file swap in OPFS using native rename (metadata-only, no file copy)
             Logger.LogInformation("Performing database backup and swap");
-            await SwapDatabasesAsync(DatabaseName, ImportDatabaseName, BackupDatabaseName, Logger);
+            await SwapDatabasesAsync(DatabaseName, ImportDatabaseName, BackupDatabaseName, DatabaseService, Logger);
 
             // Create auto checkpoint after full import (database has been swapped)
             await using var newContext = await DbContextFactory.CreateDbContextAsync();
@@ -707,9 +708,9 @@
         {
             // Delete temporary database file
             Logger.LogDebug("Cleaning up temporary import database");
-            if (await SqliteWasmWorkerBridge.Instance.ExistsDatabaseAsync(ImportDatabaseName))
+            if (await DatabaseService.ExistsDatabaseAsync(ImportDatabaseName))
             {
-                await SqliteWasmWorkerBridge.Instance.DeleteDatabaseAsync(ImportDatabaseName);
+                await DatabaseService.DeleteDatabaseAsync(ImportDatabaseName);
                 Logger.LogDebug("Deleted temporary database: {DatabaseName}", ImportDatabaseName);
             }
         }
@@ -722,7 +723,7 @@
     }
 
     [SupportedOSPlatform("browser")]
-    private static async Task SwapDatabasesAsync(string mainDbName, string importDbName, string backupDbName, ILogger logger)
+    private static async Task SwapDatabasesAsync(string mainDbName, string importDbName, string backupDbName, ISqliteWasmDatabaseService databaseService, ILogger logger)
     {
         // Atomic file swap using OPFS operations:
         // 1. Delete old backup if exists
@@ -731,7 +732,7 @@
 
         try
         {
-            var bridge = SqliteWasmWorkerBridge.Instance;
+            var bridge = databaseService;
 
             // Step 1: Delete old backup if it exists
             if (await bridge.ExistsDatabaseAsync(backupDbName))

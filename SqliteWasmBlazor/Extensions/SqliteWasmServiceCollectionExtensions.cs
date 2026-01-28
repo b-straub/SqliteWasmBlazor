@@ -13,6 +13,18 @@ namespace SqliteWasmBlazor;
 public static class SqliteWasmServiceCollectionExtensions
 {
     /// <summary>
+    /// Registers SqliteWasm services including the database management service.
+    /// Call this in Program.cs before building the app.
+    /// </summary>
+    /// <param name="services">The service collection.</param>
+    /// <returns>The service collection for chaining.</returns>
+    public static IServiceCollection AddSqliteWasm(this IServiceCollection services)
+    {
+        services.AddSingleton<ISqliteWasmDatabaseService>(SqliteWasmWorkerBridge.Instance);
+        return services;
+    }
+
+    /// <summary>
     /// Initializes the SqliteWasm worker bridge without Entity Framework Core.
     /// Use this method when using the ADO.NET provider directly without EF Core.
     /// </summary>

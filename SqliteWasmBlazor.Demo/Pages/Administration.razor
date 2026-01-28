@@ -1,12 +1,14 @@
 @page "/administration"
 @using Microsoft.EntityFrameworkCore
 @using System.Diagnostics
+@using SqliteWasmBlazor
 @using SqliteWasmBlazor.Models
 @using SqliteWasmBlazor.Models.Models
 @using SqliteWasmBlazor.Models.Extensions
 @inject IDbContextFactory<TodoDbContext> DbContextFactory
 @inject ISnackbar Snackbar
 @inject ILogger<Administration> Logger
+@inject ISqliteWasmDatabaseService DatabaseService
 
 <PageTitle>Administration</PageTitle>
 
@@ -692,7 +694,7 @@
         try
         {
             // Delete the database file from OPFS SAHPool
-            await SqliteWasmWorkerBridge.Instance.DeleteDatabaseAsync("TodoDb.db");
+            await DatabaseService.DeleteDatabaseAsync("TodoDb.db");
 
             // Recreate database schema (migrations include FTS5 setup)
             await using var context = await DbContextFactory.CreateDbContextAsync();

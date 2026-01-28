@@ -47,6 +47,9 @@ builder.Services.AddDbContextFactory<TodoDbContext>(options =>
 // Register database initialization service
 builder.Services.AddSingleton<IDBInitializationService, DBInitializationService>();
 
+// Register SqliteWasm database management service
+builder.Services.AddSqliteWasm();
+
 // Initialize FileOperations JS module for import/export
 await FileOperationsInterop.InitializeAsync();
 

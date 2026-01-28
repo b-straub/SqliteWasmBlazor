@@ -1,9 +1,11 @@
 @using Microsoft.EntityFrameworkCore
+@using SqliteWasmBlazor
 @using SqliteWasmBlazor.Models
 @inject IDBInitializationService DBInitializationService
 @inject IDbContextFactory<TodoDbContext> DbContextFactory
 @inject ISnackbar Snackbar
 @inject NavigationManager NavigationManager
+@inject ISqliteWasmDatabaseService DatabaseService
 
 @if (DBInitializationService.ErrorMessage is not null)
 {
@@ -41,7 +43,7 @@
         try
         {
             // Delete the database file from OPFS SAHPool
-            await SqliteWasmWorkerBridge.Instance.DeleteDatabaseAsync("TodoDb.db");
+            await DatabaseService.DeleteDatabaseAsync("TodoDb.db");
 
             // Clear the error message
             DBInitializationService.ErrorMessage = null;

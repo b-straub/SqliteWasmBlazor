@@ -14,7 +14,7 @@ namespace SqliteWasmBlazor;
 /// Result from SQL query execution in worker.
 /// Deserialized using MessagePack typeless mode due to dynamic object?[][] data.
 /// </summary>
-public sealed class SqlQueryResult
+internal sealed class SqlQueryResult
 {
     public List<string> ColumnNames { get; set; } = [];
     public List<string> ColumnTypes { get; set; } = [];
@@ -27,7 +27,7 @@ public sealed class SqlQueryResult
 /// Bridge between C# and sqlite-wasm worker.
 /// Handles message passing and response coordination.
 /// </summary>
-public sealed partial class SqliteWasmWorkerBridge
+internal sealed partial class SqliteWasmWorkerBridge : ISqliteWasmDatabaseService
 {
     // ReSharper disable once InconsistentNaming
     private static readonly Lazy<SqliteWasmWorkerBridge> _instance = new(() => new SqliteWasmWorkerBridge());
@@ -69,7 +69,7 @@ public sealed partial class SqliteWasmWorkerBridge
     /// <summary>
     /// Initialize the worker and sqlite-wasm module.
     /// </summary>
-    public async Task InitializeAsync(CancellationToken? cancellationToken = null)
+    public async Task InitializeAsync(CancellationToken cancellationToken = default)
     {
         if (_isInitialized)
         {
@@ -81,11 +81,11 @@ public sealed partial class SqliteWasmWorkerBridge
         var baseHref = GetBaseHref();
         var bridgePath = $"{baseHref}_content/SqliteWasmBlazor/sqlite-wasm-bridge.js";
 
-        await JSHost.ImportAsync("sqliteWasmWorker", bridgePath, cancellationToken ?? CancellationToken.None);
+        await JSHost.ImportAsync("sqliteWasmWorker", bridgePath, cancellationToken);
 
         // Wait for worker to signal ready or error
         _initializationTcs = new TaskCompletionSource<bool>();
-        var token = cancellationToken ?? CancellationToken.None;
+        var token = cancellationToken;
         await using var registration = token.Register(() => _initializationTcs.TrySetCanceled());
 
         // Worker will call OnWorkerReady() or OnWorkerError() via JSExport
@@ -101,7 +101,7 @@ public sealed partial class SqliteWasmWorkerBridge
     /// <summary>
     /// Open a database connection in the worker.
     /// </summary>
-    public async Task OpenDatabaseAsync(string database, CancellationToken? cancellationToken = null)
+    public async Task OpenDatabaseAsync(string database, CancellationToken cancellationToken = default)
     {
         await EnsureInitializedAsync(cancellationToken);
 
@@ -110,13 +110,13 @@ public sealed partial class SqliteWasmWorkerBridge
             type = "open", database
         };
 
-        await SendRequestAsync(request, cancellationToken ?? CancellationToken.None);
+        await SendRequestAsync(request, cancellationToken);
     }
 
     /// <summary>
     /// Close a database connection in the worker, releasing the OPFS SAH.
     /// </summary>
-    public async Task CloseDatabaseAsync(string database, CancellationToken? cancellationToken = null)
+    public async Task CloseDatabaseAsync(string databaseName, CancellationToken cancellationToken = default)
     {
         if (!_isInitialized)
         {
@@ -125,10 +125,10 @@ public sealed partial class SqliteWasmWorkerBridge
 
         var request = new
         {
-            type = "close", database
+            type = "close", database = databaseName
         };
 
-        await SendRequestAsync(request, cancellationToken ?? CancellationToken.None);
+        await SendRequestAsync(request, cancellationToken);
     }
 
     /// <summary>
@@ -157,16 +157,16 @@ public sealed partial class SqliteWasmWorkerBridge
     /// <summary>
     /// Check if a database exists in OPFS SAHPool storage.
     /// </summary>
-    public async Task<bool> ExistsDatabaseAsync(string database, CancellationToken? cancellationToken = null)
+    public async Task<bool> ExistsDatabaseAsync(string databaseName, CancellationToken cancellationToken = default)
     {
         await EnsureInitializedAsync(cancellationToken);
 
         var request = new
         {
-            type = "exists", database
+            type = "exists", database = databaseName
         };
 
-        var result = await SendRequestAsync(request, cancellationToken ?? CancellationToken.None);
+        var result = await SendRequestAsync(request, cancellationToken);
 
         // Worker returns exists: true/false in the response
         return result.RowsAffected > 0;
@@ -175,22 +175,22 @@ public sealed partial class SqliteWasmWorkerBridge
     /// <summary>
     /// Delete a database from OPFS SAHPool storage.
     /// </summary>
-    public async Task DeleteDatabaseAsync(string database, CancellationToken? cancellationToken = null)
+    public async Task DeleteDatabaseAsync(string databaseName, CancellationToken cancellationToken = default)
     {
         await EnsureInitializedAsync(cancellationToken);
 
         var request = new
         {
-            type = "delete", database
+            type = "delete", database = databaseName
         };
 
-        await SendRequestAsync(request, cancellationToken ?? CancellationToken.None);
+        await SendRequestAsync(request, cancellationToken);
     }
 
     /// <summary>
     /// Rename a database in OPFS SAHPool storage (atomic operation).
     /// </summary>
-    public async Task RenameDatabaseAsync(string oldName, string newName, CancellationToken? cancellationToken = null)
+    public async Task RenameDatabaseAsync(string oldName, string newName, CancellationToken cancellationToken = default)
     {
         await EnsureInitializedAsync(cancellationToken);
 
@@ -201,10 +201,10 @@ public sealed partial class SqliteWasmWorkerBridge
             newName
         };
 
-        await SendRequestAsync(request, cancellationToken ?? CancellationToken.None);
+        await SendRequestAsync(request, cancellationToken);
     }
 
-    private async Task EnsureInitializedAsync(CancellationToken? cancellationToken)
+    private async Task EnsureInitializedAsync(CancellationToken cancellationToken)
     {
         if (!_isInitialized)
         {

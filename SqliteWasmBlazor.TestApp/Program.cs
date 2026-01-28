@@ -5,7 +5,6 @@ using Microsoft.EntityFrameworkCore;
 using MudBlazor.Services;
 using SqliteWasmBlazor;
 using SqliteWasmBlazor.Models;
-using SqliteWasmWorkerBridge = SqliteWasmBlazor.SqliteWasmWorkerBridge;
 
 var builder = WebAssemblyHostBuilder.CreateDefault(args);
 
@@ -44,10 +43,13 @@ builder.Services.AddDbContextFactory<TodoDbContext>(options =>
 #endif
 });
 
+// Register SqliteWasm database management service
+builder.Services.AddSqliteWasm();
+
 var host = builder.Build();
 
 // Initialize sqlite-wasm worker
-await SqliteWasmWorkerBridge.Instance.InitializeAsync();
+await host.Services.InitializeSqliteWasmAsync();
 
 // Initialize database - always recreate for clean test runs
 using (var scope = host.Services.CreateScope())
