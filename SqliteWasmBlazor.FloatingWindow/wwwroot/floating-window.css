@@ -25,6 +25,8 @@ body.fw-resizing * {
     overflow: hidden;
     min-width: 200px;
     min-height: 100px;
+    touch-action: auto;
+    isolation: isolate;
 }
 
 .fw-window.fw-focused {

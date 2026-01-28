@@ -257,6 +257,9 @@ public partial class FloatingWindow : IAsyncDisposable
                 await _jsModule.InvokeVoidAsync("initResize", $"fw-{Id}", _dotNetRef);
             }
 
+            // Initialize touch capture to prevent events passing through window
+            await _jsModule.InvokeVoidAsync("initTouchCapture", $"fw-{Id}");
+
             _jsInteropInitialized = true;
         }
         catch (JSException)

@@ -274,6 +274,32 @@ export function updateSnapState(elementId, canSnap, isSnapped, preSnapWidth, pre
 }
 
 /**
+ * Initializes touch event handling on a window to prevent events from passing through.
+ * @param {string} elementId - The window element ID (fw-{id})
+ */
+export function initTouchCapture(elementId) {
+    const win = document.getElementById(elementId);
+    if (!win) {
+        return;
+    }
+
+    // Stop touch events from propagating to elements behind the window
+    function stopTouchPropagation(e) {
+        e.stopPropagation();
+    }
+
+    win.addEventListener('touchstart', stopTouchPropagation, { passive: true });
+    win.addEventListener('touchmove', stopTouchPropagation, { passive: true });
+    win.addEventListener('touchend', stopTouchPropagation, { passive: true });
+
+    win._fwTouchCleanup = () => {
+        win.removeEventListener('touchstart', stopTouchPropagation);
+        win.removeEventListener('touchmove', stopTouchPropagation);
+        win.removeEventListener('touchend', stopTouchPropagation);
+    };
+}
+
+/**
  * Initializes resize behavior on window edges/corners.
  * @param {string} elementId - The window element ID (fw-{id})
  * @param {DotNetObjectReference} dotNetRef - Reference to the Blazor component
@@ -425,6 +451,11 @@ export function dispose(elementId) {
     if (window._fwResizeCleanup) {
         window._fwResizeCleanup();
         delete window._fwResizeCleanup;
+    }
+
+    if (window._fwTouchCleanup) {
+        window._fwTouchCleanup();
+        delete window._fwTouchCleanup;
     }
 }
 
