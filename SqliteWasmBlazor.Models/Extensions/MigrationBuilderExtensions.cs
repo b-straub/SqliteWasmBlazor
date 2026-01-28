@@ -30,18 +30,20 @@ public static class MigrationBuilderExtensions
                 SELECT rowid, Id, Title, Description FROM TodoItems WHERE rowid = new.rowid AND IsDeleted = 0;
             END");
 
-        // DELETE trigger
+        // DELETE trigger - only remove from index if item was not soft-deleted
+        // (soft-deleted items were already removed from FTS5 by the UPDATE trigger)
         migrationBuilder.Sql(@"
-            CREATE TRIGGER TodoItems_ad AFTER DELETE ON TodoItems BEGIN
+            CREATE TRIGGER TodoItems_ad AFTER DELETE ON TodoItems WHEN old.IsDeleted = 0 BEGIN
                 INSERT INTO FTSTodoItem(FTSTodoItem, rowid, Id, Title, Description)
                 VALUES('delete', old.rowid, old.Id, old.Title, old.Description);
             END");
 
-        // UPDATE trigger - only index non-deleted items
+        // UPDATE trigger - remove old entry only if it was in the index (IsDeleted = 0),
+        // then add new entry only if still active (IsDeleted = 0)
         migrationBuilder.Sql(@"
             CREATE TRIGGER TodoItems_au AFTER UPDATE ON TodoItems BEGIN
                 INSERT INTO FTSTodoItem(FTSTodoItem, rowid, Id, Title, Description)
-                VALUES('delete', old.rowid, old.Id, old.Title, old.Description);
+                SELECT 'delete', old.rowid, old.Id, old.Title, old.Description WHERE old.IsDeleted = 0;
                 INSERT INTO FTSTodoItem(rowid, Id, Title, Description)
                 SELECT rowid, Id, Title, Description FROM TodoItems WHERE rowid = new.rowid AND IsDeleted = 0;
             END");

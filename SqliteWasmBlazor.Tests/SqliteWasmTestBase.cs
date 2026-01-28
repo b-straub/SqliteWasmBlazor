@@ -41,6 +41,7 @@ public abstract class SqliteWasmTestBase(IWaFixture fixture, ITestOutputHelper o
     [InlineData("Delete_SingleEntity")]
     [InlineData("BulkInsert_100Entities")]
     [InlineData("FTS5_Search")]
+    [InlineData("FTS5_SoftDeleteThenClear")]
     // Transaction Tests
     [InlineData("Transaction_Commit")]
     [InlineData("Transaction_Rollback")]
