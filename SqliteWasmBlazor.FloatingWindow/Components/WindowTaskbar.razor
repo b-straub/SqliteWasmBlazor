@@ -1,0 +1,51 @@
+@inject IWindowManager WindowManager
+@implements IDisposable
+
+@{
+    var minimizedWindows = WindowManager.Windows.Values
+        .Where(w => w.IsMinimized)
+        .OrderBy(w => w.Title)
+        .ToList();
+}
+
+@if (minimizedWindows.Count > 0)
+{
+    <div class="fw-taskbar">
+        @foreach (var window in minimizedWindows)
+        {
+            <div class="fw-taskbar-item" @onclick="() => RestoreWindow(window.Id)">
+                @if (!string.IsNullOrEmpty(window.Icon))
+                {
+                    <MudIcon Icon="@window.Icon" Size="Size.Small" />
+                }
+                <MudText Typo="Typo.body2">@window.Title</MudText>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    protected override void OnInitialized()
+    {
+        WindowManager.OnWindowsChanged += OnWindowsChanged;
+    }
+
+    private void OnWindowsChanged()
+    {
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void RestoreWindow(string id)
+    {
+        if (WindowManager.Windows.TryGetValue(id, out var window))
+        {
+            window.IsMinimized = false;
+            WindowManager.BringToFront(id);
+        }
+    }
+
+    public void Dispose()
+    {
+        WindowManager.OnWindowsChanged -= OnWindowsChanged;
+    }
+}

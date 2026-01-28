@@ -72,7 +72,7 @@ private void OnDataChanged()
 
 This is the standard EF Core `IDbContextFactory` pattern - not a WASM workaround. It works the same way in ASP.NET, Blazor Server, and desktop applications. Each operation gets a short-lived `DbContext`, avoiding tracking conflicts and threading issues that arise from long-lived shared contexts.
 
-The demo application includes a complete Multi-View example using `SqliteWasmBlazor.WindowHelper` - a lightweight Razor Class Library that adds draggable, resizable floating behavior to standard MudBlazor dialogs via JS interop. Navigate to `/multiview` in the demo to see it in action.
+The demo application includes a complete Multi-View example using `SqliteWasmBlazor.FloatingWindow` - a Razor Class Library that provides draggable, resizable floating windows with MudBlazor theming. Navigate to `/multiview` in the demo to see it in action.
 
 ## Data Initialization Without Page Reload
 

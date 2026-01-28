@@ -1,0 +1,68 @@
+@inject IWindowManager WindowManager
+@inject IJSRuntime JSRuntime
+
+@if (IsOpen && _state is not null && !_state.IsMinimized)
+{
+    <div class="fw-window @(_state.IsFocused ? "fw-focused" : "") @(_state.IsMaximized ? "fw-maximized" : "") @GetSnapClass()"
+         id="fw-@Id"
+         style="left: @(_state.X)px; top: @(_state.Y)px; width: @(_state.Width)px; height: @(_state.Height)px; z-index: @_state.ZIndex; min-width: @(MinWidth)px; min-height: @(MinHeight)px;"
+         @onclick="BringToFront"
+         @onclick:stopPropagation="true">
+
+        <div class="fw-header @(Draggable && !_state.IsMaximized ? "fw-header-draggable" : "")">
+            <div class="fw-title-area">
+                @if (!string.IsNullOrEmpty(Icon))
+                {
+                    <MudIcon Icon="@Icon" Size="Size.Small" />
+                }
+                <MudText Typo="Typo.subtitle1">@Title</MudText>
+            </div>
+
+            <div class="fw-controls">
+                @if (CanMinimize)
+                {
+                    <MudTooltip Text="Minimize">
+                        <MudIconButton Icon="@Icons.Material.Filled.Minimize"
+                                       Size="Size.Small"
+                                       Ripple="false"
+                                       OnClick="Minimize" />
+                    </MudTooltip>
+                }
+                @if (CanMaximize)
+                {
+                    <MudTooltip Text="@(_state.IsMaximized ? "Restore" : "Maximize")">
+                        <MudIconButton Icon="@(_state.IsMaximized ? Icons.Material.Filled.FilterNone : Icons.Material.Filled.CropSquare)"
+                                       Size="Size.Small"
+                                       Ripple="false"
+                                       OnClick="ToggleMaximize" />
+                    </MudTooltip>
+                }
+                @if (CanClose)
+                {
+                    <MudTooltip Text="Close">
+                        <MudIconButton Icon="@Icons.Material.Filled.Close"
+                                       Size="Size.Small"
+                                       Ripple="false"
+                                       OnClick="Close" />
+                    </MudTooltip>
+                }
+            </div>
+        </div>
+
+        <div class="fw-body">
+            @ChildContent
+        </div>
+
+        @if (Resizable && !_state.IsMaximized)
+        {
+            <div class="fw-resize fw-resize-n"></div>
+            <div class="fw-resize fw-resize-e"></div>
+            <div class="fw-resize fw-resize-s"></div>
+            <div class="fw-resize fw-resize-w"></div>
+            <div class="fw-resize fw-resize-ne"></div>
+            <div class="fw-resize fw-resize-se"></div>
+            <div class="fw-resize fw-resize-sw"></div>
+            <div class="fw-resize fw-resize-nw"></div>
+        }
+    </div>
+}

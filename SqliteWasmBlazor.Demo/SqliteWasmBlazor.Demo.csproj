@@ -26,7 +26,7 @@
     <ItemGroup>
         <ProjectReference Include="..\SqliteWasmBlazor.Components\SqliteWasmBlazor.Components.csproj" />
         <ProjectReference Include="..\SqliteWasmBlazor.Models\SqliteWasmBlazor.Models.csproj" />
-        <ProjectReference Include="..\SqliteWasmBlazor.WindowHelper\SqliteWasmBlazor.WindowHelper.csproj" />
+        <ProjectReference Include="..\SqliteWasmBlazor.FloatingWindow\SqliteWasmBlazor.FloatingWindow.csproj" />
     </ItemGroup>
     
     <ItemGroup Condition="'$(Configuration)' == 'Debug'">

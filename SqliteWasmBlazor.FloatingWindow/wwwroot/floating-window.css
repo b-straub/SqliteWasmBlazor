@@ -1,0 +1,317 @@
+/* FloatingWindow Component Styles */
+/* Uses MudBlazor CSS variables for theming consistency */
+
+/* Disable text selection globally during drag/resize */
+html:has(body.fw-dragging),
+body.fw-dragging,
+body.fw-dragging * {
+    user-select: none !important;
+}
+
+html:has(body.fw-resizing),
+body.fw-resizing,
+body.fw-resizing * {
+    user-select: none !important;
+}
+
+.fw-window {
+    position: fixed;
+    display: flex;
+    flex-direction: column;
+    background: var(--mud-palette-surface);
+    border: 1px solid var(--mud-palette-lines-default);
+    border-radius: var(--mud-default-borderradius);
+    box-shadow: var(--mud-elevation-8);
+    overflow: hidden;
+    min-width: 200px;
+    min-height: 100px;
+}
+
+.fw-window.fw-focused {
+    box-shadow: var(--mud-elevation-16);
+    border-color: var(--mud-palette-primary);
+}
+
+.fw-window.fw-minimized {
+    display: none;
+}
+
+.fw-window.fw-maximized {
+    left: 0 !important;
+    top: 0 !important;
+    width: 100vw !important;
+    height: 100vh !important;
+    border-radius: 0;
+}
+
+/* Snapped window states */
+.fw-window.fw-snapped-left {
+    left: 0 !important;
+    top: 0 !important;
+    width: 50vw !important;
+    height: 100vh !important;
+    border-radius: 0;
+}
+
+.fw-window.fw-snapped-right {
+    left: 50vw !important;
+    top: 0 !important;
+    width: 50vw !important;
+    height: 100vh !important;
+    border-radius: 0;
+}
+
+.fw-window.fw-snapped-top {
+    left: 0 !important;
+    top: 0 !important;
+    width: 100vw !important;
+    height: 50vh !important;
+    border-radius: 0;
+}
+
+.fw-window.fw-snapped-bottom {
+    left: 0 !important;
+    top: 50vh !important;
+    width: 100vw !important;
+    height: 50vh !important;
+    border-radius: 0;
+}
+
+/* Header */
+.fw-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: linear-gradient(180deg,
+        color-mix(in srgb, var(--mud-palette-primary) 15%, var(--mud-palette-surface)) 0%,
+        var(--mud-palette-surface) 100%);
+    color: var(--mud-palette-text-primary);
+    height: 40px;
+    padding: 0 8px 0 12px;
+    flex-shrink: 0;
+    user-select: none;
+    border-bottom: 1px solid var(--mud-palette-lines-default);
+}
+
+.fw-header-draggable {
+    touch-action: none;
+}
+
+/* Focused window gets stronger header gradient */
+.fw-window.fw-focused .fw-header {
+    background: linear-gradient(180deg,
+        color-mix(in srgb, var(--mud-palette-primary) 25%, var(--mud-palette-surface)) 0%,
+        color-mix(in srgb, var(--mud-palette-primary) 10%, var(--mud-palette-surface)) 100%);
+}
+
+.fw-title-area {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 1;
+    overflow: hidden;
+}
+
+.fw-title-area .mud-typography {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.fw-controls {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    margin-left: 8px;
+}
+
+.fw-controls .mud-icon-button {
+    padding: 4px;
+}
+
+/* Reset button states after click to prevent "stuck" appearance */
+.fw-controls .mud-icon-button:focus {
+    background-color: transparent;
+}
+
+.fw-controls .mud-icon-button:focus:not(:hover) {
+    background-color: transparent;
+}
+
+.fw-controls .mud-icon-button::after {
+    display: none;
+}
+
+/* Body */
+.fw-body {
+    flex: 1;
+    overflow: auto;
+    background: var(--mud-palette-surface);
+}
+
+/* Resize Handles */
+.fw-resize {
+    position: absolute;
+    z-index: 1;
+    user-select: none;
+    touch-action: none;
+}
+
+/* Edge handles - thin strips along edges */
+.fw-resize-n {
+    top: 0;
+    left: 8px;
+    right: 8px;
+    height: 4px;
+    cursor: ns-resize;
+}
+
+.fw-resize-s {
+    bottom: 0;
+    left: 8px;
+    right: 8px;
+    height: 4px;
+    cursor: ns-resize;
+}
+
+.fw-resize-e {
+    top: 8px;
+    right: 0;
+    bottom: 8px;
+    width: 4px;
+    cursor: ew-resize;
+}
+
+.fw-resize-w {
+    top: 8px;
+    left: 0;
+    bottom: 8px;
+    width: 4px;
+    cursor: ew-resize;
+}
+
+/* Corner handles - small squares at corners */
+.fw-resize-nw {
+    top: 0;
+    left: 0;
+    width: 8px;
+    height: 8px;
+    cursor: nwse-resize;
+}
+
+.fw-resize-ne {
+    top: 0;
+    right: 0;
+    width: 8px;
+    height: 8px;
+    cursor: nesw-resize;
+}
+
+.fw-resize-sw {
+    bottom: 0;
+    left: 0;
+    width: 8px;
+    height: 8px;
+    cursor: nesw-resize;
+}
+
+.fw-resize-se {
+    bottom: 0;
+    right: 0;
+    width: 8px;
+    height: 8px;
+    cursor: nwse-resize;
+}
+
+/* Visual indicator for SE corner (resize grip) */
+.fw-resize-se::before {
+    content: "";
+    position: absolute;
+    bottom: 2px;
+    right: 2px;
+    width: 6px;
+    height: 6px;
+    border-right: 2px solid var(--mud-palette-text-disabled);
+    border-bottom: 2px solid var(--mud-palette-text-disabled);
+}
+
+/* Window Taskbar (for minimized windows) */
+.fw-taskbar {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    display: flex;
+    gap: 4px;
+    padding: 4px 8px;
+    background: var(--mud-palette-background-grey);
+    border-top: 1px solid var(--mud-palette-lines-default);
+    z-index: 999;
+}
+
+.fw-taskbar:empty {
+    display: none;
+}
+
+.fw-taskbar-item {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 12px;
+    background: var(--mud-palette-surface);
+    border: 1px solid var(--mud-palette-lines-default);
+    border-radius: var(--mud-default-borderradius);
+    cursor: pointer;
+    max-width: 200px;
+    overflow: hidden;
+}
+
+.fw-taskbar-item:hover {
+    background: var(--mud-palette-action-default-hover);
+}
+
+.fw-taskbar-item .mud-typography {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* Snap Preview Overlay */
+.fw-snap-preview {
+    position: fixed;
+    background: color-mix(in srgb, var(--mud-palette-primary) 20%, transparent);
+    border: 2px dashed var(--mud-palette-primary);
+    border-radius: var(--mud-default-borderradius);
+    pointer-events: none;
+    z-index: 9999;
+    transition: all 150ms ease-out;
+}
+
+/* Snap zone positions */
+.fw-snap-preview.fw-snap-left {
+    left: 0;
+    top: 0;
+    width: 50vw;
+    height: 100vh;
+}
+
+.fw-snap-preview.fw-snap-right {
+    left: 50vw;
+    top: 0;
+    width: 50vw;
+    height: 100vh;
+}
+
+.fw-snap-preview.fw-snap-top {
+    left: 0;
+    top: 0;
+    width: 100vw;
+    height: 50vh;
+}
+
+.fw-snap-preview.fw-snap-bottom {
+    left: 0;
+    top: 50vh;
+    width: 100vw;
+    height: 50vh;
+}

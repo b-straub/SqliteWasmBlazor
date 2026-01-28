@@ -1,7 +1,5 @@
 @page "/multiview"
 @using SqliteWasmBlazor.Demo.Components.Views
-@inject FloatingDialogService FloatingDialog
-@implements IDisposable
 
 <PageTitle>Multi View</PageTitle>
 
@@ -30,24 +28,24 @@
             <MudButton Variant="Variant.Filled"
                        Color="Color.Primary"
                        StartIcon="@Icons.Material.Filled.TableChart"
-                       OnClick="OpenTableViewAsync"
-                       Disabled="FloatingDialog.IsOpen(TableViewId)"
+                       OnClick="() => _tableOpen = true"
+                       Disabled="_tableOpen"
                        Size="Size.Large">
                 Table View
             </MudButton>
             <MudButton Variant="Variant.Filled"
                        Color="Color.Secondary"
                        StartIcon="@Icons.Material.Filled.ViewModule"
-                       OnClick="OpenCardViewAsync"
-                       Disabled="FloatingDialog.IsOpen(CardViewId)"
+                       OnClick="() => _cardOpen = true"
+                       Disabled="_cardOpen"
                        Size="Size.Large">
                 Card View
             </MudButton>
             <MudButton Variant="Variant.Filled"
                        Color="Color.Tertiary"
                        StartIcon="@Icons.Material.Filled.BarChart"
-                       OnClick="OpenStatsViewAsync"
-                       Disabled="FloatingDialog.IsOpen(StatsViewId)"
+                       OnClick="() => _statsOpen = true"
+                       Disabled="_statsOpen"
                        Size="Size.Large">
                 Stats View
             </MudButton>
@@ -63,7 +61,7 @@
             <MudStack Row="true" AlignItems="AlignItems.Center">
                 <MudIcon Icon="@Icons.Material.Filled.Window" Size="Size.Small" Color="Color.Primary" />
                 <MudText Typo="Typo.body2">
-                    <strong>Floating Windows:</strong> Lightweight JS interop provides draggable, resizable dialog windows on top of standard MudBlazor dialogs
+                    <strong>Floating Windows:</strong> Custom window component with smooth drag/resize via pointer capture
                 </MudText>
             </MudStack>
             <MudStack Row="true" AlignItems="AlignItems.Center">
@@ -88,73 +86,47 @@
     </MudPaper>
 </MudContainer>
 
+@* Floating Windows *@
+<FloatingWindow Id="todo-table"
+                Title="Todo Table"
+                Icon="@Icons.Material.Filled.TableChart"
+                @bind-IsOpen="_tableOpen"
+                RememberState="true"
+                Width="800" Height="500"
+                MinWidth="400" MinHeight="300">
+    <div class="pa-4">
+        <TodoTableContent />
+    </div>
+</FloatingWindow>
+
+<FloatingWindow Id="todo-cards"
+                Title="Todo Cards"
+                Icon="@Icons.Material.Filled.ViewModule"
+                @bind-IsOpen="_cardOpen"
+                RememberState="true"
+                Width="700" Height="500"
+                MinWidth="400" MinHeight="300">
+    <div class="pa-4">
+        <TodoCardContent />
+    </div>
+</FloatingWindow>
+
+<FloatingWindow Id="todo-stats"
+                Title="Todo Statistics"
+                Icon="@Icons.Material.Filled.BarChart"
+                @bind-IsOpen="_statsOpen"
+                RememberState="true"
+                Width="500" Height="450"
+                MinWidth="350" MinHeight="300">
+    <div class="pa-4">
+        <TodoStatsContent />
+    </div>
+</FloatingWindow>
+
+<WindowTaskbar />
+
 @code {
-    private const string TableViewId = "todo-table-view";
-    private const string CardViewId = "todo-card-view";
-    private const string StatsViewId = "todo-stats-view";
-
-    protected override void OnInitialized()
-    {
-        FloatingDialog.OnDialogClosed += OnDialogClosed;
-    }
-
-    private void OnDialogClosed(string windowId)
-    {
-        InvokeAsync(StateHasChanged);
-    }
-
-    private async Task OpenTableViewAsync()
-    {
-        var options = new FloatingDialogOptions
-        {
-            WindowId = TableViewId,
-            RememberState = true,
-            CloseButton = true,
-            CloseOnEscapeKey = true,
-            MaxWidth = MaxWidth.Large,
-            FullWidth = true,
-            Position = DialogPosition.TopCenter
-        };
-
-        await FloatingDialog.ShowAsync<TodoTableView>("Todo Table", options);
-    }
-
-    private async Task OpenCardViewAsync()
-    {
-        var options = new FloatingDialogOptions
-        {
-            WindowId = CardViewId,
-            RememberState = true,
-            CloseButton = true,
-            CloseOnEscapeKey = true,
-            MaxWidth = MaxWidth.Large,
-            FullWidth = true,
-            Position = DialogPosition.CenterRight
-        };
-
-        await FloatingDialog.ShowAsync<TodoCardView>("Todo Cards", options);
-    }
-
-    private async Task OpenStatsViewAsync()
-    {
-        var options = new FloatingDialogOptions
-        {
-            WindowId = StatsViewId,
-            RememberState = true,
-            CloseButton = true,
-            CloseOnEscapeKey = true,
-            MaxWidth = MaxWidth.Medium,
-            FullWidth = true,
-            Position = DialogPosition.CenterLeft
-        };
-
-        await FloatingDialog.ShowAsync<TodoStatsView>("Todo Statistics", options);
-    }
-
-    public void Dispose()
-    {
-        FloatingDialog.OnDialogClosed -= OnDialogClosed;
-        // Close all floating dialogs when navigating away to prevent focus errors
-        FloatingDialog.CloseAll();
-    }
+    private bool _tableOpen;
+    private bool _cardOpen;
+    private bool _statsOpen;
 }

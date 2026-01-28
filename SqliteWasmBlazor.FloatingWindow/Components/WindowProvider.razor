@@ -1,0 +1,27 @@
+@inject IWindowManager WindowManager
+@implements IDisposable
+
+@* Render nothing - this component just provides global keyboard handling *@
+@* Windows are rendered inline where FloatingWindow components are placed *@
+
+@ChildContent
+
+@code {
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+
+    protected override void OnInitialized()
+    {
+        WindowManager.OnWindowsChanged += OnWindowsChanged;
+    }
+
+    private void OnWindowsChanged()
+    {
+        InvokeAsync(StateHasChanged);
+    }
+
+    public void Dispose()
+    {
+        WindowManager.OnWindowsChanged -= OnWindowsChanged;
+    }
+}
