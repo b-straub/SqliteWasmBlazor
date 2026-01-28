@@ -5,7 +5,7 @@
     <MudBlazorVersion>8.15.0</MudBlazorVersion>
     <SqlitePCLRawVersion>2.1.11</SqlitePCLRawVersion>
     <MessagePackVersion>3.1.4</MessagePackVersion>
-    <SqliteWasmBlazorVersion>0.7.1-pre</SqliteWasmBlazorVersion>
+    <SqliteWasmBlazorVersion>0.7.2-pre</SqliteWasmBlazorVersion>
 
     <!-- Suppress WASM warnings globally for all projects in the solution -->
 

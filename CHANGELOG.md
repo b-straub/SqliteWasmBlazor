@@ -2,6 +2,43 @@
 
 All notable changes to SqliteWasmBlazor are documented in this file.
 
+## Version 0.7.2-pre
+
+### Breaking Change: Stable Public API
+
+`SqliteWasmWorkerBridge` is now `internal`. Database management operations are exposed through the new `ISqliteWasmDatabaseService` interface via dependency injection.
+
+**Migration steps:**
+
+1. Add service registration in `Program.cs`:
+   ```csharp
+   builder.Services.AddSqliteWasm();
+   ```
+
+2. Inject the interface in components:
+   ```csharp
+   @inject ISqliteWasmDatabaseService DatabaseService
+   ```
+
+3. Replace direct calls:
+   ```csharp
+   // Before
+   await SqliteWasmWorkerBridge.Instance.DeleteDatabaseAsync("MyDb.db");
+
+   // After
+   await DatabaseService.DeleteDatabaseAsync("MyDb.db");
+   ```
+
+**Available methods on `ISqliteWasmDatabaseService`:**
+- `ExistsDatabaseAsync(string databaseName)` - Check if database exists in OPFS
+- `DeleteDatabaseAsync(string databaseName)` - Delete database from OPFS
+- `RenameDatabaseAsync(string oldName, string newName)` - Rename database (atomic)
+- `CloseDatabaseAsync(string databaseName)` - Close database connection in worker
+
+This change encapsulates internal implementation details and provides a stable API surface for future versions.
+
+---
+
 ## Incremental Database Export/Import (Delta Sync)
 
 File-based incremental export/import for large databases in offline-first PWAs. Export only changed items since last checkpoint, transfer the file manually (USB, cloud storage, etc.), and import with conflict resolution:

@@ -16,6 +16,20 @@
 - **Database Import/Export** - Schema-validated MessagePack serialization for backups and data migration [(details)](CHANGELOG.md#database-importexport)
 - **Real-World Sample** - Check out the [Datasync TodoApp](https://github.com/b-straub/Datasync/tree/main/samples/todoapp-blazor-wasm-offline) for offline-first data synchronization with SqliteWasmBlazor
 
+## Breaking Changes
+
+- **v0.7.2-pre** - `SqliteWasmWorkerBridge` is now internal. Use `ISqliteWasmDatabaseService` via DI instead:
+  ```csharp
+  // Program.cs - add service registration
+  builder.Services.AddSqliteWasm();
+
+  // Components - inject the interface
+  @inject ISqliteWasmDatabaseService DatabaseService
+
+  // Replace SqliteWasmWorkerBridge.Instance.DeleteDatabaseAsync(...)
+  // with:   DatabaseService.DeleteDatabaseAsync(...)
+  ```
+
 ## What Makes This Special?
 
 Unlike other Blazor WASM database solutions that use in-memory storage or IndexedDB emulation, **SqliteWasmBlazor** is the **first implementation** that combines:
