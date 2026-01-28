@@ -147,6 +147,9 @@ body.fw-resizing * {
     flex: 1;
     overflow: auto;
     background: var(--mud-palette-surface);
+    touch-action: auto;
+    -webkit-user-select: text;
+    user-select: text;
 }
 
 /* Resize Handles */
@@ -233,6 +236,47 @@ body.fw-resizing * {
     height: 6px;
     border-right: 2px solid var(--mud-palette-text-disabled);
     border-bottom: 2px solid var(--mud-palette-text-disabled);
+}
+
+/* Touch-friendly resize handles */
+@media (pointer: coarse) {
+    .fw-resize-n,
+    .fw-resize-s {
+        height: 12px;
+    }
+
+    .fw-resize-e,
+    .fw-resize-w {
+        width: 12px;
+    }
+
+    .fw-resize-nw,
+    .fw-resize-ne,
+    .fw-resize-sw,
+    .fw-resize-se {
+        width: 20px;
+        height: 20px;
+    }
+
+    .fw-resize-n {
+        left: 20px;
+        right: 20px;
+    }
+
+    .fw-resize-s {
+        left: 20px;
+        right: 20px;
+    }
+
+    .fw-resize-e {
+        top: 20px;
+        bottom: 20px;
+    }
+
+    .fw-resize-w {
+        top: 20px;
+        bottom: 20px;
+    }
 }
 
 /* Window Taskbar (for minimized windows) */

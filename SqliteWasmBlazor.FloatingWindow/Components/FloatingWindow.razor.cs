@@ -388,6 +388,9 @@ public partial class FloatingWindow : IAsyncDisposable
         _state.PreSnapWidth = null;
         _state.PreSnapHeight = null;
 
+        // Resize handles will be re-added to DOM
+        _needsResizeReinit = true;
+
         // Update JS snap state
         if (_jsModule is not null)
         {
@@ -523,6 +526,9 @@ public partial class FloatingWindow : IAsyncDisposable
         _state.PreSnapY = null;
         _state.PreSnapWidth = null;
         _state.PreSnapHeight = null;
+
+        // Resize handles will be re-added to DOM
+        _needsResizeReinit = true;
 
         // Update JS snap state
         if (_jsModule is not null)

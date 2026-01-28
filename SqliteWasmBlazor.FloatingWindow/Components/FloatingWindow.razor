@@ -54,7 +54,7 @@
             @ChildContent
         </div>
 
-        @if (Resizable && !_state.IsMaximized)
+        @if (Resizable && !_state.IsMaximized && _state.SnapState == SnapZone.None)
         {
             <div class="fw-resize fw-resize-n"></div>
             <div class="fw-resize fw-resize-e"></div>
