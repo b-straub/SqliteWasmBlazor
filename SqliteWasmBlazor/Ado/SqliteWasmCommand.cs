@@ -77,7 +77,7 @@ public sealed class SqliteWasmCommand : DbCommand
         }
 
         var result = await bridge.ExecuteSqlAsync(
-            Connection!.Database,
+            Connection.Database,
             sql,
             _parameters.GetParameterValues(),
             cancellationToken);
@@ -105,7 +105,7 @@ public sealed class SqliteWasmCommand : DbCommand
         var bridge = SqliteWasmWorkerBridge.Instance;
         var sql = PreprocessSql(_commandText);
         var result = await bridge.ExecuteSqlAsync(
-            Connection!.Database,
+            Connection.Database,
             sql,
             _parameters.GetParameterValues(),
             cancellationToken);
@@ -135,7 +135,7 @@ public sealed class SqliteWasmCommand : DbCommand
         var bridge = SqliteWasmWorkerBridge.Instance;
         var sql = PreprocessSql(_commandText);
         var result = await bridge.ExecuteSqlAsync(
-            Connection!.Database,
+            Connection.Database,
             sql,
             _parameters.GetParameterValues(),
             cancellationToken);
@@ -153,6 +153,7 @@ public sealed class SqliteWasmCommand : DbCommand
         return new SqliteWasmParameter();
     }
 
+    [MemberNotNull(nameof(Connection))]
     private void ValidateConnection()
     {
         if (Connection == null)
