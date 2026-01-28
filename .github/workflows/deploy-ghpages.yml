@@ -33,9 +33,6 @@ jobs:
       with:
         version: '3.1.56'
 
-    - name: Build native stub
-      run: bash SqliteWasmBlazor/native/build_stub.sh
-
     - name: Install npm dependencies (SqliteWasmBlazor)
       run: npm install
       working-directory: SqliteWasmBlazor/TypeScript
