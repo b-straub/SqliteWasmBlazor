@@ -9,6 +9,16 @@
 
 **[Try the Live Demo](https://b-straub.github.io/SqliteWasmBlazor/)** - Experience persistent SQLite database in your browser! Can be installed as a Progressive Web App (PWA) for offline use.
 
+## About This Project
+
+This is a non-commercial hobby project maintained in my spare time - no fixed update cycle or roadmap. However, "hobby" refers to time and commitment, not craftsmanship: the project is developed with professional standards including proper test coverage and attention to code quality.
+
+Open source thrives on community involvement. The project grows through bug reports, feature requests, pull requests, and real-world feedback. If you're considering this for production use, I'd encourage you to contribute back - that's how open source stays alive, not through promises from a single maintainer, but through shared ownership.
+
+### Stability & Status
+
+The public API surface is intentionally kept minimal to reduce the risk of breaking changes. While the API has been stable in practice, this project is pre-1.0: broader real-world feedback is needed before committing to long-term API guarantees. Contributions and usage reports help move toward that goal.
+
 ## What's New
 
 - **Multi-View Demo** - Floating draggable/resizable dialog windows using lightweight JS interop on top of standard MudBlazor dialogs [(details)](docs/patterns.md#multi-view-instead-of-multi-tab)
