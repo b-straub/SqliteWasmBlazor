@@ -13,7 +13,7 @@
     "build:bridge:release": "esbuild worker-bridge.ts --bundle --format=esm --minify --outfile=../wwwroot/sqlite-wasm-bridge.js"
   },
   "dependencies": {
-    "@sqlite.org/sqlite-wasm": "3.51.2-build5",
+    "@sqlite.org/sqlite-wasm": "^3.51.2-build8",
     "msgpackr": "^1.11.5"
   },
   "devDependencies": {
