@@ -9,7 +9,7 @@ namespace SqliteWasmBlazor.TestApp.TestInfrastructure.Tests.ImportExport;
 /// </summary>
 internal static class ImportExportTestHelper
 {
-    private const int DefaultColumnCount = 6; // TodoItem: Id, Title, Description, IsCompleted, UpdatedAt, CompletedAt
+    private const int DefaultColumnCount = 8; // TodoItem: Id, Title, Description, IsCompleted, UpdatedAt, CompletedAt, IsDeleted, DeletedAt
 
     /// <summary>
     /// Bulk insert TodoItemDtos using raw SQL to preserve IDs
@@ -23,11 +23,10 @@ internal static class ImportExportTestHelper
         }
 
         // SQLite supports up to 999 parameters per statement
-        // Try to get column count from EF Core metadata, fallback to constant
+        // Use the actual number of columns in the INSERT, not total entity properties
+        // (TodoItem has 8 properties but we only insert 6: IsDeleted/DeletedAt default to false/null)
         const int maxSqliteParams = 999;
-        var entityType = context.Model.FindEntityType(typeof(SqliteWasmBlazor.Models.Models.TodoItem));
-        var columnCount = entityType?.GetProperties().Count() ?? DefaultColumnCount;
-        var rowsPerBatch = maxSqliteParams / columnCount;
+        var rowsPerBatch = maxSqliteParams / DefaultColumnCount;
 
         for (var i = 0; i < dtos.Count; i += rowsPerBatch)
         {
@@ -38,21 +37,21 @@ internal static class ImportExportTestHelper
             for (var j = 0; j < batch.Count; j++)
             {
                 var dto = batch[j];
-                var baseIndex = j * columnCount;
-                // Use named parameters @p0, @p1, etc. to match EF Core's parameter naming
-                valuesClauses.Add($"(@p{baseIndex}, @p{baseIndex + 1}, @p{baseIndex + 2}, @p{baseIndex + 3}, @p{baseIndex + 4}, @p{baseIndex + 5})");
+                var baseIndex = j * DefaultColumnCount;
+                valuesClauses.Add($"(@p{baseIndex}, @p{baseIndex + 1}, @p{baseIndex + 2}, @p{baseIndex + 3}, @p{baseIndex + 4}, @p{baseIndex + 5}, @p{baseIndex + 6}, @p{baseIndex + 7})");
 
-                // Pass Guid directly - SqliteWasmParameter will handle conversion to BLOB
                 parameters.Add(dto.Id);
                 parameters.Add(dto.Title);
                 parameters.Add(dto.Description);
                 parameters.Add(dto.IsCompleted ? 1 : 0);
                 parameters.Add(dto.UpdatedAt.ToString("O"));
                 parameters.Add(dto.CompletedAt?.ToString("O"));
+                parameters.Add(0); // IsDeleted = false
+                parameters.Add(null); // DeletedAt = null
             }
 
             var sql = $@"
-                INSERT INTO TodoItems (Id, Title, Description, IsCompleted, UpdatedAt, CompletedAt)
+                INSERT INTO TodoItems (Id, Title, Description, IsCompleted, UpdatedAt, CompletedAt, IsDeleted, DeletedAt)
                 VALUES {string.Join(", ", valuesClauses)}";
 
             await context.Database.ExecuteSqlRawAsync(sql, parameters.ToArray()!);

@@ -21,9 +21,8 @@ internal class ExportImportDeltaConflictLocalWinsTest(IDbContextFactory<TodoDbCo
         var schemaHash = SchemaHashGenerator.ComputeHash<TodoItemDto>();
         const string appId = "SqliteWasmBlazor.Test";
 
-        // Step 1: Create local item
+        // Step 1: Create local item — interceptor sets UpdatedAt to now
         var sharedId = Guid.NewGuid();
-        var localTime = DateTime.UtcNow;
 
         await using (var context = await Factory.CreateDbContextAsync())
         {
@@ -33,9 +32,17 @@ internal class ExportImportDeltaConflictLocalWinsTest(IDbContextFactory<TodoDbCo
                 Title = "Local Item",
                 Description = "Local version",
                 IsCompleted = false,
-                UpdatedAt = localTime
+                UpdatedAt = DateTime.UtcNow
             });
             await context.SaveChangesAsync();
+        }
+
+        // Read back actual UpdatedAt (set by interceptor)
+        DateTime localTime;
+        await using (var context = await Factory.CreateDbContextAsync())
+        {
+            var item = await context.TodoItems.AsNoTracking().FirstAsync(t => t.Id == sharedId);
+            localTime = item.UpdatedAt;
         }
 
         // Step 2: Create imported item with different data (should be ignored)

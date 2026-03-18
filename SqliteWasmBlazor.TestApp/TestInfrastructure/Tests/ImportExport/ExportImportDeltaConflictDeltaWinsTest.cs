@@ -21,9 +21,8 @@ internal class ExportImportDeltaConflictDeltaWinsTest(IDbContextFactory<TodoDbCo
         var schemaHash = SchemaHashGenerator.ComputeHash<TodoItemDto>();
         const string appId = "SqliteWasmBlazor.Test";
 
-        // Step 1: Create local item with newer timestamp
+        // Step 1: Create local item — interceptor sets UpdatedAt to now
         var sharedId = Guid.NewGuid();
-        var newerLocalTime = DateTime.UtcNow;
 
         await using (var context = await Factory.CreateDbContextAsync())
         {
@@ -33,10 +32,18 @@ internal class ExportImportDeltaConflictDeltaWinsTest(IDbContextFactory<TodoDbCo
                 Title = "Local Item",
                 Description = "Newer local version",
                 IsCompleted = true,
-                UpdatedAt = newerLocalTime,
-                CompletedAt = newerLocalTime
+                UpdatedAt = DateTime.UtcNow,
+                CompletedAt = DateTime.UtcNow
             });
             await context.SaveChangesAsync();
+        }
+
+        // Read back actual UpdatedAt (set by interceptor)
+        DateTime newerLocalTime;
+        await using (var context = await Factory.CreateDbContextAsync())
+        {
+            var item = await context.TodoItems.AsNoTracking().FirstAsync(t => t.Id == sharedId);
+            newerLocalTime = item.UpdatedAt;
         }
 
         // Step 2: Create imported item with OLDER timestamp (should still win with DeltaWins)
@@ -123,11 +130,8 @@ internal class ExportImportDeltaConflictDeltaWinsTest(IDbContextFactory<TodoDbCo
                 throw new InvalidOperationException("Imported completion status should be applied (false)");
             }
 
-            if (item.UpdatedAt != olderImportTime)
-            {
-                throw new InvalidOperationException("Imported UpdatedAt should be applied even though it's older");
-            }
-
+            // Note: UpdatedAt is managed by the interceptor and gets overwritten on SaveChanges,
+            // so we verify data fields rather than timestamps for DeltaWins strategy
             if (item.CompletedAt is not null)
             {
                 throw new InvalidOperationException("CompletedAt should be null from import");

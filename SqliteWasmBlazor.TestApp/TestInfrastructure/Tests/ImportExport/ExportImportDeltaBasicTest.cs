@@ -20,18 +20,20 @@ internal class ExportImportDeltaBasicTest(IDbContextFactory<TodoDbContext> facto
         var schemaHash = SchemaHashGenerator.ComputeHash<TodoItemDto>();
         const string appId = "SqliteWasmBlazor.Test";
 
-        // Step 1: Create initial dataset
-        var initialItems = new List<TodoItem>
+        // Step 1: Create initial dataset using raw SQL to bypass UpdatedAtInterceptor
+        // The interceptor would override UpdatedAt to DateTime.UtcNow on SaveChanges,
+        // making it impossible to set "old" timestamps needed for delta cutoff testing
+        var oldTime = DateTime.UtcNow.AddHours(-2);
+        var initialDtos = new List<TodoItemDto>
         {
-            new() { Id = Guid.NewGuid(), Title = "Original 1", Description = "Description 1", IsCompleted = false, UpdatedAt = DateTime.UtcNow.AddHours(-2) },
-            new() { Id = Guid.NewGuid(), Title = "Original 2", Description = "Description 2", IsCompleted = false, UpdatedAt = DateTime.UtcNow.AddHours(-2) },
-            new() { Id = Guid.NewGuid(), Title = "Original 3", Description = "Description 3", IsCompleted = false, UpdatedAt = DateTime.UtcNow.AddHours(-2) }
+            new() { Id = Guid.NewGuid(), Title = "Original 1", Description = "Description 1", IsCompleted = false, UpdatedAt = oldTime },
+            new() { Id = Guid.NewGuid(), Title = "Original 2", Description = "Description 2", IsCompleted = false, UpdatedAt = oldTime },
+            new() { Id = Guid.NewGuid(), Title = "Original 3", Description = "Description 3", IsCompleted = false, UpdatedAt = oldTime }
         };
 
         await using (var context = await Factory.CreateDbContextAsync())
         {
-            context.TodoItems.AddRange(initialItems);
-            await context.SaveChangesAsync();
+            await ImportExportTestHelper.BulkInsertTodoItemsAsync(context, initialDtos);
         }
 
         // Step 2: Export initial data
