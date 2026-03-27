@@ -67,7 +67,7 @@
             @* Import *@
             <MudFileUpload T="IBrowserFile"
                            OnFilesChanged="HandleImportFileSelectedAsync"
-                           Accept=".db"
+                           Accept=".db,application/octet-stream,application/x-sqlite3"
                            MaximumFileCount="1"
                            Disabled="@_isBusy">
                 <CustomContent Context="fileUpload">
