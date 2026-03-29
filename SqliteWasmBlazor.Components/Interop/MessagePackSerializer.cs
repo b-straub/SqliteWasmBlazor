@@ -4,33 +4,23 @@ using Microsoft.Extensions.Logging;
 namespace SqliteWasmBlazor.Components.Interop;
 
 /// <summary>
-/// Generic streaming serialization helper for entity collections using MessagePack with optional LZ4 compression
-/// All methods are truly async without Task.Run wrappers
+/// Generic streaming serialization helper for entity collections using MessagePack V2 format.
+/// V2 header is self-describing with column metadata for worker-side bulk operations.
 /// </summary>
 public static class MessagePackSerializer<T>
 {
-    /// <summary>
-    /// MessagePack options WITHOUT compression (for performance testing)
-    /// LZ4BlockArray compression is DISABLED to measure raw serialization performance
-    /// To enable compression, uncomment the .WithCompression line below
-    /// </summary>
     private static readonly MessagePackSerializerOptions Options = MessagePackSerializerOptions.Standard;
-        //.WithCompression(MessagePackCompression.Lz4BlockArray); // DISABLED for testing
 
     /// <summary>
-    /// Serialize entities to a stream one by one (chunked format)
-    /// First writes a header with schema metadata (hash computed automatically), then each entity as a separate MessagePack object
-    /// This allows streaming without loading entire dataset into memory
+    /// Serialize entities to a stream as V2 format (header + items).
+    /// Header contains column metadata for worker-side SQL construction and type conversions.
     /// </summary>
-    /// <param name="items">Items to serialize</param>
-    /// <param name="stream">Target stream</param>
-    /// <param name="appIdentifier">Optional application identifier</param>
-    /// <param name="logger">Optional logger for diagnostics</param>
-    /// <param name="progress">Optional progress callback (current, total)</param>
-    /// <param name="cancellationToken">Cancellation token</param>
     public static async Task SerializeStreamAsync(
         IEnumerable<T> items,
         Stream stream,
+        string tableName,
+        string primaryKeyColumn,
+        int mode = 0,
         string? appIdentifier = null,
         ILogger? logger = null,
         IProgress<(int current, int total)>? progress = null,
@@ -50,12 +40,11 @@ public static class MessagePackSerializer<T>
         var total = itemList.Count;
         var current = 0;
 
-        logger?.LogDebug("Starting serialization of {Count} {Type} items", total, typeof(T).Name);
+        logger?.LogDebug("Starting V2 serialization of {Count} {Type} items", total, typeof(T).Name);
 
-        // Write header first for schema validation (hash computed automatically)
-        var header = MessagePackFileHeader.Create<T>(total, appIdentifier);
-        logger?.LogDebug("Writing header: Type={Type}, SchemaHash={Hash}, Records={Count}",
-            header.DataType, header.SchemaHash, header.RecordCount);
+        var header = MessagePackFileHeaderV2.Create<T>(tableName, primaryKeyColumn, total, mode, appIdentifier);
+        logger?.LogDebug("Writing V2 header: Type={Type}, SchemaHash={Hash}, Records={Count}, Table={Table}",
+            header.DataType, header.SchemaHash, header.RecordCount, header.TableName);
 
         await MessagePackSerializer.SerializeAsync(stream, header, Options, cancellationToken);
 
@@ -68,24 +57,14 @@ public static class MessagePackSerializer<T>
             progress?.Report((current, total));
         }
 
-        logger?.LogInformation("Serialized {Count} {Type} items to {Bytes} bytes",
+        logger?.LogInformation("Serialized {Count} {Type} items to {Bytes} bytes (V2)",
             total, typeof(T).Name, stream.Length);
     }
 
     /// <summary>
-    /// Deserialize entities from a stream one by one (chunked format)
-    /// First validates the header for schema compatibility, then reads each entity as a separate MessagePack object
-    /// Processes items in batches without loading entire dataset into memory
+    /// Deserialize entities from a V2 stream (header + items).
+    /// Validates V2 header for schema compatibility, then reads items in batches.
     /// </summary>
-    /// <param name="stream">Source stream</param>
-    /// <param name="onBatch">Callback invoked for each batch of items</param>
-    /// <param name="expectedSchemaHash">Expected schema hash (or null to skip schema check)</param>
-    /// <param name="expectedAppIdentifier">Expected application identifier (or null to skip app check)</param>
-    /// <param name="logger">Optional logger for diagnostics</param>
-    /// <param name="batchSize">Number of items per batch</param>
-    /// <param name="progress">Optional progress callback (current, total)</param>
-    /// <param name="cancellationToken">Cancellation token</param>
-    /// <returns>Total number of items deserialized</returns>
     public static async Task<int> DeserializeStreamAsync(
         Stream stream,
         Func<List<T>, Task> onBatch,
@@ -106,37 +85,36 @@ public static class MessagePackSerializer<T>
             throw new ArgumentNullException(nameof(onBatch));
         }
 
-        logger?.LogDebug("Starting deserialization with batch size {BatchSize}", batchSize);
+        logger?.LogDebug("Starting V2 deserialization with batch size {BatchSize}", batchSize);
         var streamReader = new MessagePackStreamReader(stream);
 
-        // Read and validate header first
+        // Read and validate V2 header
         var headerData = await streamReader.ReadAsync(cancellationToken);
         if (headerData is null)
         {
             throw new InvalidOperationException("File is empty or missing header");
         }
 
-        MessagePackFileHeader header;
+        MessagePackFileHeaderV2 header;
         try
         {
             var headerSequence = headerData.Value;
-            header = MessagePackSerializer.Deserialize<MessagePackFileHeader>(in headerSequence, Options, cancellationToken);
+            header = MessagePackSerializer.Deserialize<MessagePackFileHeaderV2>(in headerSequence, Options, cancellationToken);
         }
         catch (Exception ex)
         {
             throw new InvalidOperationException(
-                "Invalid or missing file header. This file may not be a valid export from this application.", ex);
+                "Invalid or missing V2 file header. This file may not be a valid export from this application.", ex);
         }
 
-        logger?.LogDebug("Read header: Type={Type}, SchemaHash={Hash}, Records={Count}, Exported={ExportDate}",
-            header.DataType, header.SchemaHash, header.RecordCount, header.ExportedAt);
+        logger?.LogDebug("Read V2 header: Type={Type}, SchemaHash={Hash}, Records={Count}, Table={Table}",
+            header.DataType, header.SchemaHash, header.RecordCount, header.TableName);
 
-        // Validate header compatibility
         var expectedType = typeof(T).FullName ?? typeof(T).Name;
         header.Validate(expectedType, expectedSchemaHash, expectedAppIdentifier);
 
-        logger?.LogInformation("Importing {Count} {Type} records (schema hash {Hash})",
-            header.RecordCount, typeof(T).Name, header.SchemaHash);
+        logger?.LogInformation("Importing {Count} {Type} records (schema hash {Hash}, table {Table})",
+            header.RecordCount, typeof(T).Name, header.SchemaHash, header.TableName);
 
         var batch = new List<T>(batchSize);
         var totalCount = 0;
@@ -167,7 +145,7 @@ public static class MessagePackSerializer<T>
             progress?.Report((totalCount, -1));
         }
 
-        logger?.LogInformation("Deserialized {Count} {Type} items", totalCount, typeof(T).Name);
+        logger?.LogInformation("Deserialized {Count} {Type} items (V2)", totalCount, typeof(T).Name);
         return totalCount;
     }
 }

@@ -104,6 +104,8 @@ public partial class MessagePackFileUpload<T>
                 ProgressPercentage = TotalBytes > 0 ? Math.Min(100, (int)((BytesRead * 100.0) / TotalBytes)) : 0;
             });
 
+            var cancellationToken = CancellationTokenSource?.Token ?? CancellationToken.None;
+
             var totalImported = await MessagePackSerializer<T>.DeserializeStreamAsync(
                 progressStream,
                 OnBulkInsertAsync,
@@ -111,17 +113,23 @@ public partial class MessagePackFileUpload<T>
                 ExpectedAppIdentifier,
                 Logger,
                 BatchSize,
-                streamingProgress);
+                streamingProgress,
+                cancellationToken);
 
             ProcessedRecords = totalImported;
             TotalRecords = totalImported;
 
             Logger.LogInformation("Import completed: {Count} records from {FileName}", totalImported, file.Name);
 
-            // Show success snackbar
             Snackbar.Add($"Imported {ProcessedRecords:N0} records ({FormatBytes(file.Size)})", Severity.Success);
 
             await OnUploadCompleted.InvokeAsync(ProcessedRecords);
+        }
+        catch (OperationCanceledException)
+        {
+            Logger.LogInformation("Import cancelled");
+            Snackbar.Add("Import cancelled", Severity.Warning);
+            await OnUploadFailed.InvokeAsync("Import cancelled by user");
         }
         catch (Exception ex)
         {

@@ -40,7 +40,9 @@ internal class ExportImportRoundTripTest(IDbContextFactory<TodoDbContext> factor
             await MessagePackSerializer<TodoItemDto>.SerializeStreamAsync(
                 dtos,
                 exportStream,
-                appId);
+                "TodoItems",
+                "Id",
+                appIdentifier: appId);
         }
 
         // Verify export stream has data

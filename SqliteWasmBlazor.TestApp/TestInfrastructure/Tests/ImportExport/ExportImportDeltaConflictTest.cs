@@ -64,7 +64,9 @@ internal class ExportImportDeltaConflictTest(IDbContextFactory<TodoDbContext> fa
         await MessagePackSerializer<TodoItemDto>.SerializeStreamAsync(
             new List<TodoItemDto> { remotePatch },
             patchStream,
-            appId);
+            "TodoItems",
+            "Id",
+            appIdentifier: appId);
 
         patchStream.Position = 0;
 
@@ -180,7 +182,9 @@ internal class ExportImportDeltaConflictTest(IDbContextFactory<TodoDbContext> fa
         await MessagePackSerializer<TodoItemDto>.SerializeStreamAsync(
             new List<TodoItemDto> { olderRemotePatch },
             olderPatchStream,
-            appId);
+            "TodoItems",
+            "Id",
+            appIdentifier: appId);
 
         olderPatchStream.Position = 0;
 

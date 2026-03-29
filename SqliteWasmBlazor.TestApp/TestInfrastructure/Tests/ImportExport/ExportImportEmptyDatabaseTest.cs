@@ -31,7 +31,9 @@ internal class ExportImportEmptyDatabaseTest(IDbContextFactory<TodoDbContext> fa
             await MessagePackSerializer<TodoItemDto>.SerializeStreamAsync(
                 dtos,
                 exportStream,
-                appId);
+                "TodoItems",
+                "Id",
+                appIdentifier: appId);
         }
 
         // Verify export stream has only header (non-zero but minimal)

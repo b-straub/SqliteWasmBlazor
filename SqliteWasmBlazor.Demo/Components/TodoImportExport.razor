@@ -6,7 +6,11 @@
 @using SqliteWasmBlazor.Models.Enums
 @using SqliteWasmBlazor.Models.Models
 @using SqliteWasmBlazor.Components.Components
+@using SqliteWasmBlazor.Components.Interop
+@using Microsoft.AspNetCore.Components.Forms
 @using System.Runtime.Versioning
+@using System.Diagnostics
+@using MessagePack
 @inject IDbContextFactory<TodoDbContext> DbContextFactory
 @inject ISnackbar Snackbar
 @inject ILogger<TodoImportExport> Logger
@@ -77,27 +81,64 @@
 
         <MudGrid Spacing="3">
             <MudItem xs="12" sm="6">
-                <MessagePackFileDownload T="TodoItemDto"
-                    GetPageAsync="@GetTodoItemsPageAsync"
-                    GetTotalCountAsync="@GetTodoItemCountAsync"
-                    FileName="@GetExportFileName()"
-                    ButtonText="@GetExportButtonText()"
-                    PageSize="10000"
-                    AppIdentifier="@AppIdentifier"
-                    OnDownloadStarted="@OnExportStarted"
-                    OnDownloadCompleted="@OnExportCompleted" />
+                @if (_isExporting)
+                {
+                    <MudButton Variant="Variant.Outlined"
+                               Color="Color.Error"
+                               OnClick="CancelExport"
+                               StartIcon="@Icons.Material.Filled.Cancel"
+                               FullWidth="true">
+                        <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" />
+                        <MudText>Cancel Export</MudText>
+                    </MudButton>
+                }
+                else
+                {
+                    <MudButton Variant="Variant.Filled"
+                               Color="Color.Primary"
+                               OnClick="ExportAsync"
+                               StartIcon="@Icons.Material.Filled.Download"
+                               FullWidth="true">
+                        <MudText>@GetExportButtonText()</MudText>
+                    </MudButton>
+                }
             </MudItem>
 
             <MudItem xs="12" sm="6">
-                <MessagePackFileUpload T="TodoItemDto"
-                    OnBulkInsertAsync="@GetImportMethodAsync()"
-                    ButtonText="@GetImportButtonText()"
-                    BatchSize="10000"
-                    ExpectedSchemaHash="@_schemaHash"
-                    ExpectedAppIdentifier="@AppIdentifier"
-                    OnUploadStarted="@OnImportStartedAsync"
-                    OnUploadCompleted="@OnImportCompletedAsync"
-                    OnUploadFailed="@OnImportFailed" />
+                <div style="@(_isImporting ? "display:none" : "")">
+                    <MudFileUpload T="IBrowserFile"
+                                   OnFilesChanged="ImportAsync"
+                                   Accept=".msgpack"
+                                   MaximumFileCount="1">
+                        <CustomContent Context="fileUpload">
+                            <MudButton Variant="Variant.Filled"
+                                       Color="Color.Primary"
+                                       StartIcon="@Icons.Material.Filled.CloudUpload"
+                                       OnClick="@fileUpload.OpenFilePickerAsync"
+                                       FullWidth="true">
+                                <MudText>@GetImportButtonText()</MudText>
+                            </MudButton>
+                        </CustomContent>
+                    </MudFileUpload>
+                </div>
+                @if (_isImporting)
+                {
+                    <MudStack Spacing="1">
+                        <MudText Typo="Typo.body2" Align="Align.Center">
+                            @_importProgress.ToString("N0") / @_importTotal.ToString("N0") items
+                        </MudText>
+                        <MudProgressLinear Color="Color.Primary"
+                                          Value="@(_importTotal > 0 ? (double)_importProgress / _importTotal * 100 : 0)"
+                                          Size="Size.Large" />
+                        <MudButton Variant="Variant.Outlined"
+                                   Color="Color.Error"
+                                   OnClick="CancelImport"
+                                   StartIcon="@Icons.Material.Filled.Cancel"
+                                   FullWidth="true">
+                            Cancel Import
+                        </MudButton>
+                    </MudStack>
+                }
             </MudItem>
         </MudGrid>
 
@@ -148,13 +189,16 @@
     private readonly string _schemaHash = SqliteWasmBlazor.Components.Interop.SchemaHashGenerator.ComputeHash<TodoItemDto>();
 
     private TodoDbContext? _tempDbContext;
-    private Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction? _importTransaction;
-    private bool _isImporting;
-    private int _importedCount;
     private ExportMode _exportMode = ExportMode.Full;
     private ConflictResolutionStrategy _conflictResolution = ConflictResolutionStrategy.LastWriteWins;
     private bool _showTombstoneCleanup;
     private int _tombstoneCount;
+    private bool _isExporting;
+    private bool _isImporting;
+    private int _importProgress;
+    private int _importTotal;
+    private CancellationTokenSource? _exportCts;
+    private CancellationTokenSource? _importCts;
 
     private string ImportDatabaseName => $"{Path.GetFileNameWithoutExtension(DatabaseName)}-import{Path.GetExtension(DatabaseName)}";
     private string BackupDatabaseName => $"{Path.GetFileNameWithoutExtension(DatabaseName)}.bak";
@@ -204,78 +248,128 @@
         }
     }
 
-    private Func<List<TodoItemDto>, Task> GetImportMethodAsync()
+    // Export methods (V2 — worker-side bulk export)
+    private async Task ExportAsync()
     {
-        return _exportMode == ExportMode.Full
-            ? BulkInsertTodoItemsAsync
-            : DeltaMergeTodoItemsAsync;
+        if (_isExporting)
+        {
+            return;
+        }
+
+        _isExporting = true;
+        _exportCts?.Dispose();
+        _exportCts = new CancellationTokenSource();
+        StateHasChanged();
+
+        try
+        {
+            var sw = Stopwatch.StartNew();
+            var cancellationToken = _exportCts.Token;
+
+            // Build WHERE clause for delta export
+            string? where = null;
+            string[]? whereParams = null;
+
+            if (_exportMode == ExportMode.Delta)
+            {
+                await using var ctx = await DbContextFactory.CreateDbContextAsync(cancellationToken);
+                var latestCheckpoint = await ctx.SyncState
+                    .OrderByDescending(s => s.Id)
+                    .FirstOrDefaultAsync(cancellationToken);
+                var lastExportAt = latestCheckpoint?.CreatedAt ?? DateTime.MinValue;
+                var lastExportAtStr = lastExportAt.ToString("O");
+
+                // Include changed non-deleted + soft-deleted since checkpoint
+                where = "(\"UpdatedAt\" > $0 AND \"IsDeleted\" = 0) OR (\"IsDeleted\" = 1 AND \"DeletedAt\" > $0)";
+                whereParams = [lastExportAtStr];
+            }
+            else
+            {
+                where = "\"IsDeleted\" = 0";
+            }
+
+            var columns = MessagePackFileHeaderV2.Create<TodoItemDto>(
+                tableName: "TodoItems",
+                primaryKeyColumn: "Id",
+                recordCount: 0).Columns;
+
+            var exportMetadata = new
+            {
+                tableName = "TodoItems",
+                columns,
+                primaryKeyColumn = "Id",
+                schemaHash = _schemaHash,
+                dataType = typeof(TodoItemDto).FullName ?? typeof(TodoItemDto).Name,
+                appIdentifier = AppIdentifier,
+                mode = _exportMode == ExportMode.Full ? 0 : 1,
+                where,
+                whereParams,
+                orderBy = "\"UpdatedAt\" DESC"
+            };
+
+            var data = await DatabaseService.BulkExportAsync(DatabaseName, exportMetadata, cancellationToken);
+
+            cancellationToken.ThrowIfCancellationRequested();
+
+            // Trigger file download
+            var fileName = GetExportFileName();
+            FileOperationsInterop.DownloadMessagePackFile(new ArraySegment<byte>(data), fileName);
+
+            sw.Stop();
+
+            // Read record count from the V2 header
+            var header = MessagePackSerializer.Deserialize<MessagePackFileHeaderV2>(data);
+            var count = header.RecordCount;
+
+            Logger.LogInformation("V2 export completed: {Count} records, {Size} bytes in {Ms}ms",
+                count, data.Length, sw.ElapsedMilliseconds);
+
+            // Create checkpoint after delta export
+            if (_exportMode == ExportMode.Delta && count > 0)
+            {
+                try
+                {
+                    await using var context = await DbContextFactory.CreateDbContextAsync(cancellationToken);
+                    var checkpoint = await context.CreateCheckpointAsync(
+                        $"Auto checkpoint after delta export ({count} items)", cancellationToken: cancellationToken);
+
+                    _tombstoneCount = checkpoint.TombstoneCount;
+                    if (_tombstoneCount > 0)
+                    {
+                        _showTombstoneCleanup = true;
+                    }
+
+                    await OnDataChanged.InvokeAsync();
+                }
+                catch (Exception ex)
+                {
+                    Logger.LogError(ex, "Failed to create checkpoint after delta export");
+                    Snackbar.Add("Warning: Failed to create checkpoint", Severity.Warning);
+                }
+            }
+
+            Snackbar.Add($"Exported {count:N0} records in {sw.ElapsedMilliseconds}ms", Severity.Success);
+        }
+        catch (OperationCanceledException)
+        {
+            Logger.LogInformation("Export cancelled");
+            Snackbar.Add("Export cancelled", Severity.Warning);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Export failed");
+            Snackbar.Add($"Export failed: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _isExporting = false;
+            StateHasChanged();
+        }
     }
 
-    // Export methods
-    private async Task<List<TodoItemDto>> GetTodoItemsPageAsync(int pageIndex, int pageSize)
+    private void CancelExport()
     {
-        await using var context = await DbContextFactory.CreateDbContextAsync();
-
-        if (_exportMode == ExportMode.Full)
-        {
-            // Full export: exclude soft-deleted items
-            var query = context.TodoItems.AsNoTracking()
-                .Where(t => !t.IsDeleted);
-
-            var items = await query
-                .OrderByDescending(t => t.UpdatedAt)
-                .Skip(pageIndex * pageSize)
-                .Take(pageSize)
-                .ToListAsync();
-
-            return items.Select(TodoItemDto.FromEntity).ToList();
-        }
-        else
-        {
-            // Delta export: get items changed since last checkpoint (including soft-deleted)
-            var latestCheckpoint = await context.SyncState
-                .OrderByDescending(s => s.Id)
-                .FirstOrDefaultAsync();
-            var lastExportAt = latestCheckpoint?.CreatedAt ?? DateTime.MinValue;
-
-            var items = await context.TodoItems.AsNoTracking()
-                .Where(t =>
-                    (t.UpdatedAt > lastExportAt && !t.IsDeleted) ||
-                    (t.IsDeleted && t.DeletedAt > lastExportAt))
-                .OrderByDescending(t => t.UpdatedAt)
-                .Skip(pageIndex * pageSize)
-                .Take(pageSize)
-                .ToListAsync();
-
-            return items.Select(TodoItemDto.FromEntity).ToList();
-        }
-    }
-
-    private async Task<int> GetTodoItemCountAsync()
-    {
-        await using var context = await DbContextFactory.CreateDbContextAsync();
-
-        if (_exportMode == ExportMode.Full)
-        {
-            // Full export: count only active (non-deleted) items
-            return await context.TodoItems
-                .Where(t => !t.IsDeleted)
-                .CountAsync();
-        }
-        else
-        {
-            // Delta export: count items changed since last checkpoint (including soft-deleted)
-            var latestCheckpoint = await context.SyncState
-                .OrderByDescending(s => s.Id)
-                .FirstOrDefaultAsync();
-            var lastExportAt = latestCheckpoint?.CreatedAt ?? DateTime.MinValue;
-
-            return await context.TodoItems
-                .Where(t =>
-                    (t.UpdatedAt > lastExportAt && !t.IsDeleted) ||
-                    (t.IsDeleted && t.DeletedAt > lastExportAt))
-                .CountAsync();
-        }
+        _exportCts?.Cancel();
     }
 
     private string GetExportFileName()
@@ -285,416 +379,184 @@
         return $"{prefix}-{timestamp}.msgpack";
     }
 
-    private async Task OnExportStarted()
+    // Import (V2 — streaming batches to worker)
+    private async Task ImportAsync(InputFileChangeEventArgs e)
     {
-        Logger.LogDebug("Export started");
-        await Task.CompletedTask;
-    }
-
-    private async Task OnExportCompleted(int count)
-    {
-        Logger.LogInformation("Export completed: {Count} items", count);
-
-        // Create checkpoint after delta export
-        if (_exportMode == ExportMode.Delta && count > 0)
-        {
-            try
-            {
-                await using var context = await DbContextFactory.CreateDbContextAsync();
-
-                // Create checkpoint after delta export
-                var checkpoint = await context.CreateCheckpointAsync(
-                    $"Auto checkpoint after delta export ({count} items)");
-
-                Logger.LogInformation("Created checkpoint at {CheckpointTime} with {ActiveCount} active items, {TombstoneCount} tombstones",
-                    checkpoint.CreatedAt, checkpoint.ActiveItemCount, checkpoint.TombstoneCount);
-
-                // Check for tombstones and offer cleanup
-                _tombstoneCount = checkpoint.TombstoneCount;
-                if (_tombstoneCount > 0)
-                {
-                    _showTombstoneCleanup = true;
-                    Logger.LogInformation("Found {TombstoneCount} tombstones ready for cleanup", _tombstoneCount);
-                }
-
-                // Trigger UI refresh to update checkpoint display in parent component
-                await OnDataChanged.InvokeAsync();
-            }
-            catch (Exception ex)
-            {
-                Logger.LogError(ex, "Failed to create checkpoint after delta export");
-                Snackbar.Add("Warning: Failed to create checkpoint", Severity.Warning);
-            }
-        }
-
-        Snackbar.Add($"Successfully exported {count:N0} items", Severity.Success);
-        StateHasChanged(); // Update UI to show tombstone cleanup banner if needed
-    }
-
-    // Import methods
-    private async Task OnImportStartedAsync()
-    {
-        if (_isImporting)
+        if (e.FileCount == 0 || _isImporting)
         {
             return;
         }
 
         _isImporting = true;
-        _importedCount = 0;
-
-        // Patch mode doesn't need temp database
-        if (_exportMode == ExportMode.Delta)
-        {
-            Snackbar.Add(
-                "Starting patch import - will merge/update items in current database...",
-                Severity.Info,
-                config =>
-                {
-                    config.VisibleStateDuration = 3000;
-                });
-            return;
-        }
-
-        // Full mode uses temporary database
-        Snackbar.Add(
-            "Import will create a temporary database and swap it after validation. Your current data will be backed up.",
-            Severity.Warning,
-            config =>
-            {
-                config.VisibleStateDuration = 5000;
-            });
-
-        // Create temporary database for import
-        try
-        {
-            // Delete temp database if it exists from previous failed import
-            if (await DatabaseService.ExistsDatabaseAsync(ImportDatabaseName))
-            {
-                Logger.LogDebug("Deleting existing temporary database: {DatabaseName}", ImportDatabaseName);
-                await DatabaseService.DeleteDatabaseAsync(ImportDatabaseName);
-            }
-
-            var tempConnection = new SqliteWasmConnection($"Data Source={ImportDatabaseName}");
-            var optionsBuilder = new DbContextOptionsBuilder<TodoDbContext>();
-            optionsBuilder.UseSqliteWasm(tempConnection);
-
-            _tempDbContext = new TodoDbContext(optionsBuilder.Options);
-
-            // Run migrations (includes FTS5 setup)
-            await _tempDbContext.Database.MigrateAsync();
-
-            // Start transaction for entire import (improves performance and ensures atomicity)
-            _importTransaction = await _tempDbContext.Database.BeginTransactionAsync();
-
-            Logger.LogInformation("Temporary import database created with migrations: {DatabaseName}", ImportDatabaseName);
-            Snackbar.Add("Starting import to temporary database...", Severity.Info);
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "Failed to create temporary database");
-            Snackbar.Add($"Failed to create temporary database: {ex.Message}", Severity.Error);
-            _isImporting = false;
-            _tempDbContext?.Dispose();
-            _tempDbContext = null;
-            throw;
-        }
-    }
-
-    private async Task BulkInsertTodoItemsAsync(List<TodoItemDto> dtos)
-    {
-        if (_tempDbContext is null)
-        {
-            throw new InvalidOperationException("Temporary database not initialized");
-        }
+        _importCts?.Dispose();
+        _importCts = new CancellationTokenSource();
+        StateHasChanged();
 
         try
         {
-            // Use raw SQL with multi-row INSERT for true batching
-            // SQLite supports up to 999 parameters per statement
-            // Try to get column count from EF Core metadata, fallback to constant
-            const int maxSqliteParams = 999;
-            const int defaultColumnCount = 8; // TodoItem: Id, Title, Description, IsCompleted, UpdatedAt, CompletedAt, IsDeleted, DeletedAt
+            var sw = Stopwatch.StartNew();
+            var cancellationToken = _importCts.Token;
+            var file = e.File;
 
-            var entityType = _tempDbContext.Model.FindEntityType(typeof(TodoItem));
-            var columnCount = entityType?.GetProperties().Count();
+            Logger.LogInformation("Import started: {FileName} ({Size} bytes)", file.Name, file.Size);
 
-            if (columnCount is null)
+            const int batchSize = 10000;
+            const long maxFileSize = 1024L * 1024L * 500L;
+
+            var conflictStrategy = _exportMode == ExportMode.Delta
+                ? _conflictResolution
+                : ConflictResolutionStrategy.None;
+
+            var dbName = _exportMode == ExportMode.Full ? ImportDatabaseName : DatabaseName;
+
+            // Full mode: create temp database with migrations first
+            if (_exportMode == ExportMode.Full)
             {
-                Logger.LogWarning("Unable to retrieve column count from EF Core metadata, using default value {DefaultCount}", defaultColumnCount);
-                columnCount = defaultColumnCount;
-            }
-
-            var rowsPerBatch = maxSqliteParams / columnCount.Value;
-
-            for (var i = 0; i < dtos.Count; i += rowsPerBatch)
-            {
-                var batch = dtos.Skip(i).Take(rowsPerBatch).ToList();
-
-                // Build multi-row INSERT statement
-                var valuesClauses = new List<string>();
-                var parameters = new List<object?>();
-
-                for (var j = 0; j < batch.Count; j++)
+                if (await DatabaseService.ExistsDatabaseAsync(ImportDatabaseName, cancellationToken))
                 {
-                    var dto = batch[j];
-                    var baseIndex = j * columnCount;
-                    valuesClauses.Add($"({{{baseIndex}}}, {{{baseIndex + 1}}}, {{{baseIndex + 2}}}, {{{baseIndex + 3}}}, {{{baseIndex + 4}}}, {{{baseIndex + 5}}}, {{{baseIndex + 6}}}, {{{baseIndex + 7}}})");
-
-                    parameters.Add(dto.Id.ToByteArray());
-                    parameters.Add(dto.Title);
-                    parameters.Add(dto.Description);
-                    parameters.Add(dto.IsCompleted ? 1 : 0);
-                    parameters.Add(dto.UpdatedAt.ToString("O"));
-                    parameters.Add(dto.CompletedAt?.ToString("O"));
-                    parameters.Add(dto.IsDeleted ? 1 : 0);
-                    parameters.Add(dto.DeletedAt?.ToString("O"));
+                    await DatabaseService.DeleteDatabaseAsync(ImportDatabaseName, cancellationToken);
                 }
 
-                var sql = $@"
-                    INSERT INTO TodoItems (Id, Title, Description, IsCompleted, UpdatedAt, CompletedAt, IsDeleted, DeletedAt)
-                    VALUES {string.Join(", ", valuesClauses)}";
+                var tempConnection = new SqliteWasmConnection($"Data Source={ImportDatabaseName}");
+                var optionsBuilder = new DbContextOptionsBuilder<TodoDbContext>();
+                optionsBuilder.UseSqliteWasm(tempConnection);
 
-                await _tempDbContext.Database.ExecuteSqlRawAsync(sql, parameters.ToArray()!);
+                _tempDbContext = new TodoDbContext(optionsBuilder.Options);
+                await _tempDbContext.Database.MigrateAsync(cancellationToken);
             }
 
-            _importedCount += dtos.Count;
-            Logger.LogDebug("Imported batch: {BatchCount} items (total: {TotalCount})", dtos.Count, _importedCount);
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "Batch import failed");
-            throw;
-        }
-    }
+            // Stream raw MessagePack bytes — no item deserialization in C#
+            await using var fileStream = file.OpenReadStream(maxFileSize);
+            var streamReader = new MessagePackStreamReader(fileStream);
 
-    private async Task DeltaMergeTodoItemsAsync(List<TodoItemDto> dtos)
-    {
-        try
-        {
-            await using var context = await DbContextFactory.CreateDbContextAsync();
-
-            // Use a transaction for the entire batch for better performance
-            await using var transaction = await context.Database.BeginTransactionAsync();
-
-            var updatedCount = 0;
-            var insertedCount = 0;
-            var deletedCount = 0;
-
-            foreach (var dto in dtos)
+            // Read and validate V2 header (only deserialization in entire import)
+            var headerData = await streamReader.ReadAsync(cancellationToken);
+            if (headerData is null)
             {
-                // Check if item exists
-                var existingItem = await context.TodoItems.FindAsync(dto.Id);
+                throw new InvalidOperationException("Empty file or missing header");
+            }
 
-                if (dto.IsDeleted)
+            var headerSequence = headerData.Value;
+            var header = MessagePackSerializer.Deserialize<MessagePackFileHeaderV2>(headerSequence);
+            var expectedType = typeof(TodoItemDto).FullName ?? typeof(TodoItemDto).Name;
+            header.Validate(expectedType, _schemaHash, AppIdentifier);
+
+            _importTotal = header.RecordCount;
+            _importProgress = 0;
+
+            Logger.LogInformation("Importing {Count} items from V2 file (table: {Table})",
+                header.RecordCount, header.TableName);
+
+            // Serialize header once for reuse in chunk payloads
+            var headerBytes = MessagePackSerializer.Serialize(header);
+
+            // Stream raw item bytes in chunks — C# never deserializes item content
+            var totalCount = 0;
+            using var chunkStream = new MemoryStream();
+            var itemsInChunk = 0;
+
+            chunkStream.Write(headerBytes);
+
+            while (await streamReader.ReadAsync(cancellationToken) is { } itemBytes)
+            {
+                // Copy raw MessagePack bytes without deserialization
+                foreach (var segment in itemBytes)
                 {
-                    // Handle soft deletion
-                    if (existingItem is not null && !existingItem.IsDeleted)
-                    {
-                        existingItem.IsDeleted = true;
-                        existingItem.DeletedAt = dto.DeletedAt;
-                        deletedCount++;
-                    }
+                    chunkStream.Write(segment.Span);
                 }
-                else
-                {
-                    if (existingItem is not null)
-                    {
-                        // Apply conflict resolution strategy
-                        var shouldUpdate = _conflictResolution switch
-                        {
-                            ConflictResolutionStrategy.LastWriteWins => dto.UpdatedAt > existingItem.UpdatedAt,
-                            ConflictResolutionStrategy.LocalWins => false, // Never update existing items
-                            ConflictResolutionStrategy.DeltaWins => true,  // Always update with imported data
-                            _ => throw new InvalidOperationException($"Unknown conflict resolution strategy: {_conflictResolution}")
-                        };
 
-                        if (shouldUpdate)
-                        {
-                            existingItem.Title = dto.Title;
-                            existingItem.Description = dto.Description;
-                            existingItem.IsCompleted = dto.IsCompleted;
-                            existingItem.UpdatedAt = dto.UpdatedAt;
-                            existingItem.CompletedAt = dto.CompletedAt;
-                            existingItem.IsDeleted = dto.IsDeleted;
-                            existingItem.DeletedAt = dto.DeletedAt;
-                            updatedCount++;
-                        }
-                    }
-                    else
-                    {
-                        // Insert new item (all strategies add new items)
-                        var newItem = dto.ToEntity();
-                        context.TodoItems.Add(newItem);
-                        insertedCount++;
-                    }
+                itemsInChunk++;
+
+                if (itemsInChunk >= batchSize)
+                {
+                    await DatabaseService.BulkImportAsync(dbName, chunkStream.ToArray(), conflictStrategy, cancellationToken);
+                    totalCount += itemsInChunk;
+
+                    _importProgress = totalCount;
+                    Logger.LogDebug("Import progress: {Count}/{Total} items", totalCount, header.RecordCount);
+
+                    // Reset chunk, write header for next batch
+                    chunkStream.SetLength(0);
+                    chunkStream.Write(headerBytes);
+                    itemsInChunk = 0;
+
+                    StateHasChanged();
+                    await Task.Yield();
                 }
             }
 
-            await context.SaveChangesAsync();
-            await transaction.CommitAsync();
-
-            _importedCount += dtos.Count;
-            Logger.LogDebug("Delta merged batch: {Inserted} inserted, {Updated} updated, {Deleted} deleted (total: {TotalCount})",
-                insertedCount, updatedCount, deletedCount, _importedCount);
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "Delta merge failed");
-            throw;
-        }
-    }
-
-    private async Task OnImportCompletedAsync(int totalCount)
-    {
-        // Handle patch mode completion
-        if (_exportMode == ExportMode.Delta)
-        {
-            try
+            // Final chunk
+            if (itemsInChunk > 0)
             {
-                Logger.LogInformation("Delta import completed: {Count} items", totalCount);
+                await DatabaseService.BulkImportAsync(dbName, chunkStream.ToArray(), conflictStrategy, cancellationToken);
+                totalCount += itemsInChunk;
+            }
 
-                // Check for tombstones after delta import
-                await using var context = await DbContextFactory.CreateDbContextAsync();
-                _tombstoneCount = await context.TodoItems.CountAsync(t => t.IsDeleted);
-
+            // Post-import: finalize based on mode
+            if (_exportMode == ExportMode.Delta)
+            {
+                await using var ctx = await DbContextFactory.CreateDbContextAsync(cancellationToken);
+                _tombstoneCount = await ctx.TodoItems.CountAsync(t => t.IsDeleted, cancellationToken);
                 if (_tombstoneCount > 0)
                 {
                     _showTombstoneCleanup = true;
-                    Logger.LogInformation("Found {TombstoneCount} tombstones after delta import", _tombstoneCount);
                 }
 
-                // Create auto checkpoint after delta import
-                var checkpoint = await context.CreateCheckpointAsync(
-                    $"Auto checkpoint after delta import ({totalCount} items)");
-
-                Logger.LogInformation("Created checkpoint after delta import at {CheckpointTime}", checkpoint.CreatedAt);
-
-                Snackbar.Add($"Successfully imported {totalCount:N0} items!", Severity.Success);
-
-                // Trigger data refresh
-                await OnDataChanged.InvokeAsync();
+                await ctx.CreateCheckpointAsync(
+                    $"Auto checkpoint after delta import ({totalCount} items)",
+                    cancellationToken: cancellationToken);
             }
-            catch (Exception ex)
+            else
             {
-                Logger.LogError(ex, "Delta import completion failed");
-                Snackbar.Add($"Delta import failed: {ex.Message}", Severity.Error);
-            }
-            finally
-            {
-                _isImporting = false;
-            }
+                // Full: FTS5 rebuild + DB swap
+                if (_tempDbContext is not null)
+                {
+                    await _tempDbContext.RebuildTodoItemFts5IndexAsync();
+                    await _tempDbContext.DisposeAsync();
+                    _tempDbContext = null;
+                }
 
-            return;
-        }
+                await DatabaseService.CloseDatabaseAsync(ImportDatabaseName, cancellationToken);
+                await DatabaseService.CloseDatabaseAsync(DatabaseName, cancellationToken);
+                await SwapDatabasesAsync(DatabaseName, ImportDatabaseName, BackupDatabaseName, DatabaseService, Logger);
 
-        // Handle full mode completion (temp database swap)
-        if (_tempDbContext is null)
-        {
-            return;
-        }
-
-        try
-        {
-            // Commit transaction
-            if (_importTransaction is not null)
-            {
-                Logger.LogInformation("Committing import transaction");
-                await _importTransaction.CommitAsync();
-                await _importTransaction.DisposeAsync();
-                _importTransaction = null;
+                await using var newCtx = await DbContextFactory.CreateDbContextAsync(cancellationToken);
+                await newCtx.CreateCheckpointAsync(
+                    $"Auto checkpoint after full import ({totalCount} items)",
+                    cancellationToken: cancellationToken);
             }
 
-            // Validate imported data
-            var importedCount = await _tempDbContext.TodoItems.CountAsync();
-            Logger.LogInformation("Import validation: {ImportedCount} items in temporary database", importedCount);
-
-            if (importedCount != totalCount)
-            {
-                throw new InvalidOperationException($"Data validation failed: expected {totalCount} items, got {importedCount}");
-            }
-
-            // Rebuild FTS5 index to populate it with imported data
-            Logger.LogDebug("Rebuilding FTS5 index for imported data");
-            await _tempDbContext.RebuildTodoItemFts5IndexAsync();
-
-            // Dispose temp context to close connection
-            await _tempDbContext.DisposeAsync();
-            _tempDbContext = null;
-
-            // Close both databases before swap to ensure clean file handles
-            Logger.LogDebug("Closing import database: {DatabaseName}", ImportDatabaseName);
-            await DatabaseService.CloseDatabaseAsync(ImportDatabaseName);
-
-            Logger.LogDebug("Closing main database: {DatabaseName}", DatabaseName);
-            await DatabaseService.CloseDatabaseAsync(DatabaseName);
-
-            // Perform atomic file swap in OPFS using native rename (metadata-only, no file copy)
-            Logger.LogInformation("Performing database backup and swap");
-            await SwapDatabasesAsync(DatabaseName, ImportDatabaseName, BackupDatabaseName, DatabaseService, Logger);
-
-            // Create auto checkpoint after full import (database has been swapped)
-            await using var newContext = await DbContextFactory.CreateDbContextAsync();
-            var checkpoint = await newContext.CreateCheckpointAsync(
-                $"Auto checkpoint after full import ({totalCount} items)");
-
-            Logger.LogInformation("Created checkpoint after full import at {CheckpointTime}", checkpoint.CreatedAt);
-
-            Snackbar.Add($"Successfully imported {totalCount:N0} items!", Severity.Success);
-
-            // Trigger data refresh - EF Core will auto-reconnect to the new database
+            sw.Stop();
+            Logger.LogInformation("Import completed: {Count} items in {Ms}ms", totalCount, sw.ElapsedMilliseconds);
+            Snackbar.Add($"Imported {totalCount:N0} items in {sw.ElapsedMilliseconds}ms", Severity.Success);
             await OnDataChanged.InvokeAsync();
+        }
+        catch (OperationCanceledException)
+        {
+            Logger.LogInformation("Import cancelled");
+            Snackbar.Add("Import cancelled", Severity.Warning);
+            await CleanupTempDatabaseAsync();
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "Import completion failed");
+            Logger.LogError(ex, "Import failed");
             Snackbar.Add($"Import failed: {ex.Message}", Severity.Error);
-
-            // Rollback transaction if active
-            if (_importTransaction is not null)
-            {
-                await _importTransaction.RollbackAsync();
-                await _importTransaction.DisposeAsync();
-                _importTransaction = null;
-            }
-
-            // Cleanup temporary database
-            if (_tempDbContext is not null)
-            {
-                await _tempDbContext.DisposeAsync();
-                _tempDbContext = null;
-            }
-
-            await OnImportFailed(ex.Message);
+            await CleanupTempDatabaseAsync();
         }
         finally
         {
             _isImporting = false;
+            StateHasChanged();
         }
     }
 
-    private async Task OnImportFailed(string error)
+    private void CancelImport()
     {
-        Logger.LogError("Import failed: {Error}", error);
+        _importCts?.Cancel();
+    }
 
-        // Rollback and dispose transaction if active
-        if (_importTransaction is not null)
-        {
-            try
-            {
-                await _importTransaction.RollbackAsync();
-            }
-            catch (Exception ex)
-            {
-                Logger.LogError(ex, "Transaction rollback failed");
-            }
-            finally
-            {
-                await _importTransaction.DisposeAsync();
-                _importTransaction = null;
-            }
-        }
-
-        // Cleanup temporary database context
+    private async Task CleanupTempDatabaseAsync()
+    {
         if (_tempDbContext is not null)
         {
             await _tempDbContext.DisposeAsync();
@@ -703,21 +565,17 @@
 
         try
         {
-            // Delete temporary database file
-            Logger.LogDebug("Cleaning up temporary import database");
             if (await DatabaseService.ExistsDatabaseAsync(ImportDatabaseName))
             {
                 await DatabaseService.DeleteDatabaseAsync(ImportDatabaseName);
-                Logger.LogDebug("Deleted temporary database: {DatabaseName}", ImportDatabaseName);
             }
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "Cleanup failed");
+            Logger.LogError(ex, "Cleanup of temp database failed");
         }
-
-        _isImporting = false;
     }
+
 
     [SupportedOSPlatform("browser")]
     private static async Task SwapDatabasesAsync(string mainDbName, string importDbName, string backupDbName, ISqliteWasmDatabaseService databaseService, ILogger logger)
@@ -822,5 +680,8 @@
         {
             await _tempDbContext.DisposeAsync();
         }
+
+        _exportCts?.Dispose();
+        _importCts?.Dispose();
     }
 }

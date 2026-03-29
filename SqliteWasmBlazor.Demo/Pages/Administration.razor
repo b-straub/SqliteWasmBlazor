@@ -5,6 +5,9 @@
 @using SqliteWasmBlazor.Models
 @using SqliteWasmBlazor.Models.Models
 @using SqliteWasmBlazor.Models.Extensions
+@using SqliteWasmBlazor.Models.DTOs
+@using SqliteWasmBlazor.Components.Interop
+@using MessagePack
 @inject IDbContextFactory<TodoDbContext> DbContextFactory
 @inject IDbContextFactory<NoteDbContext> NoteDbContextFactory
 @inject ISnackbar Snackbar
@@ -584,63 +587,42 @@
             });
         }
 
-        // Use raw SQL with multi-row INSERT for true batching
-        // SQLite supports up to 999 parameters per statement, so with 8 columns we can insert ~124 rows per statement
-        using var transaction = await context.Database.BeginTransactionAsync();
+        // Use worker-side bulk insert via V2 MessagePack format
+        // One worker round-trip instead of ~800 ExecuteSqlRawAsync calls
         try
         {
-            const int rowsPerBatch = 124; // 124 rows * 8 columns = 992 parameters (under SQLite's 999 limit)
-            var batchCount = 0;
+            var dtos = items.Select(TodoItemDto.FromEntity).ToList();
 
-            for (var i = 0; i < items.Count; i += rowsPerBatch)
+            var header = MessagePackFileHeaderV2.Create<TodoItemDto>(
+                tableName: "TodoItems",
+                primaryKeyColumn: "Id",
+                recordCount: dtos.Count,
+                mode: 0);
+
+            using var stream = new MemoryStream();
+            MessagePackSerializer.Serialize(stream, header);
+            foreach (var dto in dtos)
             {
-                var batch = items.Skip(i).Take(rowsPerBatch).ToList();
-
-                // Build multi-row INSERT statement
-                var valuesClauses = new List<string>();
-                var parameters = new List<object?>();
-
-                for (var j = 0; j < batch.Count; j++)
-                {
-                    var item = batch[j];
-                    var baseIndex = j * 8;
-                    valuesClauses.Add($"({{{baseIndex}}}, {{{baseIndex + 1}}}, {{{baseIndex + 2}}}, {{{baseIndex + 3}}}, {{{baseIndex + 4}}}, {{{baseIndex + 5}}}, {{{baseIndex + 6}}}, {{{baseIndex + 7}}})");
-
-                    parameters.Add(item.Id.ToByteArray());
-                    parameters.Add(item.Title);
-                    parameters.Add(item.Description);
-                    parameters.Add(item.UpdatedAt);
-                    parameters.Add(item.IsCompleted ? 1 : 0);
-                    parameters.Add(item.CompletedAt?.ToString("O"));
-                    parameters.Add(item.IsDeleted ? 1 : 0);
-                    parameters.Add(item.DeletedAt?.ToString("O"));
-                }
-
-                var sql = $@"
-                    INSERT INTO TodoItems (Id, Title, Description, UpdatedAt, IsCompleted, CompletedAt, IsDeleted, DeletedAt)
-                    VALUES {string.Join(", ", valuesClauses)}";
-
-                await context.Database.ExecuteSqlRawAsync(sql, parameters.ToArray()!);
-                batchCount++;
+                MessagePackSerializer.Serialize(stream, dto);
             }
 
-            await transaction.CommitAsync();
+            var payload = stream.ToArray();
+            await DatabaseService.BulkImportAsync("TodoDb.db", payload);
 
             stopwatch.Stop();
 
             var itemsPerSecond = _generatedFakeEntries / stopwatch.Elapsed.TotalSeconds;
-            _performanceInfo = $"Generated {_generatedFakeEntries:N0} entries in {stopwatch.ElapsedMilliseconds}ms ({itemsPerSecond:F0} items/sec) - {batchCount} SQL batches";
+            _performanceInfo = $"Generated {_generatedFakeEntries:N0} entries in {stopwatch.ElapsedMilliseconds}ms ({itemsPerSecond:F0} items/sec) — worker bulk insert";
             _isGenerating = false;
 
             // Refresh sync state to update pending delta count
             await LoadSyncStateAsync();
 
             StateHasChanged();
-            Snackbar.Add($"Generated {_generatedFakeEntries:N0} entries in {stopwatch.ElapsedMilliseconds}ms ({batchCount} SQL batches)", Severity.Success);
+            Snackbar.Add($"Generated {_generatedFakeEntries:N0} entries in {stopwatch.ElapsedMilliseconds}ms (worker bulk insert)", Severity.Success);
         }
         catch (Exception ex)
         {
-            await transaction.RollbackAsync();
             _isGenerating = false;
             Snackbar.Add($"Generation failed: {ex.Message}", Severity.Error);
             throw;

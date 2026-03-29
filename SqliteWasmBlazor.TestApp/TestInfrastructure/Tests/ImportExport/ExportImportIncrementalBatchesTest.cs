@@ -49,7 +49,9 @@ internal class ExportImportIncrementalBatchesTest(IDbContextFactory<TodoDbContex
             await MessagePackSerializer<TodoItemDto>.SerializeStreamAsync(
                 dtos,
                 exportStream,
-                appId);
+                "TodoItems",
+                "Id",
+                appIdentifier: appId);
         }
 
         exportStream.Position = 0;

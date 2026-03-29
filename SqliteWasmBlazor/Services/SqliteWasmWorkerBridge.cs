@@ -329,6 +329,111 @@ internal sealed partial class SqliteWasmWorkerBridge : ISqliteWasmDatabaseServic
         }
     }
 
+    /// <summary>
+    /// Bulk import: sends V2 MessagePack payload to worker for direct prepared statement insertion.
+    /// One worker round-trip per call instead of ~80 ExecuteSqlRawAsync calls.
+    /// </summary>
+    public async Task<int> BulkImportAsync(string databaseName, byte[] payload, ConflictResolutionStrategy conflictStrategy = ConflictResolutionStrategy.None,
+        CancellationToken cancellationToken = default)
+    {
+        await EnsureInitializedAsync(cancellationToken);
+
+        var requestId = Interlocked.Increment(ref _nextRequestId);
+        var tcs = new TaskCompletionSource<SqlQueryResult>();
+
+        _pendingRequests[requestId] = tcs;
+
+        try
+        {
+            await using var registration = cancellationToken.Register(() =>
+            {
+                _pendingRequests.TryRemove(requestId, out _);
+                tcs.TrySetCanceled();
+            });
+
+            var metadataJson = JsonSerializer.Serialize(new
+            {
+                id = requestId,
+                data = new { type = "bulkImport", database = databaseName, conflictStrategy = (int)conflictStrategy }
+            });
+
+            SendBinaryToWorker(new ArraySegment<byte>(payload), metadataJson);
+
+            // 5-minute timeout for bulk operations
+            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeoutCts.CancelAfter(300_000);
+
+            try
+            {
+                var result = await tcs.Task.WaitAsync(timeoutCts.Token);
+                return result.RowsAffected;
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                throw new TimeoutException("Bulk import operation timed out after 5 minutes.");
+            }
+        }
+        catch
+        {
+            _pendingRequests.TryRemove(requestId, out _);
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Bulk export: worker queries SQLite directly and returns V2 MessagePack bytes.
+    /// </summary>
+    public async Task<byte[]> BulkExportAsync(string databaseName, object exportMetadata, CancellationToken cancellationToken = default)
+    {
+        await EnsureInitializedAsync(cancellationToken);
+
+        var requestId = Interlocked.Increment(ref _nextRequestId);
+        var tcs = new TaskCompletionSource<byte[]>();
+
+        _pendingBinaryRequests[requestId] = tcs;
+
+        try
+        {
+            await using var registration = cancellationToken.Register(() =>
+            {
+                _pendingBinaryRequests.TryRemove(requestId, out _);
+                tcs.TrySetCanceled();
+            });
+
+            // Merge exportMetadata into the request data alongside type and database
+            var dataDict = JsonSerializer.SerializeToNode(exportMetadata)?.AsObject()
+                ?? new System.Text.Json.Nodes.JsonObject();
+            dataDict["type"] = "bulkExport";
+            dataDict["database"] = databaseName;
+
+            var requestJson = JsonSerializer.Serialize(new
+            {
+                id = requestId,
+                data = dataDict
+            });
+
+            SendToWorker(requestJson);
+
+            // 5-minute timeout for bulk operations
+            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeoutCts.CancelAfter(300_000);
+
+            try
+            {
+                return await tcs.Task.WaitAsync(timeoutCts.Token);
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                throw new TimeoutException("Bulk export operation timed out after 5 minutes.");
+            }
+        }
+        catch
+        {
+            _pendingBinaryRequests.TryRemove(requestId, out _);
+            throw;
+        }
+    }
+
     private async Task EnsureInitializedAsync(CancellationToken cancellationToken)
     {
         if (!_isInitialized)

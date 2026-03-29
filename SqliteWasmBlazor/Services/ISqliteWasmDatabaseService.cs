@@ -59,4 +59,26 @@ public interface ISqliteWasmDatabaseService
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>Raw SQLite database bytes</returns>
     Task<byte[]> ExportDatabaseAsync(string databaseName, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Bulk import: sends V2 MessagePack payload (header + items) to the worker
+    /// for direct insertion using a prepared statement loop.
+    /// The worker handles SQL construction, type conversions, and transactions.
+    /// </summary>
+    /// <param name="databaseName">Target database filename</param>
+    /// <param name="payload">V2 MessagePack bytes (header + serialized items)</param>
+    /// <param name="conflictStrategy">Conflict resolution strategy for UPSERT behavior</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    /// <returns>Number of rows inserted</returns>
+    Task<int> BulkImportAsync(string databaseName, byte[] payload, ConflictResolutionStrategy conflictStrategy = ConflictResolutionStrategy.None, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Bulk export: worker queries SQLite directly and returns V2 MessagePack bytes (header + rows).
+    /// C# receives raw bytes for file download without per-item processing.
+    /// </summary>
+    /// <param name="databaseName">Source database filename</param>
+    /// <param name="exportMetadata">Export parameters (tableName, columns, where, orderBy, etc.)</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    /// <returns>V2 MessagePack bytes (header + serialized rows)</returns>
+    Task<byte[]> BulkExportAsync(string databaseName, object exportMetadata, CancellationToken cancellationToken = default);
 }

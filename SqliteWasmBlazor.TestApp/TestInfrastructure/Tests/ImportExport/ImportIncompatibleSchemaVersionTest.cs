@@ -41,7 +41,9 @@ internal class ImportIncompatibleSchemaVersionTest(IDbContextFactory<TodoDbConte
             await MessagePackSerializer<TodoItemDto>.SerializeStreamAsync(
                 dtos,
                 exportStream,
-                appId);
+                "TodoItems",
+                "Id",
+                appIdentifier: appId);
         }
 
         exportStream.Position = 0;

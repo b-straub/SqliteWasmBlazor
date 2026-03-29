@@ -3,7 +3,6 @@ using SqliteWasmBlazor.Components.Interop;
 using SqliteWasmBlazor.Models;
 using SqliteWasmBlazor.Models.DTOs;
 using SqliteWasmBlazor.Models.Models;
-using SqliteWasmBlazor.Models.Enums;
 
 namespace SqliteWasmBlazor.TestApp.TestInfrastructure.Tests.ImportExport;
 
@@ -72,7 +71,9 @@ internal class ExportImportDeltaConflictLocalWinsTest(IDbContextFactory<TodoDbCo
         await MessagePackSerializer<TodoItemDto>.SerializeStreamAsync(
             new List<TodoItemDto> { importedItem, newItem },
             stream,
-            appId);
+            "TodoItems",
+            "Id",
+            appIdentifier: appId);
 
         stream.Position = 0;
 

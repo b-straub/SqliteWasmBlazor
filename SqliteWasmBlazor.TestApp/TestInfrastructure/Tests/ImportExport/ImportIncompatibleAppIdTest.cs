@@ -43,7 +43,9 @@ internal class ImportIncompatibleAppIdTest(IDbContextFactory<TodoDbContext> fact
             await MessagePackSerializer<TodoItemDto>.SerializeStreamAsync(
                 dtos,
                 exportStream,
-                exportAppId);
+                "TodoItems",
+                "Id",
+                appIdentifier: exportAppId);
         }
 
         exportStream.Position = 0;

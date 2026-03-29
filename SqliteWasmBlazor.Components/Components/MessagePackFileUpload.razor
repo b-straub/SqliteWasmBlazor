@@ -101,6 +101,13 @@
     [Parameter]
     public long MaxFileSize { get; set; } = 1024L * 1024L * 500L;
 
+    /// <summary>
+    /// Cancellation token source for aborting the import operation.
+    /// Set externally to enable cancellation from parent component.
+    /// </summary>
+    [Parameter]
+    public CancellationTokenSource? CancellationTokenSource { get; set; }
+
     private bool IsUploading { get; set; }
     private int ProcessedRecords { get; set; }
     private int TotalRecords { get; set; }

@@ -4,7 +4,7 @@
 
 import sqlite3InitModule, { type SqlValue } from '@sqlite.org/sqlite-wasm';
 import { logger } from './sqlite-logger';
-import { pack } from 'msgpackr';
+import { pack, unpack, unpackMultiple } from 'msgpackr';
 import { registerEFCoreFunctions } from './ef-core-functions';
 
 interface WorkerRequest {
@@ -245,6 +245,19 @@ async function handleRequest(data: WorkerRequest['data'], binaryPayload?: ArrayB
 
         case 'exportDb':
             return await exportDatabase(database!);
+
+        case 'bulkImport':
+            if (!binaryPayload) {
+                throw new Error('bulkImport requires binaryPayload');
+            }
+            return await bulkImport(
+                database!,
+                new Uint8Array(binaryPayload),
+                (data as any).conflictStrategy ?? 0
+            );
+
+        case 'bulkExport':
+            return await bulkExport(database!, data as any);
 
         default:
             throw new Error(`Unknown request type: ${type}`);
@@ -702,4 +715,441 @@ async function exportDatabase(dbName: string) {
         logger.error(MODULE_NAME, `Failed to export database ${dbName}:`, error);
         throw error;
     }
+}
+
+// ============================================================================
+// Bulk Import/Export (V2 MessagePack format — worker-side prepared statement loop)
+// ============================================================================
+
+interface V2Header {
+    0: string;      // magic "SWBV2"
+    1: string;      // schemaHash
+    2: string;      // dataType
+    3: string | null;// appIdentifier
+    4: string;      // exportedAt (ISO 8601 string)
+    5: number;      // recordCount
+    6: number;      // mode: 0=Seed, 1=Delta
+    7: string;      // tableName
+    8: string[][];  // columns: [[name, sqlType, csharpType], ...]
+    9: string;      // primaryKeyColumn
+}
+
+/**
+ * Convert a value from MessagePack wire format to SQLite-compatible value.
+ * Uses csharpType from column metadata to determine conversion.
+ */
+function convertValueForSqlite(value: any, csharpType: string, sqlType: string): SqlValue {
+    if (value === null || value === undefined) {
+        return null;
+    }
+
+    // Strip nullable suffix for matching
+    const baseType = csharpType.endsWith('?') ? csharpType.slice(0, -1) : csharpType;
+
+    switch (baseType) {
+        case 'Guid': {
+            // MessagePack-CSharp serializes Guid as 36-char string "xxxxxxxx-xxxx-..."
+            if (sqlType === 'BLOB') {
+                // Convert to 16-byte Uint8Array for BLOB column
+                const hex = (value as string).replace(/-/g, '');
+                const bytes = new Uint8Array(16);
+                for (let i = 0; i < 16; i++) {
+                    bytes[i] = parseInt(hex.substring(i * 2, i * 2 + 2), 16);
+                }
+                return bytes as any;
+            }
+            // TEXT column: pass string as-is
+            return String(value);
+        }
+
+        case 'DateTime':
+            // MessagePack-CSharp: Timestamp ext (-1) → msgpackr: Date object
+            if (value instanceof Date) {
+                return value.toISOString();
+            }
+            return String(value);
+
+        case 'DateTimeOffset':
+            // MessagePack-CSharp: array [DateTime, short(offset minutes)]
+            // msgpackr: [Date, number]
+            if (Array.isArray(value) && value.length === 2 && value[0] instanceof Date) {
+                return value[0].toISOString();
+            }
+            if (value instanceof Date) {
+                return value.toISOString();
+            }
+            return String(value);
+
+        case 'TimeSpan':
+            // MessagePack-CSharp serializes as int64 (Ticks)
+            if (sqlType === 'TEXT') {
+                // Convert Ticks to .NET TimeSpan string format: [d.]hh:mm:ss[.fffffff]
+                const ticks = Number(value);
+                const negative = ticks < 0;
+                const absTicks = Math.abs(ticks);
+                const totalSeconds = Math.floor(absTicks / 10000000);
+                const fraction = absTicks % 10000000;
+                const days = Math.floor(totalSeconds / 86400);
+                const hours = Math.floor((totalSeconds % 86400) / 3600);
+                const minutes = Math.floor((totalSeconds % 3600) / 60);
+                const seconds = totalSeconds % 60;
+                const sign = negative ? '-' : '';
+                const daysPart = days > 0 ? `${days}.` : '';
+                const fractionPart = fraction > 0 ? `.${fraction.toString().padStart(7, '0')}` : '';
+                return `${sign}${daysPart}${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}${fractionPart}`;
+            }
+            // INTEGER column: store as ticks directly
+            return Number(value);
+
+        case 'Boolean':
+            return value ? 1 : 0;
+
+        case 'String':
+            return String(value);
+
+        case 'Decimal':
+            // MessagePack-CSharp: string representation → pass through as TEXT
+            return String(value);
+
+        case 'Int16':
+        case 'Int32':
+        case 'Int64':
+        case 'Byte':
+        case 'UInt32':
+        case 'UInt64':
+            return Number(value);
+
+        case 'Double':
+        case 'Single':
+            return Number(value);
+
+        case 'Char':
+        case 'UInt16':
+            // MessagePack-CSharp: char as uint16 → msgpackr: number
+            // SQLite stores as TEXT (single character)
+            if (typeof value === 'number') {
+                return String.fromCharCode(value);
+            }
+            return String(value);
+
+        case 'Enum':
+            // MessagePack-CSharp: enum as underlying int → msgpackr: number
+            return Number(value);
+
+        case 'ByteArray':
+            // Already Uint8Array from msgpackr
+            return value as any;
+
+        default:
+            logger.warn(MODULE_NAME, `convertValueForSqlite: unhandled type "${csharpType}", passing through`);
+            return value as SqlValue;
+    }
+}
+
+/**
+ * Convert a SQLite value back to MessagePack-CSharp wire format for export.
+ * This ensures exported files are compatible with C#'s MessagePackSerializer.Deserialize.
+ */
+function convertValueFromSqlite(value: any, csharpType: string, sqlType: string): any {
+    if (value === null || value === undefined) {
+        return null;
+    }
+
+    const baseType = csharpType.endsWith('?') ? csharpType.slice(0, -1) : csharpType;
+
+    switch (baseType) {
+        case 'Guid': {
+            // SQLite stores as BLOB (Uint8Array) or TEXT (string)
+            // MessagePack-CSharp expects: 36-char string "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+            if (value instanceof Uint8Array && value.length === 16) {
+                const hex = Array.from(value).map(b => b.toString(16).padStart(2, '0')).join('');
+                return `${hex.slice(0,8)}-${hex.slice(8,12)}-${hex.slice(12,16)}-${hex.slice(16,20)}-${hex.slice(20)}`;
+            }
+            // Already a string (TEXT storage)
+            return String(value);
+        }
+
+        case 'DateTime': {
+            // SQLite stores as TEXT (ISO 8601)
+            // MessagePack-CSharp expects: Timestamp ext (-1) → pack as Date object
+            // msgpackr packs Date as Timestamp ext automatically
+            if (typeof value === 'string') {
+                return new Date(value);
+            }
+            return value;
+        }
+
+        case 'DateTimeOffset': {
+            // SQLite stores as TEXT (ISO 8601 with offset)
+            // MessagePack-CSharp expects: array [DateTime, short(offset minutes)]
+            if (typeof value === 'string') {
+                const d = new Date(value);
+                // Extract offset from ISO string (e.g., "+02:00" or "Z")
+                const match = value.match(/([+-])(\d{2}):(\d{2})$/);
+                let offsetMinutes = 0;
+                if (match) {
+                    offsetMinutes = (parseInt(match[2]) * 60 + parseInt(match[3])) * (match[1] === '-' ? -1 : 1);
+                }
+                return [d, offsetMinutes];
+            }
+            return value;
+        }
+
+        case 'TimeSpan': {
+            // SQLite stores as TEXT (e.g., "1.02:03:04.0050000")
+            // MessagePack-CSharp expects: int64 (Ticks)
+            if (typeof value === 'string') {
+                // Parse .NET TimeSpan string format: [d.]hh:mm:ss[.fffffff]
+                const parts = value.match(/^(-?)(?:(\d+)\.)?(\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?$/);
+                if (parts) {
+                    const sign = parts[1] === '-' ? -1 : 1;
+                    const days = parseInt(parts[2] || '0');
+                    const hours = parseInt(parts[3]);
+                    const minutes = parseInt(parts[4]);
+                    const seconds = parseInt(parts[5]);
+                    const fraction = parts[6] || '0';
+                    // Ticks = 10,000,000 per second
+                    const ticks = sign * (
+                        ((days * 24 + hours) * 3600 + minutes * 60 + seconds) * 10000000 +
+                        parseInt(fraction.padEnd(7, '0').slice(0, 7))
+                    );
+                    return ticks;
+                }
+            }
+            // Numeric (stored as days or ticks)
+            return Number(value);
+        }
+
+        case 'Boolean':
+            // SQLite stores as INTEGER (0/1)
+            // MessagePack-CSharp expects: true/false
+            return value === 1 || value === true;
+
+        case 'Decimal':
+            // SQLite stores as TEXT, MessagePack-CSharp expects: string
+            return String(value);
+
+        case 'Char':
+            // SQLite stores as TEXT, MessagePack-CSharp expects: uint16 (char code)
+            if (typeof value === 'string' && value.length >= 1) {
+                return value.charCodeAt(0);
+            }
+            return 0;
+
+        case 'Enum':
+            // SQLite stores as INTEGER, MessagePack-CSharp expects: integer
+            return Number(value);
+
+        case 'Int16':
+        case 'Int32':
+        case 'Int64':
+        case 'Byte':
+        case 'UInt16':
+        case 'UInt32':
+        case 'UInt64':
+            return Number(value);
+
+        case 'Double':
+        case 'Single':
+            return Number(value);
+
+        case 'String':
+            return String(value);
+
+        case 'ByteArray':
+            // SQLite BLOB → already Uint8Array → msgpackr packs as bin (compatible)
+            return value;
+
+        default:
+            logger.warn(MODULE_NAME, `convertValueFromSqlite: unhandled type "${csharpType}", passing through`);
+            return value;
+    }
+}
+
+/**
+ * Build SQL INSERT statement from V2 header metadata.
+ * conflictStrategy: 0=plain INSERT, 1=LastWriteWins, 2=LocalWins, 3=DeltaWins
+ */
+function buildInsertSql(header: V2Header, conflictStrategy: number): string {
+    const tableName = header[7];
+    const columns = header[8];
+    const pkColumn = header[9];
+    const columnNames = columns.map(c => `"${c[0]}"`);
+    const placeholders = columns.map(() => '?').join(', ');
+
+    let sql = `INSERT INTO "${tableName}" (${columnNames.join(', ')}) VALUES (${placeholders})`;
+
+    if (conflictStrategy === 0) {
+        // Seed mode: plain INSERT (no conflict handling)
+        return sql;
+    }
+
+    // Build SET clause for UPDATE (all columns except primary key)
+    const nonPkColumns = columns.filter(c => c[0] !== pkColumn);
+    const setClause = nonPkColumns
+        .map(c => `"${c[0]}" = excluded."${c[0]}"`)
+        .join(', ');
+
+    switch (conflictStrategy) {
+        case 1: {
+            // LastWriteWins: update only if imported is newer
+            const tsColumn = columns.find(c => c[0] === 'UpdatedAt');
+            const tsName = tsColumn ? tsColumn[0] : 'UpdatedAt';
+            sql += ` ON CONFLICT("${pkColumn}") DO UPDATE SET ${setClause} WHERE excluded."${tsName}" > "${tableName}"."${tsName}"`;
+            break;
+        }
+        case 2:
+            // LocalWins: only insert new items
+            sql += ` ON CONFLICT("${pkColumn}") DO NOTHING`;
+            break;
+        case 3:
+            // DeltaWins: always overwrite
+            sql += ` ON CONFLICT("${pkColumn}") DO UPDATE SET ${setClause}`;
+            break;
+    }
+
+    return sql;
+}
+
+/**
+ * Bulk import: unpack V2 MessagePack payload, insert with prepared statement loop.
+ * One worker round-trip per batch instead of ~80.
+ */
+async function bulkImport(dbName: string, payload: Uint8Array, conflictStrategy: number) {
+    const db = openDatabases.get(dbName);
+    if (!db) {
+        throw new Error(`Database ${dbName} not open`);
+    }
+
+    // Unpack all objects from payload: first = V2 header, rest = item arrays
+    const objects = unpackMultiple(payload);
+
+    if (objects.length < 1) {
+        throw new Error('bulkImport: empty payload');
+    }
+
+    // First object is the V2 header (MessagePack array with positional keys)
+    const header: V2Header = objects[0];
+    const columns = header[8];
+    const csharpTypes = columns.map(c => c[2]);
+    const sqlTypes = columns.map(c => c[1]);
+
+    logger.info(MODULE_NAME, `bulkImport: ${objects.length - 1} items into "${header[7]}", strategy=${conflictStrategy}`);
+
+    const sql = buildInsertSql(header, conflictStrategy);
+    logger.debug(MODULE_NAME, `bulkImport SQL: ${sql}`);
+
+    let rowsAffected = 0;
+
+    db.exec("BEGIN");
+    try {
+        const stmt = db.prepare(sql);
+        try {
+            for (let i = 1; i < objects.length; i++) {
+                const row = objects[i] as any[];
+                // Convert each value according to its csharpType
+                const converted = row.map((val, idx) => convertValueForSqlite(val, csharpTypes[idx], sqlTypes[idx]));
+                stmt.bind(converted);
+                stmt.step();
+                stmt.reset();
+                rowsAffected++;
+            }
+        } finally {
+            stmt.finalize();
+        }
+        db.exec("COMMIT");
+    } catch (error) {
+        try {
+            db.exec("ROLLBACK");
+        } catch {
+            // Ignore rollback errors
+        }
+        logger.error(MODULE_NAME, `bulkImport failed:`, error);
+        throw error;
+    }
+
+    logger.info(MODULE_NAME, `✓ bulkImport: ${rowsAffected} rows inserted into "${header[7]}"`);
+    return { rowsAffected };
+}
+
+/**
+ * Bulk export: query SQLite, pack V2 header + rows as MessagePack, return as raw binary.
+ */
+async function bulkExport(dbName: string, metadata: any) {
+    const db = openDatabases.get(dbName);
+    if (!db) {
+        throw new Error(`Database ${dbName} not open`);
+    }
+
+    const { tableName, columns, primaryKeyColumn, schemaHash, dataType,
+            appIdentifier, mode, where, whereParams, orderBy } = metadata;
+
+    if (!tableName || !columns) {
+        throw new Error('bulkExport requires tableName and columns metadata');
+    }
+
+    // Build SELECT statement
+    const columnNames = (columns as string[][]).map((c: string[]) => `"${c[0]}"`);
+    let sql = `SELECT ${columnNames.join(', ')} FROM "${tableName}"`;
+
+    if (where) {
+        sql += ` WHERE ${where}`;
+    }
+
+    if (orderBy) {
+        sql += ` ORDER BY ${orderBy}`;
+    }
+
+    logger.info(MODULE_NAME, `bulkExport: "${tableName}" — ${sql.substring(0, 120)}`);
+
+    // Execute query
+    const bindParams = whereParams ? Object.fromEntries(
+        (whereParams as any[]).map((v: any, i: number) => [`$${i}`, v])
+    ) : undefined;
+
+    const rows = db.exec({
+        sql,
+        bind: bindParams,
+        returnValue: 'resultRows',
+        rowMode: 'array'
+    }) || [];
+
+    // Build V2 header
+    const header = [
+        'SWBV2',           // [0] magic
+        schemaHash || '',  // [1] schemaHash
+        dataType || '',    // [2] dataType
+        appIdentifier,     // [3] appIdentifier
+        new Date().toISOString(), // [4] exportedAt
+        rows.length,       // [5] recordCount
+        mode ?? 0,         // [6] mode
+        tableName,         // [7] tableName
+        columns,           // [8] columns metadata
+        primaryKeyColumn || '' // [9] primaryKeyColumn
+    ];
+
+    // Convert each row from SQLite types to C#-MessagePack wire format
+    const colMeta = columns as string[][];
+    const csharpTypes = colMeta.map((c: string[]) => c[2]);
+    const sqlTypes = colMeta.map((c: string[]) => c[1]);
+
+    const parts: Uint8Array[] = [];
+    parts.push(pack(header));
+    for (const row of rows) {
+        const converted = (row as any[]).map((val, idx) =>
+            convertValueFromSqlite(val, csharpTypes[idx], sqlTypes[idx]));
+        parts.push(pack(converted));
+    }
+
+    // Concatenate into single buffer
+    const totalLength = parts.reduce((sum, p) => sum + p.length, 0);
+    const result = new Uint8Array(totalLength);
+    let offset = 0;
+    for (const part of parts) {
+        result.set(part, offset);
+        offset += part.length;
+    }
+
+    logger.info(MODULE_NAME, `✓ bulkExport: ${rows.length} rows, ${totalLength} bytes`);
+    return { rawBinary: true, data: result };
 }

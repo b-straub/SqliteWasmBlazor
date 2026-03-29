@@ -46,7 +46,9 @@ internal class ExportImportDeltaBasicTest(IDbContextFactory<TodoDbContext> facto
             await MessagePackSerializer<TodoItemDto>.SerializeStreamAsync(
                 dtos,
                 initialExportStream,
-                appId);
+                "TodoItems",
+                "Id",
+                appIdentifier: appId);
         }
 
         // Remember the cutoff time for patches (before modifications)
@@ -100,7 +102,9 @@ internal class ExportImportDeltaBasicTest(IDbContextFactory<TodoDbContext> facto
             await MessagePackSerializer<TodoItemDto>.SerializeStreamAsync(
                 dtos,
                 patchStream,
-                appId);
+                "TodoItems",
+                "Id",
+                appIdentifier: appId);
         }
 
         patchStream.Position = 0;
