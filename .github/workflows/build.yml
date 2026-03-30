@@ -66,6 +66,18 @@ jobs:
     - name: Build solution
       run: dotnet build --configuration Release
 
+    - name: Debug - Check static assets
+      run: |
+        echo "=== TestHost bin content ==="
+        find SqliteWasmBlazor.TestHost/bin/Release -name "staticwebassets*" -o -name "*.staticwebassets.*" | head -20
+        echo "=== TestApp wwwroot _content ==="
+        find SqliteWasmBlazor.TestApp/bin/Release -path "*_content*" | head -20
+        echo "=== TestHost wwwroot ==="
+        ls -la SqliteWasmBlazor.TestHost/bin/Release/net10.0/wwwroot/ 2>/dev/null || echo "no wwwroot"
+        echo "=== Static web assets manifest ==="
+        find SqliteWasmBlazor.TestHost/bin/Release -name "*.staticwebassets.endpoints.json" | head -5
+        cat $(find SqliteWasmBlazor.TestHost/bin/Release -name "*.staticwebassets.endpoints.json" | head -1) 2>/dev/null | python3 -c "import sys,json; d=json.load(sys.stdin); [print(e['Route']) for e in d.get('endpoints',d.get('Endpoints',[]))[:20]]" 2>/dev/null || echo "Could not parse manifest"
+
     - name: Install Playwright browsers
       run: pwsh SqliteWasmBlazor.Tests/bin/Release/net10.0/playwright.ps1 install --with-deps
 
