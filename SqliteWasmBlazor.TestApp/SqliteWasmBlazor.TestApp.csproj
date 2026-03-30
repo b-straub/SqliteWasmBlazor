@@ -21,9 +21,11 @@
     <ItemGroup>
         <NativeFileReference Include="..\SqliteWasmBlazor\native\lib\e_sqlite3.a" />
         <ProjectReference Include="..\SqliteWasmBlazor.Models\SqliteWasmBlazor.Models.csproj" />
+        <ProjectReference Include="..\SqliteWasmBlazor.Components\SqliteWasmBlazor.Components.csproj" />
     </ItemGroup>
-    <ItemGroup>
-      <ProjectReference Include="..\SqliteWasmBlazor.Components\SqliteWasmBlazor.Components.csproj" />
+    <!-- Ensure core library static web assets are available in Release (NuGet transitive doesn't propagate them) -->
+    <ItemGroup Condition="'$(Configuration)' == 'Release'">
+        <PackageReference Include="SqliteWasmBlazor" Version="$(SqliteWasmBlazorVersion)" />
     </ItemGroup>
 
 
