@@ -11,13 +11,22 @@ internal class IntListEmptyTest(IDbContextFactory<TodoDbContext> factory)
 
     public override async ValueTask<string?> RunTestAsync()
     {
-        await using var context = await Factory.CreateDbContextAsync();
-
         var entity = new TypeTestEntity { IntList = new List<int>() };
 
-        context.TypeTests.Add(entity);
-        await context.SaveChangesAsync();
+        await using (var writeCtx = await Factory.CreateDbContextAsync())
 
+
+        {
+
+
+            writeCtx.TypeTests.Add(entity);
+        await writeCtx.SaveChangesAsync();
+
+
+        }
+
+
+        await using var context = await Factory.CreateDbContextAsync();
         var retrieved = await context.TypeTests.FindAsync(entity.Id);
         if (retrieved is null)
         {

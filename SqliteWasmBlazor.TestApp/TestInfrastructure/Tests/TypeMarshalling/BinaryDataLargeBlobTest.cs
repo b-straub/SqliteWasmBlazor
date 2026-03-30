@@ -11,16 +11,25 @@ internal class BinaryDataLargeBlobTest(IDbContextFactory<TodoDbContext> factory)
 
     public override async ValueTask<string?> RunTestAsync()
     {
-        await using var context = await Factory.CreateDbContextAsync();
-
         var largeBlob = new byte[1024 * 100]; // 100KB
         new Random(42).NextBytes(largeBlob);
 
         var entity = new TypeTestEntity { BlobValue = largeBlob };
 
-        context.TypeTests.Add(entity);
-        await context.SaveChangesAsync();
+        await using (var writeCtx = await Factory.CreateDbContextAsync())
 
+
+        {
+
+
+            writeCtx.TypeTests.Add(entity);
+        await writeCtx.SaveChangesAsync();
+
+
+        }
+
+
+        await using var context = await Factory.CreateDbContextAsync();
         var retrieved = await context.TypeTests.FindAsync(entity.Id);
         if (retrieved is null)
         {

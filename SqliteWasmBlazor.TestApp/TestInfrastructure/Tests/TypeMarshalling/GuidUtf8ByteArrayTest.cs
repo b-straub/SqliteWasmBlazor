@@ -15,8 +15,6 @@ internal class GuidUtf8ByteArrayTest(IDbContextFactory<TodoDbContext> factory)
 
     public override async ValueTask<string?> RunTestAsync()
     {
-        await using var context = await Factory.CreateDbContextAsync();
-
         var testGuid = Guid.NewGuid();
 
         // Create entity with Guid
@@ -27,10 +25,21 @@ internal class GuidUtf8ByteArrayTest(IDbContextFactory<TodoDbContext> factory)
             NullableGuidValue = Guid.NewGuid()
         };
 
-        context.TypeTests.Add(entity);
-        await context.SaveChangesAsync();
+        await using (var writeCtx = await Factory.CreateDbContextAsync())
+
+
+        {
+
+
+            writeCtx.TypeTests.Add(entity);
+        await writeCtx.SaveChangesAsync();
+
+
+        }
+
 
         // Read back - this tests GetGuid
+        await using var context = await Factory.CreateDbContextAsync();
         var retrieved = await context.TypeTests.FindAsync(entity.Id);
 
         if (retrieved is null)

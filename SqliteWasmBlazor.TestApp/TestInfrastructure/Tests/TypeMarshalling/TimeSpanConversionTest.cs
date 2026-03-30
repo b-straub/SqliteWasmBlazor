@@ -17,8 +17,6 @@ internal class TimeSpanConversionTest(IDbContextFactory<TodoDbContext> factory)
 
     public override async ValueTask<string?> RunTestAsync()
     {
-        await using var context = await Factory.CreateDbContextAsync();
-
         var testTimeSpan = new TimeSpan(2, 14, 30, 45); // 2 days, 14 hours, 30 minutes, 45 seconds
 
         // Create entity with TimeSpan
@@ -29,10 +27,21 @@ internal class TimeSpanConversionTest(IDbContextFactory<TodoDbContext> factory)
             NullableTimeSpanValue = TimeSpan.FromHours(5.5)
         };
 
-        context.TypeTests.Add(entity);
-        await context.SaveChangesAsync();
+        await using (var writeCtx = await Factory.CreateDbContextAsync())
+
+
+        {
+
+
+            writeCtx.TypeTests.Add(entity);
+        await writeCtx.SaveChangesAsync();
+
+
+        }
+
 
         // Read back - this tests GetTimeSpan
+        await using var context = await Factory.CreateDbContextAsync();
         var retrieved = await context.TypeTests.FindAsync(entity.Id);
 
         if (retrieved is null)

@@ -11,8 +11,6 @@ internal class AllTypesRoundTripTest(IDbContextFactory<TodoDbContext> factory)
 
     public override async ValueTask<string?> RunTestAsync()
     {
-        await using var context = await Factory.CreateDbContextAsync();
-
         var entity = new TypeTestEntity
         {
             ByteValue = 255,
@@ -32,9 +30,15 @@ internal class AllTypesRoundTripTest(IDbContextFactory<TodoDbContext> factory)
             IntList = new List<int> { 1, 2, 3, 42, 100 }
         };
 
-        context.TypeTests.Add(entity);
-        await context.SaveChangesAsync();
+        // Insert with one context
+        await using (var writeCtx = await Factory.CreateDbContextAsync())
+        {
+            writeCtx.TypeTests.Add(entity);
+            await writeCtx.SaveChangesAsync();
+        }
 
+        // Read with a separate context to force actual SQLite read (no change tracker cache)
+        await using var context = await Factory.CreateDbContextAsync();
         var retrieved = await context.TypeTests.FindAsync(entity.Id);
         if (retrieved is null)
         {

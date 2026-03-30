@@ -15,8 +15,6 @@ internal class CharSingleCharStringTest(IDbContextFactory<TodoDbContext> factory
 
     public override async ValueTask<string?> RunTestAsync()
     {
-        await using var context = await Factory.CreateDbContextAsync();
-
         // Create entity with char values
         var entity = new TypeTestEntity
         {
@@ -25,10 +23,21 @@ internal class CharSingleCharStringTest(IDbContextFactory<TodoDbContext> factory
             NullableCharValue = '€' // Unicode character
         };
 
-        context.TypeTests.Add(entity);
-        await context.SaveChangesAsync();
+        await using (var writeCtx = await Factory.CreateDbContextAsync())
+
+
+        {
+
+
+            writeCtx.TypeTests.Add(entity);
+        await writeCtx.SaveChangesAsync();
+
+
+        }
+
 
         // Read back - this tests GetChar with single-character strings
+        await using var context = await Factory.CreateDbContextAsync();
         var retrieved = await context.TypeTests.FindAsync(entity.Id);
 
         if (retrieved is null)
