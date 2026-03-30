@@ -15,6 +15,7 @@
 @inject ISnackbar Snackbar
 @inject ILogger<TodoImportExport> Logger
 @inject ISqliteWasmDatabaseService DatabaseService
+@inject IConfiguration Configuration
 @implements IAsyncDisposable
 
 <MudPaper Elevation="2" Class="pa-4 mb-6">
@@ -83,14 +84,23 @@
             <MudItem xs="12" sm="6">
                 @if (_isExporting)
                 {
-                    <MudButton Variant="Variant.Outlined"
-                               Color="Color.Error"
-                               OnClick="CancelExport"
-                               StartIcon="@Icons.Material.Filled.Cancel"
-                               FullWidth="true">
-                        <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" />
-                        <MudText>Cancel Export</MudText>
-                    </MudButton>
+                    <MudStack Spacing="1">
+                        <MudText Typo="Typo.caption" Align="Align.Center">
+                            @_exportStatus
+                        </MudText>
+                        <MudProgressLinear Color="Color.Primary"
+                                          Value="@(_exportProgress)"
+                                          Indeterminate="@(_exportProgress == 0)"
+                                          Size="Size.Large" />
+                        <MudButton Variant="Variant.Outlined"
+                                   Color="Color.Error"
+                                   OnClick="CancelExport"
+                                   StartIcon="@Icons.Material.Filled.Cancel"
+                                   Size="Size.Small"
+                                   FullWidth="true">
+                            Cancel
+                        </MudButton>
+                    </MudStack>
                 }
                 else
                 {
@@ -105,37 +115,81 @@
             </MudItem>
 
             <MudItem xs="12" sm="6">
-                <div style="@(_isImporting ? "display:none" : "")">
-                    <MudFileUpload T="IBrowserFile"
-                                   OnFilesChanged="ImportAsync"
-                                   Accept=".msgpack"
-                                   MaximumFileCount="1">
-                        <CustomContent Context="fileUpload">
-                            <MudButton Variant="Variant.Filled"
-                                       Color="Color.Primary"
-                                       StartIcon="@Icons.Material.Filled.CloudUpload"
-                                       OnClick="@fileUpload.OpenFilePickerAsync"
+                @if (_isWaitingForParts || _isImporting && _pendingMeta is not null)
+                {
+                    <div style="@(_isImporting ? "display:none" : "")">
+                        <MudStack Spacing="1">
+                            <MudText Typo="Typo.caption">Select @_requiredParts.Count part file(s):</MudText>
+                            @foreach (var part in _requiredParts)
+                            {
+                                <MudText Typo="Typo.caption" Color="Color.Secondary">@part</MudText>
+                            }
+                            <MudFileUpload T="IReadOnlyList<IBrowserFile>"
+                                           OnFilesChanged="ImportPartsAsync"
+                                           Accept=".msgpack"
+                                           MaximumFileCount="@Math.Max(_requiredParts.Count, 1)">
+                                <CustomContent Context="fileUpload">
+                                    <MudButton Variant="Variant.Filled"
+                                               Color="Color.Primary"
+                                               StartIcon="@Icons.Material.Filled.CloudUpload"
+                                               OnClick="@fileUpload.OpenFilePickerAsync"
+                                               FullWidth="true">
+                                        Select Part Files
+                                    </MudButton>
+                                </CustomContent>
+                            </MudFileUpload>
+                            <MudButton Variant="Variant.Outlined"
+                                       Color="Color.Default"
+                                       OnClick="CancelMultiPartImport"
+                                       Size="Size.Small"
                                        FullWidth="true">
-                                <MudText>@GetImportButtonText()</MudText>
+                                Cancel
                             </MudButton>
-                        </CustomContent>
-                    </MudFileUpload>
-                </div>
+                        </MudStack>
+                    </div>
+                }
+                else
+                {
+                    <div style="@(_isImporting ? "display:none" : "")">
+                        <MudFileUpload T="IBrowserFile"
+                                       OnFilesChanged="ImportAsync"
+                                       Accept=".msgpack,.msgpack-meta"
+                                       MaximumFileCount="1">
+                            <CustomContent Context="fileUpload">
+                                <MudButton Variant="Variant.Filled"
+                                           Color="Color.Primary"
+                                           StartIcon="@Icons.Material.Filled.CloudUpload"
+                                           OnClick="@fileUpload.OpenFilePickerAsync"
+                                           FullWidth="true">
+                                    <MudText>@GetImportButtonText()</MudText>
+                                </MudButton>
+                            </CustomContent>
+                        </MudFileUpload>
+                    </div>
+                }
                 @if (_isImporting)
                 {
                     <MudStack Spacing="1">
                         <MudText Typo="Typo.body2" Align="Align.Center">
-                            @_importProgress.ToString("N0") / @_importTotal.ToString("N0") items
+                            @if (_isFinalizing)
+                            {
+                                @:Rebuilding search index...
+                            }
+                            else
+                            {
+                                @($"{_importProgress:N0} / {_importTotal:N0} items")
+                            }
                         </MudText>
-                        <MudProgressLinear Color="Color.Primary"
+                        <MudProgressLinear Color="@(_isFinalizing ? Color.Success : Color.Primary)"
                                           Value="@(_importTotal > 0 ? (double)_importProgress / _importTotal * 100 : 0)"
+                                          Indeterminate="@_isFinalizing"
                                           Size="Size.Large" />
                         <MudButton Variant="Variant.Outlined"
                                    Color="Color.Error"
                                    OnClick="CancelImport"
                                    StartIcon="@Icons.Material.Filled.Cancel"
                                    FullWidth="true">
-                            Cancel Import
+                            Cancel
                         </MudButton>
                     </MudStack>
                 }
@@ -200,10 +254,18 @@
     private int _tombstoneCount;
     private bool _isExporting;
     private bool _isImporting;
+    private bool _isFinalizing;
     private int _importProgress;
     private int _importTotal;
+    private int _exportProgress;
+    private string _exportStatus = string.Empty;
     private CancellationTokenSource? _exportCts;
     private CancellationTokenSource? _importCts;
+
+    // Multi-part import state
+    private bool _isWaitingForParts;
+    private System.Text.Json.JsonElement? _pendingMeta;
+    private List<string> _requiredParts = [];
 
     private string ImportDatabaseName => $"{Path.GetFileNameWithoutExtension(DatabaseName)}-import{Path.GetExtension(DatabaseName)}";
     private string BackupDatabaseName => $"{Path.GetFileNameWithoutExtension(DatabaseName)}.bak";
@@ -313,22 +375,165 @@
                 orderBy = "\"UpdatedAt\" DESC"
             };
 
-            var data = await DatabaseService.BulkExportAsync(DatabaseName, exportMetadata, cancellationToken);
+            var partSizeMb = Configuration.GetValue("exportPartSizeMb", 250);
+            var partSizeBytes = (long)partSizeMb * 1024 * 1024;
 
-            cancellationToken.ThrowIfCancellationRequested();
+            // Estimate items per part: export a small sample to measure avg bytes per item
+            const int sampleSize = 1000;
+            var sampleMetadata = new
+            {
+                exportMetadata.tableName,
+                exportMetadata.columns,
+                exportMetadata.primaryKeyColumn,
+                exportMetadata.schemaHash,
+                exportMetadata.dataType,
+                exportMetadata.appIdentifier,
+                exportMetadata.mode,
+                exportMetadata.where,
+                exportMetadata.whereParams,
+                orderBy = exportMetadata.orderBy + $" LIMIT {sampleSize}"
+            };
 
-            // Trigger file download
-            var fileName = GetExportFileName();
-            FileOperationsInterop.DownloadMessagePackFile(new ArraySegment<byte>(data), fileName);
+            var sampleData = await DatabaseService.BulkExportAsync(DatabaseName, sampleMetadata, cancellationToken);
+            var sampleHeader = MessagePackSerializer.Deserialize<MessagePackFileHeaderV2>(sampleData);
+            var sampleCount = sampleHeader.RecordCount;
+
+            int partSize;
+            if (sampleCount > 0)
+            {
+                var avgBytesPerItem = (double)sampleData.Length / sampleCount;
+                partSize = Math.Max(sampleSize, (int)(partSizeBytes / avgBytesPerItem));
+                Logger.LogInformation("Export: ~{BytesPerItem:F0} bytes/item, {PartSize:N0} items per {Mb}MB part",
+                    avgBytesPerItem, partSize, partSizeMb);
+            }
+            else
+            {
+                partSize = 1_000_000; // Fallback
+            }
+            var timestamp = DateTime.Now.ToString("yyyyMMdd-HHmmss");
+            var prefix = _exportMode == ExportMode.Full ? "todoitems-full" : "todoitems-delta";
+
+            _exportStatus = "Counting records...";
+            _exportProgress = 0;
+            StateHasChanged();
+            await Task.Yield();
+
+            // Get total count for progress calculation
+            int totalItemCount;
+            await using (var countCtx = await DbContextFactory.CreateDbContextAsync(cancellationToken))
+            {
+                if (_exportMode == ExportMode.Delta)
+                {
+                    var latestCp = await countCtx.SyncState
+                        .OrderByDescending(s => s.Id)
+                        .FirstOrDefaultAsync(cancellationToken);
+                    var lastAt = latestCp?.CreatedAt ?? DateTime.MinValue;
+                    totalItemCount = await countCtx.TodoItems.CountAsync(t =>
+                        (t.UpdatedAt > lastAt && !t.IsDeleted) ||
+                        (t.IsDeleted && t.DeletedAt > lastAt), cancellationToken);
+                }
+                else
+                {
+                    totalItemCount = await countCtx.TodoItems.CountAsync(t => !t.IsDeleted, cancellationToken);
+                }
+            }
+
+            _exportStatus = $"Exporting {totalItemCount:N0} records...";
+            StateHasChanged();
+
+            var parts = new List<(string fileName, int recordCount)>();
+            var totalExported = 0;
+            var partIndex = 0;
+
+            while (true)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                partIndex++;
+
+                var pagedMetadata = new
+                {
+                    exportMetadata.tableName,
+                    exportMetadata.columns,
+                    exportMetadata.primaryKeyColumn,
+                    exportMetadata.schemaHash,
+                    exportMetadata.dataType,
+                    exportMetadata.appIdentifier,
+                    exportMetadata.mode,
+                    exportMetadata.where,
+                    exportMetadata.whereParams,
+                    orderBy = exportMetadata.orderBy + $" LIMIT {partSize} OFFSET {totalExported}"
+                };
+
+                _exportStatus = $"Exporting part {partIndex} ({totalExported:N0} / {totalItemCount:N0})...";
+                StateHasChanged();
+                await Task.Yield();
+
+                var partData = await DatabaseService.BulkExportAsync(DatabaseName, pagedMetadata, cancellationToken);
+                var partHeader = MessagePackSerializer.Deserialize<MessagePackFileHeaderV2>(partData);
+
+                if (partHeader.RecordCount == 0)
+                {
+                    break;
+                }
+
+                totalExported += partHeader.RecordCount;
+
+                if (partHeader.RecordCount < partSize && parts.Count == 0)
+                {
+                    // Small export — single file, no multi-part needed
+                    var singleFileName = $"{prefix}-{timestamp}.msgpack";
+                    FileOperationsInterop.DownloadMessagePackFile(new ArraySegment<byte>(partData), singleFileName);
+                    break;
+                }
+
+                // Multi-part: download this part
+                var partFileName = $"{prefix}-{timestamp}-part{partIndex:D3}.msgpack";
+                FileOperationsInterop.DownloadMessagePackFile(new ArraySegment<byte>(partData), partFileName);
+                parts.Add((partFileName, partHeader.RecordCount));
+
+                _exportStatus = $"Exported {totalExported:N0} / {totalItemCount:N0} records (part {partIndex})...";
+                _exportProgress = totalItemCount > 0 ? (int)((double)totalExported / totalItemCount * 100) : 0;
+                StateHasChanged();
+                await Task.Yield();
+
+                if (partHeader.RecordCount < partSize)
+                {
+                    break; // Last part
+                }
+            }
+
+            // If multi-part, download the meta file
+            if (parts.Count > 0)
+            {
+                var meta = new
+                {
+                    version = 2,
+                    magic = "SWBV2META",
+                    tableName = "TodoItems",
+                    primaryKeyColumn = "Id",
+                    schemaHash = _schemaHash,
+                    dataType = typeof(TodoItemDto).FullName ?? typeof(TodoItemDto).Name,
+                    appIdentifier = AppIdentifier,
+                    exportedAt = DateTime.UtcNow.ToString("O"),
+                    totalRecordCount = totalExported,
+                    mode = _exportMode == ExportMode.Full ? 0 : 1,
+                    parts = parts.Select(p => new { fileName = p.fileName, recordCount = p.recordCount }).ToArray()
+                };
+
+                var metaJson = System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(meta,
+                    new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
+
+                var metaFileName = $"{prefix}-{timestamp}.msgpack-meta";
+                FileOperationsInterop.DownloadMessagePackFile(new ArraySegment<byte>(metaJson), metaFileName);
+
+                _exportStatus = $"Done — {totalExported:N0} records in {parts.Count} parts";
+            }
 
             sw.Stop();
+            var count = totalExported;
 
-            // Read record count from the V2 header
-            var header = MessagePackSerializer.Deserialize<MessagePackFileHeaderV2>(data);
-            var count = header.RecordCount;
-
-            Logger.LogInformation("V2 export completed: {Count} records, {Size} bytes in {Ms}ms",
-                count, data.Length, sw.ElapsedMilliseconds);
+            Logger.LogInformation("V2 export completed: {Count} records in {Ms}ms ({Parts} parts)",
+                count, sw.ElapsedMilliseconds, Math.Max(parts.Count, 1));
 
             // Create checkpoint after delta export
             if (_exportMode == ExportMode.Delta && count > 0)
@@ -393,7 +598,42 @@
             return;
         }
 
+        var file = e.File;
+
+        // Detect meta file → switch to multi-part import
+        if (file.Name.EndsWith(".msgpack-meta", StringComparison.OrdinalIgnoreCase))
+        {
+            try
+            {
+                await using var metaStream = file.OpenReadStream(1024 * 1024); // 1MB max for meta
+                using var ms = new MemoryStream();
+                await metaStream.CopyToAsync(ms);
+                var meta = System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(ms.ToArray());
+
+                if (meta.GetProperty("magic").GetString() != "SWBV2META")
+                {
+                    Snackbar.Add("Invalid meta file", Severity.Error);
+                    return;
+                }
+
+                _pendingMeta = meta;
+                _requiredParts = meta.GetProperty("parts").EnumerateArray()
+                    .Select(p => p.GetProperty("fileName").GetString()!)
+                    .ToList();
+                _isWaitingForParts = true;
+                StateHasChanged();
+            }
+            catch (Exception ex)
+            {
+                Snackbar.Add($"Failed to read meta file: {ex.Message}", Severity.Error);
+            }
+
+            return;
+        }
+
         _isImporting = true;
+        _importProgress = 0;
+        _importTotal = 0;
         _importCts?.Dispose();
         _importCts = new CancellationTokenSource();
         StateHasChanged();
@@ -402,7 +642,6 @@
         {
             var sw = Stopwatch.StartNew();
             var cancellationToken = _importCts.Token;
-            var file = e.File;
 
             Logger.LogInformation("Import started: {FileName} ({Size} bytes)", file.Name, file.Size);
 
@@ -517,10 +756,20 @@
                 // Full: FTS5 rebuild + DB swap
                 if (_tempDbContext is not null)
                 {
-                    await _tempDbContext.RebuildTodoItemFts5IndexAsync();
+                    _importProgress = totalCount;
+                    _importTotal = totalCount;
+                    _isFinalizing = true;
+                    StateHasChanged();
+                    await Task.Yield();
+
+                    await _tempDbContext.RebuildTodoItemFts5IndexAsync(cancellationToken);
                     await _tempDbContext.DisposeAsync();
                     _tempDbContext = null;
                 }
+
+                Snackbar.Add("Swapping database...", Severity.Info);
+                StateHasChanged();
+                await Task.Yield();
 
                 await DatabaseService.CloseDatabaseAsync(ImportDatabaseName, cancellationToken);
                 await DatabaseService.CloseDatabaseAsync(DatabaseName, cancellationToken);
@@ -552,6 +801,7 @@
         finally
         {
             _isImporting = false;
+            _isFinalizing = false;
             StateHasChanged();
         }
     }
@@ -559,6 +809,206 @@
     private void CancelImport()
     {
         _importCts?.Cancel();
+    }
+
+    private void CancelMultiPartImport()
+    {
+        _isWaitingForParts = false;
+        _pendingMeta = null;
+        _requiredParts = [];
+        StateHasChanged();
+    }
+
+    private async Task ImportPartsAsync(InputFileChangeEventArgs e)
+    {
+        if (_pendingMeta is null || e.FileCount == 0)
+        {
+            return;
+        }
+
+        var meta = _pendingMeta.Value;
+        var files = e.GetMultipleFiles(_requiredParts.Count);
+
+        // Validate all required parts are present
+        var filesByName = files.ToDictionary(f => f.Name, f => f);
+        var missing = _requiredParts.Where(name => !filesByName.ContainsKey(name)).ToList();
+
+        if (missing.Count > 0)
+        {
+            Snackbar.Add($"Missing part files: {string.Join(", ", missing)}", Severity.Error);
+            return;
+        }
+
+        _isImporting = true;
+        _importProgress = 0;
+        _importTotal = _pendingMeta.Value.GetProperty("totalRecordCount").GetInt32();
+        _importCts?.Dispose();
+        _importCts = new CancellationTokenSource();
+        StateHasChanged();
+
+        var cancellationToken = _importCts.Token;
+
+        try
+        {
+            var sw = Stopwatch.StartNew();
+            var totalCount = 0;
+            var totalParts = _requiredParts.Count;
+
+            // Full mode: create temp database
+            if (_exportMode == ExportMode.Full)
+            {
+                if (await DatabaseService.ExistsDatabaseAsync(ImportDatabaseName, cancellationToken))
+                {
+                    await DatabaseService.DeleteDatabaseAsync(ImportDatabaseName, cancellationToken);
+                }
+
+                var tempConnection = new SqliteWasmConnection($"Data Source={ImportDatabaseName}");
+                var optionsBuilder = new DbContextOptionsBuilder<TodoDbContext>();
+                optionsBuilder.UseSqliteWasm(tempConnection);
+
+                _tempDbContext = new TodoDbContext(optionsBuilder.Options);
+                await _tempDbContext.Database.MigrateAsync(cancellationToken);
+            }
+
+            var dbName = _exportMode == ExportMode.Full ? ImportDatabaseName : DatabaseName;
+            var conflictStrategy = _exportMode == ExportMode.Delta
+                ? _conflictResolution
+                : ConflictResolutionStrategy.None;
+
+            // Import each part sequentially using existing raw byte streaming
+            for (var i = 0; i < _requiredParts.Count; i++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                var partFile = filesByName[_requiredParts[i]];
+                _importProgress = totalCount;
+                _importTotal = meta.GetProperty("totalRecordCount").GetInt32();
+
+                Logger.LogInformation("Importing part {Part}/{Total}: {FileName}", i + 1, totalParts, partFile.Name);
+
+                // Stream raw bytes from part file to worker (same as single file import)
+                await using var fileStream = partFile.OpenReadStream(1024L * 1024L * 500L);
+                var streamReader = new MessagePackStreamReader(fileStream);
+
+                var headerData = await streamReader.ReadAsync(cancellationToken);
+                if (headerData is null)
+                {
+                    throw new InvalidOperationException($"Empty part file: {partFile.Name}");
+                }
+
+                var headerSequence = headerData.Value;
+                var header = MessagePackSerializer.Deserialize<MessagePackFileHeaderV2>(headerSequence);
+                var expectedType = typeof(TodoItemDto).FullName ?? typeof(TodoItemDto).Name;
+                header.Validate(expectedType, _schemaHash, AppIdentifier);
+
+                var headerBytes = MessagePackSerializer.Serialize(header);
+
+                // Stream in chunks
+                const int batchSize = 10000;
+                using var chunkStream = new MemoryStream();
+                var itemsInChunk = 0;
+                chunkStream.Write(headerBytes);
+
+                while (await streamReader.ReadAsync(cancellationToken) is { } itemBytes)
+                {
+                    foreach (var segment in itemBytes)
+                    {
+                        chunkStream.Write(segment.Span);
+                    }
+
+                    itemsInChunk++;
+
+                    if (itemsInChunk >= batchSize)
+                    {
+                        await DatabaseService.BulkImportAsync(dbName, chunkStream.ToArray(), conflictStrategy, cancellationToken);
+                        totalCount += itemsInChunk;
+                        _importProgress = totalCount;
+
+                        chunkStream.SetLength(0);
+                        chunkStream.Write(headerBytes);
+                        itemsInChunk = 0;
+
+                        StateHasChanged();
+                        await Task.Yield();
+                    }
+                }
+
+                if (itemsInChunk > 0)
+                {
+                    await DatabaseService.BulkImportAsync(dbName, chunkStream.ToArray(), conflictStrategy, cancellationToken);
+                    totalCount += itemsInChunk;
+                    _importProgress = totalCount;
+                }
+
+                StateHasChanged();
+                await Task.Yield();
+            }
+
+            // Post-import finalize (same as single file)
+            if (_exportMode == ExportMode.Delta)
+            {
+                await using var ctx = await DbContextFactory.CreateDbContextAsync(cancellationToken);
+                _tombstoneCount = await ctx.TodoItems.CountAsync(t => t.IsDeleted, cancellationToken);
+                if (_tombstoneCount > 0)
+                {
+                    _showTombstoneCleanup = true;
+                }
+
+                await ctx.CreateCheckpointAsync(
+                    $"Auto checkpoint after multi-part delta import ({totalCount} items)",
+                    cancellationToken: cancellationToken);
+            }
+            else
+            {
+                if (_tempDbContext is not null)
+                {
+                    _isFinalizing = true;
+                    StateHasChanged();
+                    await Task.Yield();
+
+                    await _tempDbContext.RebuildTodoItemFts5IndexAsync(cancellationToken);
+                    await _tempDbContext.DisposeAsync();
+                    _tempDbContext = null;
+                }
+
+                Snackbar.Add("Swapping database...", Severity.Info);
+                StateHasChanged();
+                await Task.Yield();
+
+                await DatabaseService.CloseDatabaseAsync(ImportDatabaseName, cancellationToken);
+                await DatabaseService.CloseDatabaseAsync(DatabaseName, cancellationToken);
+                await SwapDatabasesAsync(DatabaseName, ImportDatabaseName, BackupDatabaseName, DatabaseService, Logger);
+
+                await using var newCtx = await DbContextFactory.CreateDbContextAsync(cancellationToken);
+                await newCtx.CreateCheckpointAsync(
+                    $"Auto checkpoint after multi-part full import ({totalCount} items)",
+                    cancellationToken: cancellationToken);
+            }
+
+            sw.Stop();
+            Snackbar.Add($"Imported {totalCount:N0} items from {totalParts} parts in {sw.ElapsedMilliseconds}ms", Severity.Success);
+            await OnDataChanged.InvokeAsync();
+        }
+        catch (OperationCanceledException)
+        {
+            Snackbar.Add("Multi-part import cancelled", Severity.Warning);
+            await CleanupTempDatabaseAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Multi-part import failed");
+            Snackbar.Add($"Import failed: {ex.Message}", Severity.Error);
+            await CleanupTempDatabaseAsync();
+        }
+        finally
+        {
+            _isImporting = false;
+            _isFinalizing = false;
+            _isWaitingForParts = false;
+            _pendingMeta = null;
+            _requiredParts = [];
+            StateHasChanged();
+        }
     }
 
     private async Task CleanupTempDatabaseAsync()

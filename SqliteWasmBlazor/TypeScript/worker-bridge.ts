@@ -76,6 +76,17 @@ let worker: Worker | null = null;
                     }
                 } catch (error) {
                     console.error('[Worker Bridge] Failed to call C# callback:', error);
+                    // Notify C# that the request failed so TaskCompletionSource doesn't hang
+                    try {
+                        const exports = await (globalThis as any).getDotnetRuntime(0).getAssemblyExports("SqliteWasmBlazor.dll");
+                        const errorJson = JSON.stringify({
+                            id: event.data.id,
+                            data: { success: false, error: `Bridge callback failed: ${error}` }
+                        });
+                        exports.SqliteWasmBlazor.SqliteWasmWorkerBridge.OnWorkerResponse(errorJson);
+                    } catch {
+                        // Last resort — can't notify C#
+                    }
                 }
             }
         };

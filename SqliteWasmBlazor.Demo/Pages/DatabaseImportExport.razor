@@ -178,7 +178,7 @@
         catch (Exception ex)
         {
             Logger.LogError(ex, "Export failed");
-            Snackbar.Add($"Export failed: {ex.Message}", Severity.Error);
+            HandleRawDbError("Export", ex);
         }
         finally
         {
@@ -200,7 +200,7 @@
         byte[] data;
         try
         {
-            const long maxSize = 512 * 1024 * 1024;
+            const long maxSize = 2L * 1024 * 1024 * 1024; // 2GB
             await using var stream = file.OpenReadStream(maxSize);
             using var ms = new MemoryStream();
             await stream.CopyToAsync(ms);
@@ -209,7 +209,7 @@
         catch (Exception ex)
         {
             Logger.LogError(ex, "Failed to read import file");
-            Snackbar.Add($"Failed to read file: {ex.Message}", Severity.Error);
+            HandleRawDbError("Import", ex);
             return;
         }
 
@@ -284,7 +284,7 @@
         catch (Exception ex)
         {
             Logger.LogError(ex, "Import failed");
-            Snackbar.Add($"Import failed: {ex.Message}", Severity.Error);
+            HandleRawDbError("Import", ex);
             await RestoreBackupAsync(backupCreated);
         }
         finally
@@ -320,6 +320,24 @@
     {
         await using var ctx = await DbContextFactory.CreateDbContextAsync();
         await ctx.ValidateSchemaAsync();
+    }
+
+    private void HandleRawDbError(string operation, Exception ex)
+    {
+        if (ex is OutOfMemoryException
+            || ex.Message.Contains("memory", StringComparison.OrdinalIgnoreCase)
+            || ex.Message.Contains("alloc", StringComparison.OrdinalIgnoreCase)
+            || ex.Message.Contains("out of", StringComparison.OrdinalIgnoreCase))
+        {
+            Snackbar.Add(
+                $"Database too large for raw .db {operation.ToLowerInvariant()}. Use the delta-based {operation.ToLowerInvariant()} on the Administration page instead — it works in memory-safe parts.",
+                Severity.Error,
+                config => config.VisibleStateDuration = 10000);
+        }
+        else
+        {
+            Snackbar.Add($"{operation} failed: {ex.Message}", Severity.Error);
+        }
     }
 
     private static string FormatSize(long bytes)

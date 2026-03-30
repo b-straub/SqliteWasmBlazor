@@ -84,7 +84,7 @@ catch (Exception ex)
                 Filename="wwwroot\index.html"
                 Default="/"
                 Match="(&lt;base href=&quot;)(.*)(&quot; /&gt;)"
-                Settings="appsettings.json"
+                Settings="wwwroot\appsettings.json"
                 Field="rootFolder"
         />
 
@@ -92,7 +92,7 @@ catch (Exception ex)
                 Filename="wwwroot\service-worker.published.js"
                 Default="/"
                 Match="(const base = &quot;)(.*)(&quot;)"
-                Settings="appsettings.json"
+                Settings="wwwroot\appsettings.json"
                 Field="rootFolder"
         />
 
@@ -100,7 +100,7 @@ catch (Exception ex)
                 Filename="wwwroot\.htaccess"
                 Default="/"
                 Match="(RewriteBase ).*"
-                Settings="appsettings.json"
+                Settings="wwwroot\appsettings.json"
                 Field="rootFolder"
         />
     </Target>
