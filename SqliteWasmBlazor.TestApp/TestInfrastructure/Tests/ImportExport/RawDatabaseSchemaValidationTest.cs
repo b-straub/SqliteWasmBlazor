@@ -28,7 +28,7 @@ internal class RawDatabaseSchemaValidationTest(IDbContextFactory<TodoDbContext> 
         await using (var context = await Factory.CreateDbContextAsync())
         {
             // Should not throw — the fresh test DB has all required tables
-            await context.ValidateSchemaAsync();
+            await context.ValidateImportedSchemaAsync(DbName);
         }
 
         // Test 2: Export valid DB, import it, validate passes
@@ -39,7 +39,7 @@ internal class RawDatabaseSchemaValidationTest(IDbContextFactory<TodoDbContext> 
 
         await using (var context = await Factory.CreateDbContextAsync())
         {
-            await context.ValidateSchemaAsync();
+            await context.ValidateImportedSchemaAsync(DbName);
         }
 
         // Test 3: Create incompatible DB (drop a required table), export, then validate fails
@@ -61,7 +61,7 @@ internal class RawDatabaseSchemaValidationTest(IDbContextFactory<TodoDbContext> 
         try
         {
             await using var validateCtx = await Factory.CreateDbContextAsync();
-            await validateCtx.ValidateSchemaAsync();
+            await validateCtx.ValidateImportedSchemaAsync(DbName);
             throw new InvalidOperationException("Expected InvalidOperationException for incompatible schema but validation passed");
         }
         catch (InvalidOperationException ex) when (ex.Message.Contains("missing tables"))

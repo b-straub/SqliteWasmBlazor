@@ -319,7 +319,7 @@
     private async Task ValidateSchemaAsync()
     {
         await using var ctx = await DbContextFactory.CreateDbContextAsync();
-        await ctx.ValidateSchemaAsync();
+        await ctx.ValidateImportedSchemaAsync(DbName);
     }
 
     private void HandleRawDbError(string operation, Exception ex)

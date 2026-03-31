@@ -15,13 +15,9 @@
       <IncludeAssets>runtime; analyzers</IncludeAssets>
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
-    <PackageReference Include="SqliteWasmBlazor" Version="$(SqliteWasmBlazorVersion)" Condition="'$(Configuration)' == 'Release'" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.5" />
   </ItemGroup>
-
-  <ItemGroup Condition="'$(Configuration)' == 'Debug'">
-    <ProjectReference Include="..\SqliteWasmBlazor\SqliteWasmBlazor.csproj" />
-  </ItemGroup>
-
+  
   <ItemGroup>
     <Folder Include="Migrations\" />
   </ItemGroup>
