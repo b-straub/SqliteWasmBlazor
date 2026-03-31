@@ -36,9 +36,12 @@ jobs:
 
     - name: Set rootFolder for GitHub Pages
       run: |
-        echo '{
-          "rootFolder": "/SqliteWasmBlazor/"
-        }' > SqliteWasmBlazor.Demo/appsettings.json
+        cat SqliteWasmBlazor.Demo/wwwroot/appsettings.json | python3 -c "
+        import sys, json
+        d = json.load(sys.stdin)
+        d['rootFolder'] = '/SqliteWasmBlazor/'
+        json.dump(d, sys.stdout, indent=2)
+        " > /tmp/appsettings.json && mv /tmp/appsettings.json SqliteWasmBlazor.Demo/wwwroot/appsettings.json
 
     - name: Clean previous builds
       run: |
