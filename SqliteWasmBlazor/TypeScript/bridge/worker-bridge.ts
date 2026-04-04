@@ -52,6 +52,14 @@ let worker: Worker | null = null;
 
             // Forward response to C# via JSExport method
             if (event.data.id !== undefined) {
+                // Intercept crypto responses (bridge→worker direct, not routed to C#)
+                const cryptoResolve = cryptoPending.get(event.data.id);
+                if (cryptoResolve) {
+                    cryptoPending.delete(event.data.id);
+                    cryptoResolve(JSON.stringify(event.data.data ?? event.data));
+                    return;
+                }
+
                 try {
                     const exports = await (globalThis as any).getDotnetRuntime(0).getAssemblyExports("SqliteWasmBlazor.dll");
 
@@ -142,10 +150,70 @@ export const logger = {
     }
 };
 
+// ============================================================
+// CRYPTO KEY MANAGEMENT (bridge → worker direct, no C# round-trip)
+// Production: WebAuthn PRF seed → postMessage to worker
+// Tests: random seed → same postMessage path
+// ============================================================
+
+let cryptoMsgId = 200000;
+const cryptoPending = new Map<number, (json: string) => void>();
+
+/**
+ * Store crypto keys in the worker from a seed.
+ * Returns JSON: { success, x25519PublicKeyBase64, ed25519PublicKeyBase64 }
+ */
+export function storeKeysInWorker(keyId: string, seedBase64: string, ttlMs: number): Promise<string> {
+    return sendCryptoToWorker({ type: 'cryptoStoreKeys', keyId, seedBase64, ttlMs: ttlMs > 0 ? ttlMs : null });
+}
+
+/**
+ * Remove keys from the worker's crypto cache.
+ */
+export function removeKeysFromWorker(keyId: string): Promise<string> {
+    return sendCryptoToWorker({ type: 'cryptoRemoveKeys', keyId });
+}
+
+/**
+ * Get public keys for a cached key set in the worker.
+ */
+export function getPublicKeysFromWorker(keyId: string): Promise<string> {
+    return sendCryptoToWorker({ type: 'cryptoGetPublicKeys', keyId });
+}
+
+function sendCryptoToWorker(data: Record<string, unknown>): Promise<string> {
+    if (!worker) {
+        return Promise.reject(new Error('Worker not initialized'));
+    }
+
+    const id = ++cryptoMsgId;
+
+    return new Promise<string>((resolve, reject) => {
+        cryptoPending.set(id, resolve);
+
+        const timer = setTimeout(() => {
+            cryptoPending.delete(id);
+            reject(new Error('Crypto worker operation timed out'));
+        }, 30000);
+
+        // Override timeout cleanup on resolve
+        const wrappedResolve = (json: string) => {
+            clearTimeout(timer);
+            resolve(json);
+        };
+        cryptoPending.set(id, wrappedResolve);
+
+        worker!.postMessage({ id, data });
+    });
+}
+
 // Make functions available to C# JSImport
 (globalThis as any).sqliteWasmWorker = {
     sendToWorker,
-    sendBinaryToWorker
+    sendBinaryToWorker,
+    storeKeysInWorker,
+    removeKeysFromWorker,
+    getPublicKeysFromWorker
 };
 
 // Expose logger for C# JSImport

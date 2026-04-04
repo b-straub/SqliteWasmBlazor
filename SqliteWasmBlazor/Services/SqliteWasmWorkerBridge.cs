@@ -797,6 +797,18 @@ internal sealed partial class SqliteWasmWorkerBridge : ISqliteWasmDatabaseServic
 
     [JSImport("sendBinaryToWorker", "sqliteWasmWorker")]
     private static partial void SendBinaryToWorker([JSMarshalAs<JSType.MemoryView>] ArraySegment<byte> data, string metadataJson);
+
+    // Crypto key management — bridge→worker direct (no C# intermediary for the seed)
+    // Used by tests (random seed) and production (PRF seed from webauthn.ts)
+
+    [JSImport("storeKeysInWorker", "sqliteWasmWorker")]
+    internal static partial Task<string> StoreKeysInWorkerAsync(string keyId, string seedBase64, int ttlMs);
+
+    [JSImport("removeKeysFromWorker", "sqliteWasmWorker")]
+    internal static partial Task<string> RemoveKeysFromWorkerAsync(string keyId);
+
+    [JSImport("getPublicKeysFromWorker", "sqliteWasmWorker")]
+    internal static partial Task<string> GetPublicKeysFromWorkerAsync(string keyId);
 }
 
 /// <summary>
