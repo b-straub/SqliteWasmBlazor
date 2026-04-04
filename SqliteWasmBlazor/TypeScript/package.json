@@ -4,21 +4,28 @@
   "type": "module",
   "scripts": {
     "postinstall": "patch-package",
-    "build": "npm run build:worker && npm run build:bridge && npm run copy:wasm",
+    "build": "npm run build:worker && npm run build:bridge && npm run build:crypto && npm run copy:wasm",
     "build:worker": "esbuild sqlite-worker.ts --bundle --format=esm --sourcemap=inline --outfile=../wwwroot/sqlite-wasm-worker.js",
     "build:bridge": "esbuild worker-bridge.ts --bundle --format=esm --sourcemap=inline --outfile=../wwwroot/sqlite-wasm-bridge.js",
+    "build:crypto": "esbuild crypto-layer.ts --bundle --format=esm --sourcemap=inline --outfile=../wwwroot/crypto-layer.js",
     "copy:wasm": "cp node_modules/@sqlite.org/sqlite-wasm/dist/sqlite3.wasm ../wwwroot/",
-    "build:release": "npm run build:worker:release && npm run build:bridge:release && npm run copy:wasm",
+    "build:release": "npm run build:worker:release && npm run build:bridge:release && npm run build:crypto:release && npm run copy:wasm",
     "build:worker:release": "esbuild sqlite-worker.ts --bundle --format=esm --minify --outfile=../wwwroot/sqlite-wasm-worker.js",
-    "build:bridge:release": "esbuild worker-bridge.ts --bundle --format=esm --minify --outfile=../wwwroot/sqlite-wasm-bridge.js"
+    "build:bridge:release": "esbuild worker-bridge.ts --bundle --format=esm --minify --outfile=../wwwroot/sqlite-wasm-bridge.js",
+    "build:crypto:release": "esbuild crypto-layer.ts --bundle --format=esm --minify --outfile=../wwwroot/crypto-layer.js",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
+    "@noble/curves": "^1.7.0",
+    "@noble/hashes": "^1.6.1",
     "@sqlite.org/sqlite-wasm": "^3.51.2-build8",
     "msgpackr": "^1.11.5"
   },
   "devDependencies": {
     "esbuild": "^0.27.0",
     "patch-package": "^8.0.1",
-    "typescript": "^5.8.3"
+    "typescript": "^5.8.3",
+    "vitest": "^3.1.1"
   }
 }
