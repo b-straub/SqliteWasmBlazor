@@ -252,7 +252,7 @@ internal sealed partial class SqliteWasmWorkerBridge : ISqliteWasmDatabaseServic
                 data = new { type = "importDb", database = databaseName }
             });
 
-            SendBinaryToWorker(new ArraySegment<byte>(data), metadataJson);
+            SendBinaryToWorker(data.AsSpan(), metadataJson);
 
             using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             timeoutCts.CancelAfter(60000);
@@ -355,7 +355,7 @@ internal sealed partial class SqliteWasmWorkerBridge : ISqliteWasmDatabaseServic
                 data = new { type = "bulkImport", database = databaseName, conflictStrategy = (int)conflictStrategy }
             });
 
-            SendBinaryToWorker(new ArraySegment<byte>(payload), metadataJson);
+            SendBinaryToWorker(payload.AsSpan(), metadataJson);
 
             // 5-minute timeout for bulk operations
             using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -415,7 +415,7 @@ internal sealed partial class SqliteWasmWorkerBridge : ISqliteWasmDatabaseServic
                 }
             });
 
-            SendBinaryToWorker(new ArraySegment<byte>(rowData), metadataJson);
+            SendBinaryToWorker(rowData.AsSpan(), metadataJson);
 
             // 5-minute timeout for bulk operations
             using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -796,7 +796,7 @@ internal sealed partial class SqliteWasmWorkerBridge : ISqliteWasmDatabaseServic
     private static partial void SendToWorker(string messageJson);
 
     [JSImport("sendBinaryToWorker", "sqliteWasmWorker")]
-    private static partial void SendBinaryToWorker([JSMarshalAs<JSType.MemoryView>] ArraySegment<byte> data, string metadataJson);
+    private static partial void SendBinaryToWorker([JSMarshalAs<JSType.MemoryView>] Span<byte> data, string metadataJson);
 
     // Crypto key management — bridge→worker direct (no C# intermediary for the seed)
     // Used by tests (random seed) and production (PRF seed from webauthn.ts)
