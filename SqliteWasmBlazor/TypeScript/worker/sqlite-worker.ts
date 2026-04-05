@@ -256,7 +256,8 @@ async function handleRequest(data: WorkerRequest['data'], binaryPayload?: ArrayB
             return await bulkImport(
                 database!,
                 new Uint8Array(binaryPayload),
-                (data as any).conflictStrategy ?? 0
+                (data as any).conflictStrategy ?? 0,
+                (data as any).readonlyColumns as string[] | undefined
             );
 
         case 'bulkImportRaw':
@@ -1080,11 +1081,12 @@ function buildInsertSql(header: V2Header, conflictStrategy: number): string {
  * Core bulk insert: builds SQL from header, converts values, inserts rows in a transaction.
  * Shared by bulkImport (V2 header in payload) and bulkImportRaw (metadata in JSON).
  */
-function bulkInsertRows(db: any, header: V2Header, rows: any[][], conflictStrategy: number, label: string) {
+function bulkInsertRows(db: any, header: V2Header, rows: any[][], conflictStrategy: number, label: string, readonlyColumns?: string[]) {
     const columns = header[8];
     const csharpTypes = columns.map(c => c[2]);
     const sqlTypes = columns.map(c => c[1]);
     const tableName = header[7];
+    const pkColumn = header[9];
 
     logger.info(MODULE_NAME, `${label}: ${rows.length} items into "${tableName}", strategy=${conflictStrategy}`);
 
@@ -1095,6 +1097,14 @@ function bulkInsertRows(db: any, header: V2Header, rows: any[][], conflictStrate
 
     db.exec("BEGIN");
     try {
+        // Snapshot readonly columns before apply (if validation requested)
+        if (readonlyColumns && readonlyColumns.length > 0) {
+            const roCols = readonlyColumns.map(c => `"${c}"`).join(', ');
+            db.exec(`CREATE TEMP TABLE IF NOT EXISTS _readonlySnapshot AS SELECT "${pkColumn}", ${roCols} FROM "${tableName}" WHERE 0`);
+            db.exec(`DELETE FROM _readonlySnapshot`);
+            db.exec(`INSERT INTO _readonlySnapshot SELECT "${pkColumn}", ${roCols} FROM "${tableName}"`);
+        }
+
         const stmt = db.prepare(sql);
         try {
             for (let i = 0; i < rows.length; i++) {
@@ -1108,6 +1118,24 @@ function bulkInsertRows(db: any, header: V2Header, rows: any[][], conflictStrate
         } finally {
             stmt.finalize();
         }
+
+        // Validate readonly columns weren't mutated
+        if (readonlyColumns && readonlyColumns.length > 0) {
+            const violations: string[] = [];
+            for (const col of readonlyColumns) {
+                const checkSql = `SELECT s."${pkColumn}" FROM _readonlySnapshot s JOIN "${tableName}" t ON s."${pkColumn}" = t."${pkColumn}" WHERE s."${col}" IS NOT t."${col}" LIMIT 1`;
+                const result = db.exec({ sql: checkSql, returnValue: 'resultRows', rowMode: 'array' });
+                if (result && result.length > 0) {
+                    violations.push(col);
+                }
+            }
+            db.exec(`DROP TABLE IF EXISTS _readonlySnapshot`);
+
+            if (violations.length > 0) {
+                throw new Error(`Readonly column violation: ${violations.join(', ')} were mutated by sender`);
+            }
+        }
+
         db.exec("COMMIT");
     } catch (error) {
         try {
@@ -1126,7 +1154,7 @@ function bulkInsertRows(db: any, header: V2Header, rows: any[][], conflictStrate
 /**
  * Bulk import: unpack V2 MessagePack payload (header + individually packed rows).
  */
-async function bulkImport(dbName: string, payload: Uint8Array, conflictStrategy: number) {
+async function bulkImport(dbName: string, payload: Uint8Array, conflictStrategy: number, readonlyColumns?: string[]) {
     const db = openDatabases.get(dbName);
     if (!db) {
         throw new Error(`Database ${dbName} not open`);
@@ -1140,7 +1168,7 @@ async function bulkImport(dbName: string, payload: Uint8Array, conflictStrategy:
     const header: V2Header = objects[0];
     const rows = objects.slice(1) as any[][];
 
-    return bulkInsertRows(db, header, rows, conflictStrategy, 'bulkImport');
+    return bulkInsertRows(db, header, rows, conflictStrategy, 'bulkImport', readonlyColumns);
 }
 
 /**
