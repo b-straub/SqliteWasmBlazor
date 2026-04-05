@@ -332,7 +332,7 @@ internal sealed partial class SqliteWasmWorkerBridge : ISqliteWasmDatabaseServic
     /// One worker round-trip per call instead of ~80 ExecuteSqlRawAsync calls.
     /// </summary>
     public async Task<int> BulkImportAsync(string databaseName, byte[] payload, ConflictResolutionStrategy conflictStrategy = ConflictResolutionStrategy.None,
-        string[]? readonlyColumns = null, CancellationToken cancellationToken = default)
+        Dictionary<string, string[]>? readonlyColumns = null, CancellationToken cancellationToken = default)
     {
         await EnsureInitializedAsync(cancellationToken);
 

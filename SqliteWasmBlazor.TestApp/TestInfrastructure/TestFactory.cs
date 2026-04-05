@@ -120,6 +120,13 @@ internal class TestFactory
         _tests.Add(("V2 Bulk", new V2BulkConflictDeltaWinsTest(factory, databaseService)));
         _tests.Add(("V2 Bulk Raw", new V2BulkRawImportTest(factory, databaseService)));
         _tests.Add(("V2 Bulk Raw", new V2BulkRawImportConflictTest(factory, databaseService)));
+
+        // Readonly column validation tests (bulk import with permission enforcement)
+        _tests.Add(("V2 Bulk Readonly", new V2BulkReadonlyColumnsAllowedTest(factory, databaseService)));
+        _tests.Add(("V2 Bulk Readonly", new V2BulkReadonlyColumnsViolationTest(factory, databaseService)));
+        _tests.Add(("V2 Bulk Readonly", new V2BulkReadonlyColumnsMixedViolationTest(factory, databaseService)));
+        _tests.Add(("V2 Bulk Readonly", new V2BulkReadonlyColumnsMixedNewRowTest(factory, databaseService)));
+        _tests.Add(("V2 Bulk Readonly", new V2BulkReadonlyColumnsNewRowRejectedTest(factory, databaseService)));
     }
 }
 

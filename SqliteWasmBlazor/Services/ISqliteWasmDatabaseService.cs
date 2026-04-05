@@ -68,12 +68,14 @@ public interface ISqliteWasmDatabaseService
     /// <param name="databaseName">Target database filename</param>
     /// <param name="payload">V2 MessagePack bytes (header + serialized items)</param>
     /// <param name="conflictStrategy">Conflict resolution strategy for UPSERT behavior</param>
-    /// <param name="readonlyColumns">Optional column names that must not be mutated. When set, the worker validates
-    /// in a transaction: snapshot readonly columns → apply → check no mutations → rollback on violation.</param>
+    /// <param name="readonlyColumns">Optional table→column mapping for readonly enforcement.
+    /// When a table has readonly columns, the worker validates in a transaction:
+    /// snapshot → apply → check no mutations and no new rows → rollback on violation.
+    /// Key = table name, Value = readonly column names for that table.</param>
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>Number of rows inserted</returns>
     Task<int> BulkImportAsync(string databaseName, byte[] payload, ConflictResolutionStrategy conflictStrategy = ConflictResolutionStrategy.None,
-        string[]? readonlyColumns = null, CancellationToken cancellationToken = default);
+        Dictionary<string, string[]>? readonlyColumns = null, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Bulk import from raw MessagePack row data with metadata provided separately.
