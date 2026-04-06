@@ -1,6 +1,5 @@
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
-using SqliteWasmBlazor.CryptoSync;
 using Xunit;
 
 namespace SqliteWasmBlazor.CryptoSync.Tests;

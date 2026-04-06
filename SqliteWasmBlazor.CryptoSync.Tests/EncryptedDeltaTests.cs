@@ -2,7 +2,6 @@ using Xunit;
 using BlazorPRF.Crypto.Abstractions;
 using BlazorPRF.Crypto.Abstractions.Models;
 using BlazorPRF.Crypto.Testing;
-using SqliteWasmBlazor.CryptoSync;
 
 namespace SqliteWasmBlazor.CryptoSync.Tests;
 

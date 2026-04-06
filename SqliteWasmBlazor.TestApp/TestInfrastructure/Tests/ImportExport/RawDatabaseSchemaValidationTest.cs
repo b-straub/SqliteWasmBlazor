@@ -1,7 +1,5 @@
 using Microsoft.EntityFrameworkCore;
 using SqliteWasmBlazor.Models;
-using SqliteWasmBlazor.Models.Extensions;
-using SqliteWasmBlazor.Models.Models;
 
 namespace SqliteWasmBlazor.TestApp.TestInfrastructure.Tests.ImportExport;
 

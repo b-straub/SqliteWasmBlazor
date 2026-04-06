@@ -3,7 +3,6 @@ using BlazorPRF.Crypto.Abstractions.Models;
 using BlazorPRF.Crypto.Testing;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
-using SqliteWasmBlazor.CryptoSync;
 using Xunit;
 
 namespace SqliteWasmBlazor.CryptoSync.Tests;
