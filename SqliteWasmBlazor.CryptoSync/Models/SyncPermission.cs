@@ -3,7 +3,7 @@ using System.ComponentModel.DataAnnotations;
 namespace SqliteWasmBlazor.CryptoSync;
 
 /// <summary>
-/// Table/column permission per role. Synced system table (admin-only write).
+/// Table/column permission per role. System table (admin-defined, seeded via migration).
 /// PermissionDiffJson uses the diff format: { "Table": "readonly", "Table.Col": "readwrite" }
 /// </summary>
 public sealed class SyncPermission : ISyncableEntity
@@ -28,6 +28,9 @@ public sealed class SyncPermission : ISyncableEntity
     [MaxLength(64)]
     public string? AdminPublicKey { get; set; }
 
+    // ISyncableEntity
+    public SharingScope SharingScope { get; set; } = SharingScope.Public;
+    public string SharingId { get; set; } = "system";
     public DateTime UpdatedAt { get; set; }
     public bool IsDeleted { get; set; }
     public DateTime? DeletedAt { get; set; }

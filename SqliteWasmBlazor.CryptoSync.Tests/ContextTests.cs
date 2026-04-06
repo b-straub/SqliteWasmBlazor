@@ -46,7 +46,7 @@ public class ContextTests : IDisposable
             EncryptedUserData = "{\"Username\":\"Alice\",\"Email\":\"alice@test.com\"}",
             X25519PublicKey = Convert.ToBase64String(new byte[32]),
             Ed25519PublicKey = Convert.ToBase64String(new byte[32]),
-            Role = SyncRole.Admin,
+            Role = SyncRole.Owner,
             TrustLevel = TrustLevel.Full,
             Direction = TrustDirection.Sent,
             VerifiedAt = DateTime.UtcNow,
@@ -59,7 +59,7 @@ public class ContextTests : IDisposable
         var loaded = await _context.Contacts.FindAsync(contact.Id);
         Assert.NotNull(loaded);
         Assert.Equal("Alice", System.Text.Json.JsonSerializer.Deserialize<ContactUserData>(loaded.EncryptedUserData)!.Username);
-        Assert.Equal(SyncRole.Admin, loaded.Role);
+        Assert.Equal(SyncRole.Owner, loaded.Role);
     }
 
     [Fact]
@@ -104,7 +104,7 @@ public class ContextTests : IDisposable
         var active = new SyncPermission
         {
             Id = Guid.NewGuid(),
-            Role = SyncRole.Guest,
+            Role = SyncRole.Viewer,
             TableName = "ShoppingItems",
             PermissionDiffJson = "{\"ShoppingItems\":\"readonly\",\"ShoppingItems.IsBought\":\"readwrite\"}",
             UpdatedAt = DateTime.UtcNow
@@ -113,7 +113,7 @@ public class ContextTests : IDisposable
         var deleted = new SyncPermission
         {
             Id = Guid.NewGuid(),
-            Role = SyncRole.Guest,
+            Role = SyncRole.Viewer,
             TableName = "OldTable",
             PermissionDiffJson = "{}",
             IsDeleted = true,

@@ -60,11 +60,11 @@ public class ServiceTests : IDisposable
         var contact = await svc.AddContactAsync(
             new ContactUserData { Username = "Alice", Email = "alice@test.com" },
             alice.X25519PublicKey, alice.Ed25519PublicKey,
-            SyncRole.Admin, TrustLevel.Full, TrustDirection.Sent, encKey);
+            SyncRole.Owner, TrustLevel.Full, TrustDirection.Sent, encKey);
 
         var loaded = await svc.GetByEd25519PublicKeyAsync(alice.Ed25519PublicKey);
         Assert.NotNull(loaded);
-        Assert.Equal(SyncRole.Admin, loaded.Role);
+        Assert.Equal(SyncRole.Owner, loaded.Role);
     }
 
     [Fact]
@@ -77,7 +77,7 @@ public class ServiceTests : IDisposable
         await svc.AddContactAsync(
             new ContactUserData { Username = "Alice", Email = "alice@test.com", Comment = "Admin user" },
             alice.X25519PublicKey, alice.Ed25519PublicKey,
-            SyncRole.Admin, TrustLevel.Full, TrustDirection.Sent, encKey);
+            SyncRole.Owner, TrustLevel.Full, TrustDirection.Sent, encKey);
 
         var contacts = await svc.GetAllWithUserDataAsync(encKey);
         Assert.Single(contacts);
@@ -96,11 +96,11 @@ public class ServiceTests : IDisposable
         await svc.AddContactAsync(
             new ContactUserData { Username = "Alice", Email = "a@t.com" },
             alice.X25519PublicKey, alice.Ed25519PublicKey,
-            SyncRole.Admin, TrustLevel.Full, TrustDirection.Sent, encKey);
+            SyncRole.Owner, TrustLevel.Full, TrustDirection.Sent, encKey);
         await svc.AddContactAsync(
             new ContactUserData { Username = "Bob", Email = "b@t.com" },
             bob.X25519PublicKey, bob.Ed25519PublicKey,
-            SyncRole.User, TrustLevel.Full, TrustDirection.Received, encKey);
+            SyncRole.Editor, TrustLevel.Full, TrustDirection.Received, encKey);
 
         var pks = await svc.GetRecipientPublicKeysAsync();
         Assert.Equal(2, pks.Length);
@@ -123,7 +123,7 @@ public class ServiceTests : IDisposable
         await contactSvc.AddContactAsync(
             new ContactUserData { Username = "Alice", Email = "a@t.com" },
             alice.X25519PublicKey, alice.Ed25519PublicKey,
-            SyncRole.Admin, TrustLevel.Full, TrustDirection.Sent, encKey);
+            SyncRole.Owner, TrustLevel.Full, TrustDirection.Sent, encKey);
 
         var map = await permSvc.GetPermissionMapAsync();
         Assert.Single(map);
@@ -141,17 +141,17 @@ public class ServiceTests : IDisposable
         await contactSvc.AddContactAsync(
             new ContactUserData { Username = "Alice", Email = "a@t.com" },
             alice.X25519PublicKey, alice.Ed25519PublicKey,
-            SyncRole.Admin, TrustLevel.Full, TrustDirection.Sent, encKey);
+            SyncRole.Owner, TrustLevel.Full, TrustDirection.Sent, encKey);
         await contactSvc.AddContactAsync(
             new ContactUserData { Username = "Tom", Email = "t@t.com" },
             tom.X25519PublicKey, tom.Ed25519PublicKey,
-            SyncRole.Guest, TrustLevel.Full, TrustDirection.Received, encKey);
+            SyncRole.Viewer, TrustLevel.Full, TrustDirection.Received, encKey);
 
         // Add guest permission
         _context.Permissions.Add(new SyncPermission
         {
             Id = Guid.NewGuid(),
-            Role = SyncRole.Guest,
+            Role = SyncRole.Viewer,
             TableName = "ShoppingItems",
             PermissionDiffJson = "{\"ShoppingItems\":\"readonly\",\"ShoppingItems.IsBought\":\"readwrite\"}",
             UpdatedAt = DateTime.UtcNow
@@ -176,12 +176,12 @@ public class ServiceTests : IDisposable
         await contactSvc.AddContactAsync(
             new ContactUserData { Username = "Tom", Email = "t@t.com" },
             tom.X25519PublicKey, tom.Ed25519PublicKey,
-            SyncRole.Guest, TrustLevel.Full, TrustDirection.Received, encKey);
+            SyncRole.Viewer, TrustLevel.Full, TrustDirection.Received, encKey);
 
         _context.Permissions.Add(new SyncPermission
         {
             Id = Guid.NewGuid(),
-            Role = SyncRole.Guest,
+            Role = SyncRole.Viewer,
             TableName = "ShoppingItems",
             PermissionDiffJson = "{\"ShoppingItems\":\"readonly\",\"ShoppingItems.IsBought\":\"readwrite\"}",
             UpdatedAt = DateTime.UtcNow

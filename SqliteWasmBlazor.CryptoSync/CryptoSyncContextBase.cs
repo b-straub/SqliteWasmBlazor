@@ -4,17 +4,8 @@ namespace SqliteWasmBlazor.CryptoSync;
 
 /// <summary>
 /// Base DbContext for any CryptoSync-enabled application.
-/// Provides system tables for contacts, invitations, permissions, and sync tracking.
+/// Provides system tables for contacts, invitations, sharing keys, permissions, and sync tracking.
 /// Domain apps inherit this and add their own DbSets.
-///
-/// <code>
-/// public class ShoppingListContext : CryptoSyncContextBase
-/// {
-///     public DbSet&lt;ShoppingList&gt; ShoppingLists =&gt; Set&lt;ShoppingList&gt;();
-///     public DbSet&lt;ShoppingItem&gt; ShoppingItems =&gt; Set&lt;ShoppingItem&gt;();
-///     public ShoppingListContext(DbContextOptions options) : base(options) { }
-/// }
-/// </code>
 /// </summary>
 public abstract class CryptoSyncContextBase : DbContext
 {
@@ -22,12 +13,15 @@ public abstract class CryptoSyncContextBase : DbContext
     {
     }
 
-    // Contacts & trust (synced system table)
+    // Contacts & trust
     public DbSet<TrustedContact> Contacts => Set<TrustedContact>();
     public DbSet<SentInvitation> SentInvitations => Set<SentInvitation>();
     public DbSet<ReceivedInvitation> ReceivedInvitations => Set<ReceivedInvitation>();
 
-    // Permissions (synced system table, admin-only write)
+    // Sharing & keys
+    public DbSet<SharingKey> SharingKeys => Set<SharingKey>();
+
+    // Permissions (admin-defined, seeded via migration)
     public DbSet<SyncPermission> Permissions => Set<SyncPermission>();
 
     // Local-only
@@ -68,13 +62,20 @@ public abstract class CryptoSyncContextBase : DbContext
                 .OnDelete(DeleteBehavior.SetNull);
         });
 
-        // Permissions
+        // Sharing keys
+        modelBuilder.Entity<SharingKey>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => new { e.SharingId, e.ClientEd25519PublicKey }).IsUnique();
+            entity.HasIndex(e => e.SharingId);
+            entity.HasIndex(e => e.ClientEd25519PublicKey);
+        });
+
+        // Permissions (soft-delete filtered, seeded via migration)
         modelBuilder.Entity<SyncPermission>(entity =>
         {
             entity.HasKey(e => e.Id);
             entity.HasIndex(e => new { e.Role, e.TableName }).IsUnique();
-            entity.HasIndex(e => e.IsDeleted);
-            entity.HasIndex(e => e.UpdatedAt);
             entity.HasQueryFilter(e => !e.IsDeleted);
         });
 
@@ -84,7 +85,7 @@ public abstract class CryptoSyncContextBase : DbContext
             entity.HasKey(e => e.Id);
         });
 
-        // Device settings (local only, singleton)
+        // Device settings (local only)
         modelBuilder.Entity<DeviceSettings>(entity =>
         {
             entity.HasKey(e => e.Id);
