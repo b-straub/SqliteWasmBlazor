@@ -1,9 +1,11 @@
 @page "/TestRunner"
 @using SqliteWasmBlazor
 @using SqliteWasmBlazor.TestApp.TestInfrastructure
+@using SqliteWasmBlazor.TestApp.TestInfrastructure.CryptoSync
 @using Microsoft.EntityFrameworkCore
 @using SqliteWasmBlazor.Models
 @inject IDbContextFactory<TodoDbContext> DbContextFactory
+@inject IDbContextFactory<CryptoTestContext> CryptoFactory
 @inject ISqliteWasmDatabaseService DatabaseService
 
 <PageTitle>Test Runner</PageTitle>
@@ -47,16 +49,16 @@
 
     private async Task RunAllTestsAsync()
     {
-        var testFactory = new TestFactory(DbContextFactory, DatabaseService);
+        var testFactory = new TestFactory(DbContextFactory, DatabaseService, CryptoFactory);
         var tests = testFactory.GetTests().ToList();
 
         _totalTests = tests.Count;
 
-        foreach (var (_, test) in tests)
+        foreach (var entry in tests)
         {
-            await RunTestAsync(test.Name, async () =>
+            await RunTestAsync(entry.Name, async () =>
             {
-                var result = await test.RunTestWithFreshDatabaseAsync();
+                var result = await entry.RunAsync();
                 if (result is not null && result != "OK")
                 {
                     throw new Exception(result);

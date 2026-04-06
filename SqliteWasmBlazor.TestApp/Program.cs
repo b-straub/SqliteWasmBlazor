@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using MudBlazor.Services;
 using SqliteWasmBlazor;
 using SqliteWasmBlazor.Models;
+using SqliteWasmBlazor.TestApp.TestInfrastructure.CryptoSync;
 
 var builder = WebAssemblyHostBuilder.CreateDefault(args);
 
@@ -41,6 +42,17 @@ builder.Services.AddDbContextFactory<TodoDbContext>(options =>
     options.EnableSensitiveDataLogging();
     options.LogTo(message => Console.WriteLine(message));
 #endif
+});
+
+// Add CryptoSync test context (separate DB from TodoDb)
+builder.Services.AddDbContextFactory<CryptoTestContext>(options =>
+{
+#if DEBUG
+    var cryptoConnection = new SqliteWasmConnection("Data Source=CryptoTestDb.db", LogLevel.Debug);
+#else
+    var cryptoConnection = new SqliteWasmConnection("Data Source=CryptoTestDb.db");
+#endif
+    options.UseSqliteWasm(cryptoConnection);
 });
 
 // Register SqliteWasm database management service

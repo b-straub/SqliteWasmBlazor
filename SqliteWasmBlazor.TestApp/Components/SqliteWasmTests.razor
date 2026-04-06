@@ -1,9 +1,11 @@
 
 @using SqliteWasmBlazor
 @using SqliteWasmBlazor.TestApp.TestInfrastructure
+@using SqliteWasmBlazor.TestApp.TestInfrastructure.CryptoSync
 @using Microsoft.EntityFrameworkCore
 @using SqliteWasmBlazor.Models
 @inject IDbContextFactory<TodoDbContext> DbContextFactory
+@inject IDbContextFactory<CryptoTestContext> CryptoFactory
 @inject ISqliteWasmDatabaseService DatabaseService
 
 <button type="reset" hidden="@(!_running)" @onclick="@Cancel">Cancel</button>
@@ -46,9 +48,12 @@
     [Parameter]
     public string? TestName { get; set; }
 
+    [Parameter]
+    public string? CategoryFilter { get; set; }
+
     private IDbContextFactory<TodoDbContext>? _factory;
     private string? _error;
-    private readonly List<(string Category, SqliteWasmTest Test)> _tests = [];
+    private readonly List<TestEntry> _tests = [];
     private readonly List<(string Category, string Result, bool Error)> _testResults = [];
 
     private string? _lastCategory;
@@ -68,8 +73,8 @@
 
             try
             {
-                var testFactory = new TestFactory(_factory, DatabaseService);
-                _tests.AddRange(testFactory.GetTests(TestName));
+                var testFactory = new TestFactory(_factory, DatabaseService, CryptoFactory);
+                _tests.AddRange(testFactory.GetTests(TestName, CategoryFilter));
 
                 _running = true;
                 await InvokeAsync(StateHasChanged);
@@ -100,7 +105,7 @@
 
     private async IAsyncEnumerable<(string Category, string Result, bool Error)> RunTestsAsync()
     {
-        foreach (var (category, test) in _tests)
+        foreach (var entry in _tests)
         {
             var error = false;
             string? result;
@@ -112,13 +117,16 @@
 
             try
             {
-                result = await test.RunTestAsync();
+                result = await entry.RunAsync();
             }
             catch (Exception ex)
             {
                 result = ex.Message;
                 error = true;
             }
+
+            var category = entry.Category;
+            var test = entry;
 
             yield return (category, $"SqliteWasm -> {test.Name}: {result}", error);
         }

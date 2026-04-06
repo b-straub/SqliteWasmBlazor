@@ -12,121 +12,154 @@ using SqliteWasmBlazor.TestApp.TestInfrastructure.Tests.Relationships;
 using SqliteWasmBlazor.TestApp.TestInfrastructure.Tests.Transactions;
 using SqliteWasmBlazor.TestApp.TestInfrastructure.Tests.TypeMarshalling;
 using SqliteWasmBlazor.TestApp.TestInfrastructure.Tests.V2Bulk;
+using SqliteWasmBlazor.TestApp.TestInfrastructure.Tests.EncryptedDelta;
+using SqliteWasmBlazor.TestApp.TestInfrastructure.CryptoSync;
 
 namespace SqliteWasmBlazor.TestApp.TestInfrastructure;
 
+/// <summary>
+/// Wrapper for both SqliteWasmTest and CryptoSyncTestBase.
+/// </summary>
+internal record TestEntry(string Category, string Name, Func<ValueTask<string?>> RunAsync);
+
 internal class TestFactory
 {
-    private readonly List<(string Category, SqliteWasmTest Test)> _tests = [];
+    private readonly List<TestEntry> _entries = [];
 
-    public TestFactory(IDbContextFactory<TodoDbContext> factory, ISqliteWasmDatabaseService databaseService)
+    public TestFactory(
+        IDbContextFactory<TodoDbContext> todoFactory,
+        ISqliteWasmDatabaseService databaseService,
+        IDbContextFactory<CryptoTestContext>? cryptoFactory = null)
     {
-        PopulateTests(factory, databaseService);
+        PopulateTests(todoFactory, databaseService);
+        if (cryptoFactory is not null)
+        {
+            PopulateCryptoTests(cryptoFactory, databaseService);
+        }
     }
 
-    public IEnumerable<(string Category, SqliteWasmTest Test)> GetTests(string? testName = null)
+    public IEnumerable<TestEntry> GetTests(string? testName = null, string? category = null)
     {
-        var tests = testName is null ? _tests : _tests.Where(t => t.Test.Name == testName);
+        IEnumerable<TestEntry> tests = _entries;
 
-        var valueTuples = tests as (string Category, SqliteWasmTest Test)[] ?? tests.ToArray();
-        return valueTuples.Length > 0 ? valueTuples : Enumerable.Empty<(string Category, SqliteWasmTest Test)>();
+        if (testName is not null)
+        {
+            tests = tests.Where(t => t.Name == testName);
+        }
+        else if (category is not null)
+        {
+            tests = tests.Where(t => t.Category == category);
+        }
+
+        return tests;
+    }
+
+    private void Add(string category, SqliteWasmTest test)
+    {
+        _entries.Add(new TestEntry(category, test.Name, () => test.RunTestWithFreshDatabaseAsync()));
+    }
+
+    private void PopulateCryptoTests(IDbContextFactory<CryptoTestContext> cryptoFactory, ISqliteWasmDatabaseService databaseService)
+    {
+        var test = new CryptoSyncRoundTripTest(cryptoFactory, databaseService);
+        _entries.Add(new TestEntry("Encrypted Delta", test.Name, () => test.RunTestWithFreshDatabaseAsync()));
     }
 
     private void PopulateTests(IDbContextFactory<TodoDbContext> factory, ISqliteWasmDatabaseService databaseService)
     {
         // Type Marshalling Tests
-        _tests.Add(("Type Marshalling", new AllTypesRoundTripTest(factory)));
-        _tests.Add(("Type Marshalling", new IntegerTypesBoundariesTest(factory)));
-        _tests.Add(("Type Marshalling", new NullableTypesAllNullTest(factory)));
-        _tests.Add(("Type Marshalling", new BinaryDataLargeBlobTest(factory)));
-        _tests.Add(("Type Marshalling", new StringValueUnicodeTest(factory)));
+        Add("Type Marshalling", new AllTypesRoundTripTest(factory));
+        Add("Type Marshalling", new IntegerTypesBoundariesTest(factory));
+        Add("Type Marshalling", new NullableTypesAllNullTest(factory));
+        Add("Type Marshalling", new BinaryDataLargeBlobTest(factory));
+        Add("Type Marshalling", new StringValueUnicodeTest(factory));
 
         // Type Conversion Tests (EF Core compatibility fixes)
-        _tests.Add(("Type Marshalling", new DateTimeOffsetTextStorageTest(factory)));
-        _tests.Add(("Type Marshalling", new TimeSpanConversionTest(factory)));
-        _tests.Add(("Type Marshalling", new CharSingleCharStringTest(factory)));
-        _tests.Add(("Type Marshalling", new GuidUtf8ByteArrayTest(factory)));
+        Add("Type Marshalling", new DateTimeOffsetTextStorageTest(factory));
+        Add("Type Marshalling", new TimeSpanConversionTest(factory));
+        Add("Type Marshalling", new CharSingleCharStringTest(factory));
+        Add("Type Marshalling", new GuidUtf8ByteArrayTest(factory));
 
         // JSON Collection Tests
-        _tests.Add(("JSON Collections", new IntListRoundTripTest(factory)));
-        _tests.Add(("JSON Collections", new IntListEmptyTest(factory)));
-        _tests.Add(("JSON Collections", new IntListLargeCollectionTest(factory)));
+        Add("JSON Collections", new IntListRoundTripTest(factory));
+        Add("JSON Collections", new IntListEmptyTest(factory));
+        Add("JSON Collections", new IntListLargeCollectionTest(factory));
 
         // CRUD Tests
-        _tests.Add(("CRUD", new CreateSingleEntityTest(factory)));
-        _tests.Add(("CRUD", new ReadByIdTest(factory)));
-        _tests.Add(("CRUD", new UpdateModifyPropertyTest(factory)));
-        _tests.Add(("CRUD", new DeleteSingleEntityTest(factory)));
-        _tests.Add(("CRUD", new BulkInsert100EntitiesTest(factory)));
-        _tests.Add(("CRUD", new FTS5SearchTest(factory)));
-        _tests.Add(("CRUD", new FTS5SoftDeleteThenClearTest(factory)));
+        Add("CRUD", new CreateSingleEntityTest(factory));
+        Add("CRUD", new ReadByIdTest(factory));
+        Add("CRUD", new UpdateModifyPropertyTest(factory));
+        Add("CRUD", new DeleteSingleEntityTest(factory));
+        Add("CRUD", new BulkInsert100EntitiesTest(factory));
+        Add("CRUD", new FTS5SearchTest(factory));
+        Add("CRUD", new FTS5SoftDeleteThenClearTest(factory));
 
         // Transaction Tests
-        _tests.Add(("Transactions", new TransactionCommitTest(factory)));
-        _tests.Add(("Transactions", new TransactionRollbackTest(factory)));
+        Add("Transactions", new TransactionCommitTest(factory));
+        Add("Transactions", new TransactionRollbackTest(factory));
 
         // Relationship Tests (binary(16) Guid keys + one-to-many)
-        _tests.Add(("Relationships", new TodoListCreateWithGuidKeyTest(factory)));
-        _tests.Add(("Relationships", new TodoCreateWithForeignKeyTest(factory)));
-        _tests.Add(("Relationships", new TodoListIncludeNavigationTest(factory)));
-        _tests.Add(("Relationships", new TodoListCascadeDeleteTest(factory)));
-        _tests.Add(("Relationships", new TodoComplexQueryWithJoinTest(factory)));
-        _tests.Add(("Relationships", new TodoNullableDateTimeTest(factory)));
+        Add("Relationships", new TodoListCreateWithGuidKeyTest(factory));
+        Add("Relationships", new TodoCreateWithForeignKeyTest(factory));
+        Add("Relationships", new TodoListIncludeNavigationTest(factory));
+        Add("Relationships", new TodoListCascadeDeleteTest(factory));
+        Add("Relationships", new TodoComplexQueryWithJoinTest(factory));
+        Add("Relationships", new TodoNullableDateTimeTest(factory));
 
         // Migration Tests (EF Core migrations in WASM/OPFS)
-        _tests.Add(("Migrations", new FreshDatabaseMigrateTest(factory)));
-        _tests.Add(("Migrations", new ExistingDatabaseMigrateIdempotentTest(factory)));
-        _tests.Add(("Migrations", new MigrationHistoryTableTest(factory)));
-        _tests.Add(("Migrations", new GetAppliedMigrationsTest(factory)));
-        _tests.Add(("Migrations", new DatabaseExistsCheckTest(factory)));
-        _tests.Add(("Migrations", new EnsureCreatedVsMigrateConflictTest(factory)));
+        Add("Migrations", new FreshDatabaseMigrateTest(factory));
+        Add("Migrations", new ExistingDatabaseMigrateIdempotentTest(factory));
+        Add("Migrations", new MigrationHistoryTableTest(factory));
+        Add("Migrations", new GetAppliedMigrationsTest(factory));
+        Add("Migrations", new DatabaseExistsCheckTest(factory));
+        Add("Migrations", new EnsureCreatedVsMigrateConflictTest(factory));
 
         // Race Condition Tests (Concurrency and sync patterns)
-        _tests.Add(("Race Conditions", new PurgeThenLoadRaceConditionTest(factory)));
-        _tests.Add(("Race Conditions", new PurgeThenLoadWithTransactionTest(factory)));
+        Add("Race Conditions", new PurgeThenLoadRaceConditionTest(factory));
+        Add("Race Conditions", new PurgeThenLoadWithTransactionTest(factory));
 
         // EF Core Functions Tests (ef_ scalar and aggregate functions)
-        _tests.Add(("EF Core Functions", new DecimalArithmeticTest(factory)));
-        _tests.Add(("EF Core Functions", new DecimalAggregatesTest(factory)));
-        _tests.Add(("EF Core Functions", new DecimalComparisonTest(factory)));
-        _tests.Add(("EF Core Functions", new DecimalComparisonSimpleTest(factory)));
-        _tests.Add(("EF Core Functions", new RegexPatternTest(factory)));
-        _tests.Add(("EF Core Functions", new ComplexDecimalQueryTest(factory)));
-        _tests.Add(("EF Core Functions", new AggregateBuiltInTest(factory)));
+        Add("EF Core Functions", new DecimalArithmeticTest(factory));
+        Add("EF Core Functions", new DecimalAggregatesTest(factory));
+        Add("EF Core Functions", new DecimalComparisonTest(factory));
+        Add("EF Core Functions", new DecimalComparisonSimpleTest(factory));
+        Add("EF Core Functions", new RegexPatternTest(factory));
+        Add("EF Core Functions", new ComplexDecimalQueryTest(factory));
+        Add("EF Core Functions", new AggregateBuiltInTest(factory));
 
         // Raw Database Import/Export Tests
-        _tests.Add(("Import/Export", new RawDatabaseExportImportTest(factory, databaseService)));
-        _tests.Add(("Import/Export", new RawDatabaseImportInvalidFileTest(factory, databaseService)));
-        _tests.Add(("Import/Export", new RawDatabaseImportWithBackupTest(factory, databaseService)));
-        _tests.Add(("Import/Export", new RawDatabaseBackupRestoreOnFailureTest(factory, databaseService)));
-        _tests.Add(("Import/Export", new RawDatabaseExportReOpenTest(factory, databaseService)));
-        _tests.Add(("Import/Export", new RawDatabaseImportIntoNewTest(factory, databaseService)));
-        _tests.Add(("Import/Export", new RawDatabaseImportIncompatibleSchemaTest(factory, databaseService)));
-        _tests.Add(("Import/Export", new RawDatabaseAutoReOpenAfterImportTest(factory, databaseService)));
-        _tests.Add(("Import/Export", new RawDatabaseSequentialImportTest(factory, databaseService)));
-        _tests.Add(("Import/Export", new RawDatabaseImportThenExportTest(factory, databaseService)));
-        _tests.Add(("Import/Export", new RawDatabaseSchemaValidationTest(factory, databaseService)));
+        Add("Import/Export", new RawDatabaseExportImportTest(factory, databaseService));
+        Add("Import/Export", new RawDatabaseImportInvalidFileTest(factory, databaseService));
+        Add("Import/Export", new RawDatabaseImportWithBackupTest(factory, databaseService));
+        Add("Import/Export", new RawDatabaseBackupRestoreOnFailureTest(factory, databaseService));
+        Add("Import/Export", new RawDatabaseExportReOpenTest(factory, databaseService));
+        Add("Import/Export", new RawDatabaseImportIntoNewTest(factory, databaseService));
+        Add("Import/Export", new RawDatabaseImportIncompatibleSchemaTest(factory, databaseService));
+        Add("Import/Export", new RawDatabaseAutoReOpenAfterImportTest(factory, databaseService));
+        Add("Import/Export", new RawDatabaseSequentialImportTest(factory, databaseService));
+        Add("Import/Export", new RawDatabaseImportThenExportTest(factory, databaseService));
+        Add("Import/Export", new RawDatabaseSchemaValidationTest(factory, databaseService));
 
         // Checkpoint Tests (rollback and restore functionality)
-        _tests.Add(("Checkpoints", new RestoreToCheckpointBasicTest(factory)));
-        _tests.Add(("Checkpoints", new RestoreToCheckpointWithDeltaReapplyTest(factory)));
+        Add("Checkpoints", new RestoreToCheckpointBasicTest(factory));
+        Add("Checkpoints", new RestoreToCheckpointWithDeltaReapplyTest(factory));
 
         // V2 Bulk Import/Export Tests (worker-side prepared statement loop)
-        _tests.Add(("V2 Bulk", new V2BulkTodoRoundTripTest(factory, databaseService)));
-        _tests.Add(("V2 Bulk", new V2BulkAllTypesRoundTripTest(factory, databaseService)));
-        _tests.Add(("V2 Bulk", new V2BulkNullableAllNullTest(factory, databaseService)));
-        _tests.Add(("V2 Bulk", new V2BulkConflictLastWriteWinsTest(factory, databaseService)));
-        _tests.Add(("V2 Bulk", new V2BulkConflictLocalWinsTest(factory, databaseService)));
-        _tests.Add(("V2 Bulk", new V2BulkConflictDeltaWinsTest(factory, databaseService)));
-        _tests.Add(("V2 Bulk Raw", new V2BulkRawImportTest(factory, databaseService)));
-        _tests.Add(("V2 Bulk Raw", new V2BulkRawImportConflictTest(factory, databaseService)));
+        Add("V2 Bulk", new V2BulkTodoRoundTripTest(factory, databaseService));
+        Add("V2 Bulk", new V2BulkAllTypesRoundTripTest(factory, databaseService));
+        Add("V2 Bulk", new V2BulkNullableAllNullTest(factory, databaseService));
+        Add("V2 Bulk", new V2BulkConflictLastWriteWinsTest(factory, databaseService));
+        Add("V2 Bulk", new V2BulkConflictLocalWinsTest(factory, databaseService));
+        Add("V2 Bulk", new V2BulkConflictDeltaWinsTest(factory, databaseService));
+        Add("V2 Bulk Raw", new V2BulkRawImportTest(factory, databaseService));
+        Add("V2 Bulk Raw", new V2BulkRawImportConflictTest(factory, databaseService));
 
         // Readonly column validation tests (bulk import with permission enforcement)
-        _tests.Add(("V2 Bulk Readonly", new V2BulkReadonlyColumnsAllowedTest(factory, databaseService)));
-        _tests.Add(("V2 Bulk Readonly", new V2BulkReadonlyColumnsViolationTest(factory, databaseService)));
-        _tests.Add(("V2 Bulk Readonly", new V2BulkReadonlyColumnsMixedViolationTest(factory, databaseService)));
-        _tests.Add(("V2 Bulk Readonly", new V2BulkReadonlyColumnsMixedNewRowTest(factory, databaseService)));
-        _tests.Add(("V2 Bulk Readonly", new V2BulkReadonlyColumnsNewRowRejectedTest(factory, databaseService)));
+        Add("V2 Bulk Readonly", new V2BulkReadonlyColumnsAllowedTest(factory, databaseService));
+        Add("V2 Bulk Readonly", new V2BulkReadonlyColumnsViolationTest(factory, databaseService));
+        Add("V2 Bulk Readonly", new V2BulkReadonlyColumnsMixedViolationTest(factory, databaseService));
+        Add("V2 Bulk Readonly", new V2BulkReadonlyColumnsMixedNewRowTest(factory, databaseService));
+        Add("V2 Bulk Readonly", new V2BulkReadonlyColumnsNewRowRejectedTest(factory, databaseService));
     }
 }
 
