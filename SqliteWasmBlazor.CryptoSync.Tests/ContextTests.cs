@@ -52,14 +52,17 @@ public class ContextTests : IDisposable
         var contact = new TrustedContact
         {
             Id = Guid.NewGuid(),
-            EncryptedUserData = "{\"Username\":\"Alice\",\"Email\":\"alice@test.com\"}",
+            Username = "Alice",
+            Email = "alice@test.com",
             X25519PublicKey = Convert.ToBase64String(new byte[32]),
             Ed25519PublicKey = Convert.ToBase64String(new byte[32]),
             Role = SyncRole.Owner,
             TrustLevel = TrustLevel.Full,
             Direction = TrustDirection.Sent,
             VerifiedAt = DateTime.UtcNow,
-            CreatedAt = DateTime.UtcNow
+            UpdatedAt = DateTime.UtcNow,
+            SharingScope = SharingScope.Public,
+            SharingId = "system"
         };
 
         _context.Contacts.Add(contact);
@@ -67,7 +70,7 @@ public class ContextTests : IDisposable
 
         var loaded = await _context.Contacts.FindAsync(contact.Id);
         Assert.NotNull(loaded);
-        Assert.Equal("Alice", System.Text.Json.JsonSerializer.Deserialize<ContactUserData>(loaded.EncryptedUserData)!.Username);
+        Assert.Equal("Alice", loaded.Username);
         Assert.Equal(SyncRole.Owner, loaded.Role);
     }
 
@@ -77,17 +80,20 @@ public class ContextTests : IDisposable
         var contact = new TrustedContact
         {
             Id = Guid.NewGuid(),
-            EncryptedUserData = "{}",
+            Username = "Bob",
+            Email = "bob@test.com",
             X25519PublicKey = Convert.ToBase64String(new byte[32]),
             Ed25519PublicKey = Convert.ToBase64String(new byte[32]),
-            CreatedAt = DateTime.UtcNow
+            UpdatedAt = DateTime.UtcNow,
+            SharingScope = SharingScope.Client,
+            SharingId = string.Empty
         };
 
         var invite = new SentInvitation
         {
             Id = Guid.NewGuid(),
             InviteCode = "INV-test1234",
-            EncryptedEmail = "encrypted",
+            Email = "bob@test.com",
             ArmoredInvite = "armored",
             Status = InviteStatus.Accepted,
             CreatedAt = DateTime.UtcNow,
@@ -166,20 +172,26 @@ public class ContextTests : IDisposable
         _context.Contacts.Add(new TrustedContact
         {
             Id = Guid.NewGuid(),
-            EncryptedUserData = "{}",
+            Username = "First",
+            Email = "first@test.com",
             X25519PublicKey = pk,
             Ed25519PublicKey = pk,
-            CreatedAt = DateTime.UtcNow
+            UpdatedAt = DateTime.UtcNow,
+            SharingScope = SharingScope.Client,
+            SharingId = string.Empty
         });
         await _context.SaveChangesAsync();
 
         _context.Contacts.Add(new TrustedContact
         {
             Id = Guid.NewGuid(),
-            EncryptedUserData = "{}",
+            Username = "Second",
+            Email = "second@test.com",
             X25519PublicKey = pk, // duplicate
             Ed25519PublicKey = pk,
-            CreatedAt = DateTime.UtcNow
+            UpdatedAt = DateTime.UtcNow,
+            SharingScope = SharingScope.Client,
+            SharingId = string.Empty
         });
 
         await Assert.ThrowsAsync<DbUpdateException>(() => _context.SaveChangesAsync());

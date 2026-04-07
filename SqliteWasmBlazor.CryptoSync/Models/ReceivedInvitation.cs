@@ -1,9 +1,11 @@
 namespace SqliteWasmBlazor.CryptoSync;
 
 /// <summary>
-/// Tracks an invitation that was accepted by the user.
-/// Ported from BlazorPRF.Persistence.
+/// Tracks an invitation that was accepted by the user. Local-only on each
+/// receiving device — does not inherit <see cref="SyncableEntity"/> and does not
+/// flow over the wire.
 /// </summary>
+[SystemTable]
 public sealed class ReceivedInvitation
 {
     public Guid Id { get; set; }

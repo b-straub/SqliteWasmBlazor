@@ -32,12 +32,13 @@ public abstract class CryptoSyncContextBase : DbContext
     {
         base.OnModelCreating(modelBuilder);
 
-        // Contacts
+        // Contacts (system table, syncable — broadcasts to peers under public scope when Full)
         modelBuilder.Entity<TrustedContact>(entity =>
         {
             entity.HasKey(e => e.Id);
             entity.HasIndex(e => e.Ed25519PublicKey).IsUnique();
             entity.HasIndex(e => e.X25519PublicKey).IsUnique();
+            entity.HasQueryFilter(e => !e.IsDeleted);
         });
 
         // Sent invitations
@@ -66,16 +67,25 @@ public abstract class CryptoSyncContextBase : DbContext
         modelBuilder.Entity<SharingKey>(entity =>
         {
             entity.HasKey(e => e.Id);
-            entity.HasIndex(e => new { e.SharingId, e.ClientEd25519PublicKey }).IsUnique();
+            entity.HasIndex(e => new { e.SharingId, e.ClientContactId }).IsUnique();
             entity.HasIndex(e => e.SharingId);
-            entity.HasIndex(e => e.ClientEd25519PublicKey);
+            entity.HasOne(e => e.ClientContact)
+                .WithMany()
+                .HasForeignKey(e => e.ClientContactId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(e => e.GrantedByContact)
+                .WithMany()
+                .HasForeignKey(e => e.GrantedByContactId)
+                .OnDelete(DeleteBehavior.Restrict);
         });
 
         // Permissions (soft-delete filtered, seeded via migration)
         modelBuilder.Entity<SyncPermission>(entity =>
         {
             entity.HasKey(e => e.Id);
-            entity.HasIndex(e => new { e.Role, e.TableName }).IsUnique();
+            // Lookup order at runtime: (Table, RecordId=row.Id) → fall back to (Table, RecordId=NULL)
+            // RecordId == null = table-wide rule, non-null = per-row write-lock override.
+            entity.HasIndex(e => new { e.SharingScope, e.SharingId, e.TableName, e.RecordId, e.Role }).IsUnique();
             entity.HasQueryFilter(e => !e.IsDeleted);
         });
 

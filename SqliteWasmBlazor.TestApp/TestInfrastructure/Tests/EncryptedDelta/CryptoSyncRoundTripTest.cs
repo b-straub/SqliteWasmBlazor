@@ -35,15 +35,15 @@ internal class CryptoSyncRoundTripTest(
         // 2. Set up contacts
         await using (var ctx = await CryptoFactory.CreateDbContextAsync())
         {
-            var contactService = new ContactService(ctx, crypto);
+            var contactService = new ContactService(ctx);
             await contactService.AddContactAsync(
                 new ContactUserData { Username = "Alice", Email = "alice@test.com" },
                 aliceKeys.X25519PublicKey, aliceKeys.Ed25519PublicKey,
-                SyncRole.Owner, TrustLevel.Full, TrustDirection.Sent, aliceSeed);
+                SyncRole.Owner, TrustLevel.Full, TrustDirection.Sent);
             await contactService.AddContactAsync(
                 new ContactUserData { Username = "Bob", Email = "bob@test.com" },
                 bobKeys.X25519PublicKey, bobKeys.Ed25519PublicKey,
-                SyncRole.Editor, TrustLevel.Full, TrustDirection.Sent, aliceSeed);
+                SyncRole.Editor, TrustLevel.Full, TrustDirection.Sent);
         }
 
         // 3. Seed test items via EF Core
@@ -82,7 +82,7 @@ internal class CryptoSyncRoundTripTest(
         byte[] envelopeBytes;
         await using (var ctx = await CryptoFactory.CreateDbContextAsync())
         {
-            var contactService = new ContactService(ctx, crypto);
+            var contactService = new ContactService(ctx);
             var permissionService = new PermissionService(ctx);
             var orchestrator = new SyncOrchestrator(DatabaseService!, crypto, contactService, permissionService);
 
@@ -114,7 +114,7 @@ internal class CryptoSyncRoundTripTest(
         int rowsImported;
         await using (var ctx = await CryptoFactory.CreateDbContextAsync())
         {
-            var contactService = new ContactService(ctx, crypto);
+            var contactService = new ContactService(ctx);
             var permissionService = new PermissionService(ctx);
             var orchestrator = new SyncOrchestrator(DatabaseService!, crypto, contactService, permissionService);
 

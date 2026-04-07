@@ -4,19 +4,20 @@ namespace SqliteWasmBlazor.CryptoSync;
 
 /// <summary>
 /// A verified contact with public keys for encryption and signature verification.
-/// User data (username, email, comment) is encrypted with PRF-derived symmetric key.
-/// Ported from BlazorPRF.Persistence.
+/// System table — only the admin device creates contacts; other devices receive them
+/// via the public-scope sync once promoted to <see cref="TrustLevel.Full"/>.
 /// </summary>
-public sealed class TrustedContact
+[SystemTable]
+public sealed class TrustedContact : SyncableEntity
 {
-    public Guid Id { get; set; }
+    [MaxLength(128)]
+    public required string Username { get; set; }
 
-    /// <summary>
-    /// Encrypted JSON containing username, email, and comment.
-    /// Encrypted with PRF-derived symmetric key for at-rest protection.
-    /// </summary>
-    [MaxLength(4096)]
-    public required string EncryptedUserData { get; set; }
+    [MaxLength(256)]
+    public required string Email { get; set; }
+
+    [MaxLength(512)]
+    public string? Comment { get; set; }
 
     /// <summary>X25519 public key (Base64) for asymmetric encryption.</summary>
     [MaxLength(64)]
@@ -26,18 +27,29 @@ public sealed class TrustedContact
     [MaxLength(64)]
     public required string Ed25519PublicKey { get; set; }
 
-    /// <summary>Role assigned to this contact for permission enforcement.</summary>
+    /// <summary>
+    /// Global default role suggested for this contact. Per-scope role lives on
+    /// <c>SharingKey.Role</c> and is what actually governs runtime permission lookups.
+    /// </summary>
     public SyncRole Role { get; set; }
 
     public TrustLevel TrustLevel { get; set; }
+
     public TrustDirection Direction { get; set; }
+
     public DateTime VerifiedAt { get; set; }
-    public DateTime CreatedAt { get; set; }
+
+    // Note: TrustedContact inherits SyncableEntity, so SharingScope is the row's scope.
+    // While TrustLevel == Marginal it stays Client (admin-private). On promotion to
+    // Full via ContactPromotionService.ElevateToFullAsync the inherited SharingScope
+    // flips to Public + SharingId becomes the system public id, causing the next sync
+    // to broadcast this contact under the public content key to all Full peers.
 }
 
 /// <summary>
-/// Decrypted user data for a contact.
-/// Serialized as JSON, encrypted at rest in TrustedContact.EncryptedUserData.
+/// Plain user data for a contact. Stored as plain columns on <see cref="TrustedContact"/>.
+/// No column-level encryption — at-rest defense for sensitive entities is the
+/// shadow-only <c>[Sensitive]</c> pattern, not per-column encryption (see Phase H).
 /// </summary>
 public sealed class ContactUserData
 {
