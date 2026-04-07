@@ -1,24 +1,30 @@
+using System.Security.Cryptography;
 using BlazorPRF.Crypto.Abstractions;
 using BlazorPRF.Crypto.Abstractions.Models;
+using MessagePack;
 
 namespace SqliteWasmBlazor.CryptoSync;
 
 /// <summary>
-/// Orchestrates encrypted delta export and import using the dual-table architecture.
+/// Thin bridge between the C# domain layer and the worker's encrypted bulk
+/// import/export. The worker owns AES-GCM symmetric crypto on the V2 payload
+/// and (after Phase D-3) in-transaction permission enforcement during apply.
 ///
 /// <para>
-/// Phase D-1: still C#-side encrypt/decrypt of the V2 payload via
-/// <see cref="EncryptedDeltaService"/>; the worker only handles plain V2 bytes.
-/// Phase D-2 will move the symmetric crypto into the worker
-/// (<c>BulkExportEncryptedAsync</c> / <c>BulkImportEncryptedAsync</c>) and reduce
-/// this orchestrator to envelope assembly + ECIES wrap/unwrap.
-/// Phase D-3 adds in-transaction permission enforcement inside the worker.
+/// C# is responsible for:
 /// </para>
+/// <list type="bullet">
+///   <item>ECIES content-key wrap/unwrap (X25519 — uses <see cref="ICryptoProvider"/>
+///         which carries the user's private key in managed memory).</item>
+///   <item>Ed25519 content signature (sender proves they produced the data).</item>
+///   <item>Envelope assembly (<see cref="EncryptedDelta"/>) — MessagePack-serialized
+///         transport format.</item>
+///   <item>Recipient discovery via <see cref="ContactService"/>.</item>
+/// </list>
 ///
 /// <para>
-/// Permissions are no longer shipped in the envelope (decision §6). Receivers will
-/// enforce permissions by querying the locally-applied <c>SyncPermission</c> table
-/// during the staggered apply pass.
+/// Permissions are not shipped in the envelope (decision §6). The worker enforces
+/// them by querying the locally-applied <c>SyncPermission</c> table during apply.
 /// </para>
 /// </summary>
 public class SyncOrchestrator(
@@ -27,31 +33,72 @@ public class SyncOrchestrator(
     ContactService contactService)
 {
     /// <summary>
-    /// Export data as an encrypted delta for all recipients.
+    /// Export data as an encrypted delta for all contacts plus self (round-trip).
     /// </summary>
     public async ValueTask<byte[]> ExportAsync(
         string databaseName,
         BulkExportMetadata exportMetadata,
         DualKeyPairFull senderKeys)
     {
-        // 1. BulkExport from open table → plain V2 bytes
-        var v2Bytes = await databaseService.BulkExportAsync(databaseName, exportMetadata);
+        // 1. Fresh content key — zeroed before this method returns.
+        var contentKey = new byte[32];
+        RandomNumberGenerator.Fill(contentKey);
 
-        // 2. Get recipient public keys (all active contacts + self for round-trip)
-        var recipientPks = await contactService.GetRecipientPublicKeysAsync();
-        var allRecipients = recipientPks.Append(senderKeys.X25519PublicKey).Distinct().ToArray();
+        try
+        {
+            // 2. Worker reads the open table, encrypts V2 bytes with the content key,
+            //    returns (ciphertext, nonce). Plain V2 bytes never leave the worker.
+            var (ciphertext, nonce) = await databaseService.BulkExportEncryptedAsync(
+                databaseName, exportMetadata, contentKey);
 
-        // 3. Encrypt envelope (no permissions payload — decision §6)
-        var delta = await EncryptedDeltaService.EncryptAsync(
-            crypto, v2Bytes, senderKeys, allRecipients);
+            // 3. Sign the ciphertext with the sender's Ed25519 key.
+            var ciphertextBase64 = Convert.ToBase64String(ciphertext);
+            var senderEd25519Private = Convert.FromBase64String(senderKeys.Ed25519PrivateKey);
+            var signResult = await crypto.SignAsync(ciphertextBase64, senderEd25519Private);
+            if (!signResult.Success)
+            {
+                throw new InvalidOperationException($"Signing failed: {signResult.ErrorCode}");
+            }
+            var contentSignature = Convert.FromBase64String(signResult.Value!);
 
-        // 4. Serialize for transport
-        return EncryptedDeltaService.Serialize(delta);
+            // 4. Recipient list = all known contacts + self (so the sender can decrypt
+            //    their own outgoing data on a future device sync).
+            var recipientPks = await contactService.GetRecipientPublicKeysAsync();
+            var allRecipients = recipientPks.Append(senderKeys.X25519PublicKey).Distinct().ToArray();
+
+            // 5. ECIES-wrap the content key for each recipient.
+            var recipientEnvelopes = new Dictionary<string, byte[]>();
+            var contentKeyBase64 = Convert.ToBase64String(contentKey);
+            foreach (var recipientPk in allRecipients)
+            {
+                var wrapResult = await crypto.EncryptAsymmetricAsync(contentKeyBase64, recipientPk);
+                if (!wrapResult.Success)
+                {
+                    throw new InvalidOperationException($"Key wrapping failed: {wrapResult.ErrorCode}");
+                }
+                recipientEnvelopes[recipientPk] = SerializeEnvelopeMessage(wrapResult.Value!);
+            }
+
+            // 6. Assemble + serialize the envelope.
+            var delta = new EncryptedDelta
+            {
+                Ciphertext = ciphertext,
+                Nonce = nonce,
+                ContentSignature = contentSignature,
+                SenderPublicKey = senderKeys.Ed25519PublicKey,
+                RecipientEnvelopes = recipientEnvelopes
+            };
+            return MessagePackSerializer.Serialize(delta);
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(contentKey);
+        }
     }
 
     /// <summary>
-    /// Import an encrypted delta: decrypt and apply to the local database.
-    /// Permission enforcement will move into the worker in Phase D-3.
+    /// Import an encrypted delta: verify the sender, ECIES-unwrap our content key,
+    /// hand the worker the encrypted payload + key for in-worker decrypt + apply.
     /// </summary>
     public async ValueTask<int> ImportAsync(
         string databaseName,
@@ -59,35 +106,88 @@ public class SyncOrchestrator(
         DualKeyPairFull recipientKeys,
         ConflictResolutionStrategy conflictStrategy = ConflictResolutionStrategy.DeltaWins)
     {
-        // 1. Deserialize envelope
-        var delta = EncryptedDeltaService.Deserialize(envelopeBytes);
+        // 1. Deserialize envelope.
+        var delta = MessagePackSerializer.Deserialize<EncryptedDelta>(envelopeBytes);
 
-        // 2. Verify sender is a known contact
+        // 2. Verify sender is a known contact.
         var senderContact = await contactService.GetByEd25519PublicKeyAsync(delta.SenderPublicKey);
         if (senderContact is null)
         {
             throw new InvalidOperationException($"Unknown sender: {delta.SenderPublicKey[..16]}...");
         }
 
-        // 3. Decrypt → plain V2 bytes
-        var recipientPrivateKey = Convert.FromBase64String(recipientKeys.X25519PrivateKey);
-        var v2Bytes = await EncryptedDeltaService.DecryptAsync(
-            crypto, delta, recipientPrivateKey, recipientKeys.X25519PublicKey);
+        // 3. Verify content signature.
+        var ciphertextBase64 = Convert.ToBase64String(delta.Ciphertext);
+        var signatureBase64 = Convert.ToBase64String(delta.ContentSignature);
+        var isValid = await crypto.VerifyAsync(ciphertextBase64, signatureBase64, delta.SenderPublicKey);
+        if (!isValid)
+        {
+            throw new InvalidOperationException("Content signature verification failed");
+        }
 
-        // 4. Apply to open table. Permission enforcement is deferred to Phase D-3
-        //    (in-transaction SQL lookup against SyncPermission inside the worker).
-        return await databaseService.BulkImportAsync(databaseName, v2Bytes, conflictStrategy);
+        // 4. Find our wrapped key.
+        if (!delta.RecipientEnvelopes.TryGetValue(recipientKeys.X25519PublicKey, out var wrappedKeyBytes))
+        {
+            throw new InvalidOperationException("Delta not encrypted for this recipient");
+        }
+
+        // 5. ECIES-unwrap the content key.
+        var encryptedMsg = DeserializeEnvelopeMessage(wrappedKeyBytes);
+        var recipientPrivateKey = Convert.FromBase64String(recipientKeys.X25519PrivateKey);
+        var unwrapResult = await crypto.DecryptAsymmetricAsync(encryptedMsg, recipientPrivateKey);
+        if (!unwrapResult.Success)
+        {
+            throw new InvalidOperationException($"Key unwrapping failed: {unwrapResult.ErrorCode}");
+        }
+
+        var contentKey = Convert.FromBase64String(unwrapResult.Value!);
+
+        try
+        {
+            // 6. Worker decrypts the payload with the content key and applies into the
+            //    open table (and the _crypto_ shadow). Permission enforcement happens
+            //    inside the worker after Phase D-3 lands.
+            return await databaseService.BulkImportEncryptedAsync(
+                databaseName, delta.Ciphertext, delta.Nonce, contentKey, conflictStrategy);
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(contentKey);
+        }
     }
 
-    /// <summary>
-    /// Import raw V2 bytes (already decrypted) directly into the open table.
-    /// Used for scope changes when re-decrypting rows from the _crypto_ table.
-    /// </summary>
-    public async ValueTask<int> ImportDecryptedAsync(
-        string databaseName,
-        byte[] v2Bytes,
-        ConflictResolutionStrategy conflictStrategy = ConflictResolutionStrategy.DeltaWins)
+    // ============================================================
+    // ECIES envelope serialization
+    // Format: [ephPkLen(1) | ephPk | nonceLen(1) | nonce | ciphertext]
+    // ============================================================
+
+    private static byte[] SerializeEnvelopeMessage(EncryptedMessage msg)
     {
-        return await databaseService.BulkImportAsync(databaseName, v2Bytes, conflictStrategy);
+        var ephPk = Convert.FromBase64String(msg.EphemeralPublicKey);
+        var ct = Convert.FromBase64String(msg.Ciphertext);
+        var nonce = Convert.FromBase64String(msg.Nonce);
+
+        var result = new byte[1 + ephPk.Length + 1 + nonce.Length + ct.Length];
+        result[0] = (byte)ephPk.Length;
+        ephPk.CopyTo(result.AsSpan(1));
+        result[1 + ephPk.Length] = (byte)nonce.Length;
+        nonce.CopyTo(result.AsSpan(2 + ephPk.Length));
+        ct.CopyTo(result.AsSpan(2 + ephPk.Length + nonce.Length));
+        return result;
+    }
+
+    private static EncryptedMessage DeserializeEnvelopeMessage(byte[] data)
+    {
+        var ephPkLen = data[0];
+        var ephPk = data.AsSpan(1, ephPkLen);
+        var nonceLen = data[1 + ephPkLen];
+        var nonce = data.AsSpan(2 + ephPkLen, nonceLen);
+        var ct = data.AsSpan(2 + ephPkLen + nonceLen);
+
+        return new EncryptedMessage(
+            Convert.ToBase64String(ephPk),
+            Convert.ToBase64String(ct),
+            Convert.ToBase64String(nonce)
+        );
     }
 }
