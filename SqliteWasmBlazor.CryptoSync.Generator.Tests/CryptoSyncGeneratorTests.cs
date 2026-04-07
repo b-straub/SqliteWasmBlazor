@@ -370,12 +370,15 @@ public class CryptoSyncGeneratorTests
             }
             """;
 
-        // Compute expected deterministic GUID: MD5("SyncPermission:2:ShoppingItems")
-        byte[] guidBytes;
-        using (var md5 = System.Security.Cryptography.MD5.Create())
+        // Compute expected deterministic GUID: SHA-256("DomainPermission:2:ShoppingItems") truncated to 16 bytes.
+        // Must match CryptoSyncGenerator.GeneratePermissionSeedData byte-for-byte.
+        byte[] hash;
+        using (var sha = System.Security.Cryptography.SHA256.Create())
         {
-            guidBytes = md5.ComputeHash(Encoding.UTF8.GetBytes("SyncPermission:2:ShoppingItems"));
+            hash = sha.ComputeHash(Encoding.UTF8.GetBytes("DomainPermission:2:ShoppingItems"));
         }
+        var guidBytes = new byte[16];
+        Array.Copy(hash, guidBytes, 16);
         var expectedGuid = new Guid(guidBytes);
 
         var expectedSeed = NormalizeLineEndings($$"""

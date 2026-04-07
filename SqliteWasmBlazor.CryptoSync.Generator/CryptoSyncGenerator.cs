@@ -660,12 +660,18 @@ public class CryptoSyncGenerator : IIncrementalGenerator
         for (var i = 0; i < seedRows.Count; i++)
         {
             var (role, table, diffJson) = seedRows[i];
-            // Deterministic GUID derived from role + table name
-            byte[] guidBytes;
-            using (var md5 = System.Security.Cryptography.MD5.Create())
+            // Deterministic GUID derived from SHA-256 of "DomainPermission:{role}:{table}"
+            // truncated to 16 bytes. Matches CryptoSyncContextBase.DeterministicGuid —
+            // SHA-256 (not MD5) because Blazor WASM's runtime crypto does not ship MD5.
+            // Using the Create() form because the generator targets netstandard2.0
+            // which pre-dates the static HashData helper.
+            byte[] hash;
+            using (var sha = System.Security.Cryptography.SHA256.Create())
             {
-                guidBytes = md5.ComputeHash(Encoding.UTF8.GetBytes($"DomainPermission:{role}:{table}"));
+                hash = sha.ComputeHash(Encoding.UTF8.GetBytes($"DomainPermission:{role}:{table}"));
             }
+            var guidBytes = new byte[16];
+            Array.Copy(hash, guidBytes, 16);
             var guid = new Guid(guidBytes);
 
             sb.Append($"            new SyncPermission {{ Id = System.Guid.Parse(\"{guid}\"), ");

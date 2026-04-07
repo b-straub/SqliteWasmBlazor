@@ -135,13 +135,9 @@ public abstract class CryptoSyncContextBase : DbContext
 
     private static SyncPermission CreateSystemPermission(string tableName, SyncRole role, string permissionDiffJson)
     {
-        // Deterministic GUID from role + table
-        using var md5 = System.Security.Cryptography.MD5.Create();
-        var guidBytes = md5.ComputeHash(System.Text.Encoding.UTF8.GetBytes($"SystemPermission:{(int)role}:{tableName}"));
-
         return new SyncPermission
         {
-            Id = new Guid(guidBytes),
+            Id = DeterministicGuid($"SystemPermission:{(int)role}:{tableName}"),
             Role = role,
             TableName = tableName,
             PermissionDiffJson = permissionDiffJson,
@@ -149,5 +145,21 @@ public abstract class CryptoSyncContextBase : DbContext
             SharingId = "system",
             UpdatedAt = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc)
         };
+    }
+
+    /// <summary>
+    /// Deterministic GUID derived from a SHA-256 hash of the input string, truncated
+    /// to 16 bytes. SHA-256 is used (not MD5) because Blazor WASM's runtime crypto
+    /// provider does not ship MD5. The generator at
+    /// <c>CryptoSyncGenerator.cs:GeneratePermissionSeedData</c> must produce
+    /// byte-identical GUIDs for the same input strings, so both sites use the same
+    /// SHA-256-truncated-to-16 scheme.
+    /// </summary>
+    internal static Guid DeterministicGuid(string input)
+    {
+        var hash = System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(input));
+        var guidBytes = new byte[16];
+        Array.Copy(hash, guidBytes, 16);
+        return new Guid(guidBytes);
     }
 }
