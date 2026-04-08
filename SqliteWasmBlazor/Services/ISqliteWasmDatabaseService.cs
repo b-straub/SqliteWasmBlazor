@@ -132,4 +132,26 @@ public interface ISqliteWasmDatabaseService
     Task<int> BulkImportEncryptedAsync(string databaseName, byte[] encryptedPayload, byte[] nonce,
         byte[] contentKey, ConflictResolutionStrategy conflictStrategy = ConflictResolutionStrategy.None,
         Dictionary<string, string[]>? readonlyColumns = null, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Bulk re-key rotation: re-encrypts every row in a crypto shadow table
+    /// (<c>_crypto_&lt;tableName&gt;</c>) under a new content key, in place, inside a single
+    /// SQLite transaction. Runs entirely inside the worker — plaintext and ciphertext never
+    /// leave the worker during the loop. This is the hot path for revoke and ownership-transfer
+    /// operations (CryptoSync plan decision §17 / Phase J benchmark).
+    /// </summary>
+    /// <param name="databaseName">Target database filename.</param>
+    /// <param name="tableName">Domain table name (not the crypto shadow table — the worker
+    /// resolves <c>_crypto_&lt;tableName&gt;</c> internally).</param>
+    /// <param name="oldKey">32-byte AES-GCM content key currently encrypting the shadow rows.
+    /// Caller MUST zero after this call returns.</param>
+    /// <param name="newKey">32-byte AES-GCM content key to re-encrypt under. Caller MUST zero
+    /// after this call returns.</param>
+    /// <param name="sharingId">Optional filter: when set, only shadow rows whose
+    /// <c>SharingId</c> equals this value are rotated (scopes the revoke to one ShareGroup).
+    /// When <c>null</c>, every row in the shadow table is rotated.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>Number of shadow rows re-encrypted.</returns>
+    Task<int> BulkRotateKeyAsync(string databaseName, string tableName, byte[] oldKey, byte[] newKey,
+        string? sharingId = null, CancellationToken cancellationToken = default);
 }

@@ -291,6 +291,12 @@ async function handleRequest(data: WorkerRequest['data'], binaryPayload?: ArrayB
                 data as any
             );
 
+        case 'bulkRotateKey':
+            if (!binaryPayload) {
+                throw new Error('bulkRotateKey requires binaryPayload (oldKey+newKey = 64 bytes)');
+            }
+            return await bulkRotateKey(database!, new Uint8Array(binaryPayload), data as any);
+
         default:
             throw new Error(`Unknown request type: ${type}`);
     }
@@ -1353,10 +1359,25 @@ function base64ToBytes(base64: string): Uint8Array {
 }
 
 /**
- * Encrypted bulk export: export → encrypt V2 bytes with content key → return [nonce | ciphertext].
- * Plain V2 bytes never leave the worker. Content key zeroed after use.
+ * Encrypted bulk export:
+ *   1. Read the open table → V2 bytes (header + rows as MessagePack).
+ *   2. Parse V2 → (header, rows).
+ *   3. Populate the sender's `_crypto_<table>` shadow with one entry per row, each
+ *      individually encrypted with a fresh nonce under the content key. This keeps
+ *      the sender's shadow in sync with their open table so BulkRotateKeyAsync has
+ *      something to rotate on the sender side, and so recovery from a local wipe
+ *      can restore the open table from shadow ciphertext.
+ *   4. Encrypt the whole V2 blob with a single nonce under the same content key —
+ *      this is the wire envelope shipped to recipients.
+ *
+ * Symmetric with bulkImportEncrypted: both sides populate the per-row shadow.
  */
 async function bulkExportEncrypted(dbName: string, contentKeyPayload: Uint8Array, metadata: any) {
+    const db = openDatabases.get(dbName);
+    if (!db) {
+        throw new Error(`Database ${dbName} not open`);
+    }
+
     // 1. Normal export → V2 bytes
     const exportResult = await bulkExport(dbName, metadata);
     const v2Bytes = (exportResult as any).data as Uint8Array;
@@ -1365,29 +1386,117 @@ async function bulkExportEncrypted(dbName: string, contentKeyPayload: Uint8Array
         throw new Error(`bulkExportEncrypted: expected Uint8Array from bulkExport, got ${typeof v2Bytes}`);
     }
 
-    // 2. Content key from binary payload (32 bytes), zero after use
-    const contentKeyBytes = new Uint8Array(contentKeyPayload.buffer.slice(0, 32));
+    // 2. Content key from binary payload (32 bytes). Copy into a fresh
+    //    ArrayBuffer-backed Uint8Array so TS sees a narrow type and we can
+    //    zero it unconditionally in finally. Import once, reuse for envelope
+    //    encrypt + per-row shadow encrypt.
+    const contentKeyBytes = new Uint8Array(32);
+    contentKeyBytes.set(contentKeyPayload.subarray(0, 32));
+    let contentKey: CryptoKey;
     try {
-        const key = await crypto.subtle.importKey('raw', contentKeyBytes.buffer, { name: 'AES-GCM' }, false, ['encrypt']);
-
-        const nonce = crypto.getRandomValues(new Uint8Array(12));
-        const ciphertext = await crypto.subtle.encrypt({ name: 'AES-GCM', iv: nonce }, key, v2Bytes.buffer);
-
-        // Return [12-byte nonce | ciphertext] as single binary blob
-        const result = new Uint8Array(12 + ciphertext.byteLength);
-        result.set(nonce, 0);
-        result.set(new Uint8Array(ciphertext), 12);
-
-        logger.info(MODULE_NAME, `✓ bulkExportEncrypted: ${v2Bytes.length} → ${result.length} bytes`);
-        return { rawBinary: true, data: result };
+        contentKey = await crypto.subtle.importKey(
+            'raw', contentKeyBytes, { name: 'AES-GCM' }, false, ['encrypt']);
     } finally {
         contentKeyBytes.fill(0);
     }
+
+    // 3. Populate sender's shadow per-row, if the crypto shadow table exists for this table.
+    //    Skipped for non-syncable entities (no _crypto_ table, no Id/SharingScope/SharingId).
+    const objects = bigIntUnpackr.unpackMultiple(v2Bytes);
+    if (objects.length >= 1) {
+        const header = objects[0] as any;
+        const tableName = header[7] as string;
+        const rows = objects.slice(1) as any[][];
+        const cryptoTableName = `_crypto_${tableName}`;
+
+        if (rows.length > 0) {
+            const tableCheck = db.exec({
+                sql: `SELECT name FROM sqlite_master WHERE type='table' AND name=?`,
+                bind: [cryptoTableName],
+                returnValue: 'resultRows',
+                rowMode: 'array'
+            });
+
+            if (tableCheck && tableCheck.length > 0) {
+                const columns = header[8] as any[];
+                const columnNames = columns.map((c: any[]) => c[0] as string);
+                const idIdx = columnNames.indexOf('Id');
+                const scopeIdx = columnNames.indexOf('SharingScope');
+                const sharingIdIdx = columnNames.indexOf('SharingId');
+
+                if (idIdx < 0 || scopeIdx < 0 || sharingIdIdx < 0) {
+                    logger.warn(MODULE_NAME,
+                        `bulkExportEncrypted: ${tableName} is not a SyncableEntity (missing Id/SharingScope/SharingId); skipping shadow population`);
+                } else {
+                    const shadowSql =
+                        `INSERT OR REPLACE INTO "${cryptoTableName}" (Id, SharingScope, SharingId, EncryptedRow, Nonce) ` +
+                        `VALUES (?, ?, ?, ?, ?)`;
+                    const stmt = db.prepare(shadowSql);
+
+                    db.exec('BEGIN');
+                    let shadowCount = 0;
+                    try {
+                        for (let i = 0; i < rows.length; i++) {
+                            const row = rows[i];
+                            const rowBytes = pack(row);
+                            const rowNonce = crypto.getRandomValues(new Uint8Array(12));
+                            const rowCipher = await crypto.subtle.encrypt(
+                                { name: 'AES-GCM', iv: rowNonce.buffer as ArrayBuffer },
+                                contentKey,
+                                rowBytes.buffer.slice(rowBytes.byteOffset, rowBytes.byteOffset + rowBytes.byteLength) as ArrayBuffer);
+
+                            stmt.bind([
+                                row[idIdx],
+                                row[scopeIdx],
+                                row[sharingIdIdx],
+                                new Uint8Array(rowCipher),
+                                rowNonce
+                            ]);
+                            stmt.step();
+                            stmt.reset();
+                            shadowCount++;
+                        }
+                        stmt.finalize();
+                        db.exec('COMMIT');
+                        logger.info(MODULE_NAME, `✓ bulkExportEncrypted: sender shadow populated with ${shadowCount} rows in ${cryptoTableName}`);
+                    } catch (e) {
+                        try { stmt.finalize(); } catch { /* ignore */ }
+                        try { db.exec('ROLLBACK'); } catch { /* ignore */ }
+                        logger.error(MODULE_NAME, `bulkExportEncrypted: sender shadow population failed in ${cryptoTableName}:`, e);
+                        throw e;
+                    }
+                }
+            }
+        }
+    }
+
+    // 4. Encrypt the whole V2 blob with a single nonce → the wire envelope.
+    const nonce = crypto.getRandomValues(new Uint8Array(12));
+    const ciphertext = await crypto.subtle.encrypt(
+        { name: 'AES-GCM', iv: nonce.buffer as ArrayBuffer },
+        contentKey,
+        v2Bytes.buffer.slice(v2Bytes.byteOffset, v2Bytes.byteOffset + v2Bytes.byteLength) as ArrayBuffer);
+
+    // Return [12-byte nonce | ciphertext] as single binary blob
+    const result = new Uint8Array(12 + ciphertext.byteLength);
+    result.set(nonce, 0);
+    result.set(new Uint8Array(ciphertext), 12);
+
+    logger.info(MODULE_NAME, `✓ bulkExportEncrypted: ${v2Bytes.length} → ${result.length} bytes (envelope)`);
+    return { rawBinary: true, data: result };
 }
 
 /**
- * Encrypted bulk import: decrypt → insert into open table (+ _crypto_ table for blob storage).
- * Content key zeroed after use.
+ * Encrypted bulk import:
+ *   1. Decrypt the envelope with the content key.
+ *   2. Parse V2 → (header, rows).
+ *   3. Populate the `_crypto_<table>` shadow with one entry per row, each individually
+ *      encrypted with a fresh nonce under the same content key. This is the recovery /
+ *      rotation source — subsequent BulkRotateKeyAsync walks this table row-by-row.
+ *   4. Insert the plaintext rows into the open table via bulkInsertRows.
+ *
+ * Content key bytes are zeroed after importKey. The CryptoKey handle survives and is
+ * reused for both the envelope decrypt and the per-row shadow encrypts.
  */
 async function bulkImportEncrypted(dbName: string, encryptedPayload: Uint8Array, cryptoHeader: Uint8Array, metadata: any) {
     const db = openDatabases.get(dbName);
@@ -1396,20 +1505,38 @@ async function bulkImportEncrypted(dbName: string, encryptedPayload: Uint8Array,
     }
 
     // cryptoHeader: [nonce(12) | contentKey(32)]
-    const nonceBytes = cryptoHeader.slice(0, 12);
-    const contentKeyBytes = cryptoHeader.slice(12, 44);
+    // Copy into fresh ArrayBuffer-backed Uint8Arrays for strict TS typing and
+    // unconditional zeroing.
+    const nonceBytes = new Uint8Array(12);
+    nonceBytes.set(cryptoHeader.subarray(0, 12));
+    const contentKeyBytes = new Uint8Array(32);
+    contentKeyBytes.set(cryptoHeader.subarray(12, 44));
+
+    // Import the key with BOTH capabilities once, reuse for envelope decrypt + per-row encrypt.
+    // Once imported, the source bytes can be zeroed — CryptoKey retains the material internally.
+    let contentKey: CryptoKey;
+    try {
+        contentKey = await crypto.subtle.importKey(
+            'raw', contentKeyBytes, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt']);
+    } finally {
+        contentKeyBytes.fill(0);
+    }
+
+    // Copy the encrypted payload into a fresh ArrayBuffer-backed Uint8Array for
+    // the same TS strictness reason.
+    const encryptedPayloadCopy = new Uint8Array(encryptedPayload.byteLength);
+    encryptedPayloadCopy.set(encryptedPayload);
 
     let v2Bytes: Uint8Array;
     try {
-        const key = await crypto.subtle.importKey('raw', contentKeyBytes.buffer, { name: 'AES-GCM' }, false, ['decrypt']);
-        const plaintext = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: nonceBytes.buffer }, key, encryptedPayload.buffer);
+        const plaintext = await crypto.subtle.decrypt(
+            { name: 'AES-GCM', iv: nonceBytes }, contentKey, encryptedPayloadCopy);
         v2Bytes = new Uint8Array(plaintext);
     } finally {
-        contentKeyBytes.fill(0);
         nonceBytes.fill(0);
     }
 
-    // Parse V2 header to get table name
+    // Parse V2 header to get table name, column layout, and rows
     const objects = bigIntUnpackr.unpackMultiple(v2Bytes);
     if (objects.length < 1) {
         throw new Error('bulkImportEncrypted: empty decrypted payload');
@@ -1419,29 +1546,71 @@ async function bulkImportEncrypted(dbName: string, encryptedPayload: Uint8Array,
     const tableName = header[7] as string;
     const rows = objects.slice(1) as any[][];
 
-    // Store encrypted blob in _crypto_ table (if it exists)
+    // Populate the shadow table with one per-row entry.
+    // SyncableEntity-backed tables have Id/SharingScope/SharingId columns; non-syncable
+    // tables don't and are skipped here (their _crypto_ shadow doesn't exist anyway).
     const cryptoTableName = `_crypto_${tableName}`;
-    try {
-        // Check if crypto table exists
-        const tableCheck = db.exec({
-            sql: `SELECT name FROM sqlite_master WHERE type='table' AND name=?`,
-            bind: [cryptoTableName],
-            returnValue: 'resultRows',
-            rowMode: 'array'
-        });
+    const tableCheck = db.exec({
+        sql: `SELECT name FROM sqlite_master WHERE type='table' AND name=?`,
+        bind: [cryptoTableName],
+        returnValue: 'resultRows',
+        rowMode: 'array'
+    });
 
-        if (tableCheck && tableCheck.length > 0) {
-            // Store encrypted blob — use a hash of the payload as ID for dedup
-            const blobId = Array.from(nonceBytes).map(b => b.toString(16).padStart(2, '0')).join('');
-            db.exec({
-                sql: `INSERT OR REPLACE INTO "${cryptoTableName}" (Id, SharingScope, SharingId, EncryptedRow, Nonce) VALUES (?, ?, ?, ?, ?)`,
-                bind: [blobId, 0, 'delta', encryptedPayload, nonceBytes]
-            });
-            logger.info(MODULE_NAME, `✓ Stored encrypted blob in ${cryptoTableName}`);
+    if (tableCheck && tableCheck.length > 0 && rows.length > 0) {
+        const columns = header[8] as any[]; // [[name, sqlType, csharpType], ...]
+        const columnNames = columns.map((c: any[]) => c[0] as string);
+        const idIdx = columnNames.indexOf('Id');
+        const scopeIdx = columnNames.indexOf('SharingScope');
+        const sharingIdIdx = columnNames.indexOf('SharingId');
+
+        if (idIdx < 0 || scopeIdx < 0 || sharingIdIdx < 0) {
+            logger.warn(MODULE_NAME,
+                `bulkImportEncrypted: ${tableName} is not a SyncableEntity (missing Id/SharingScope/SharingId); skipping shadow population`);
+        } else {
+            const shadowSql =
+                `INSERT OR REPLACE INTO "${cryptoTableName}" (Id, SharingScope, SharingId, EncryptedRow, Nonce) ` +
+                `VALUES (?, ?, ?, ?, ?)`;
+            const stmt = db.prepare(shadowSql);
+
+            db.exec('BEGIN');
+            let shadowCount = 0;
+            try {
+                for (let i = 0; i < rows.length; i++) {
+                    const row = rows[i];
+                    // Serialize THIS row (as an array) to MessagePack.
+                    const rowBytes = pack(row);
+
+                    // Fresh per-row nonce.
+                    const rowNonce = crypto.getRandomValues(new Uint8Array(12));
+
+                    // Encrypt with the content key already imported above.
+                    const rowCipher = await crypto.subtle.encrypt(
+                        { name: 'AES-GCM', iv: rowNonce.buffer as ArrayBuffer },
+                        contentKey,
+                        rowBytes.buffer.slice(rowBytes.byteOffset, rowBytes.byteOffset + rowBytes.byteLength) as ArrayBuffer);
+
+                    stmt.bind([
+                        row[idIdx],
+                        row[scopeIdx],
+                        row[sharingIdIdx],
+                        new Uint8Array(rowCipher),
+                        rowNonce
+                    ]);
+                    stmt.step();
+                    stmt.reset();
+                    shadowCount++;
+                }
+                stmt.finalize();
+                db.exec('COMMIT');
+                logger.info(MODULE_NAME, `✓ Shadow populated: ${shadowCount} rows in ${cryptoTableName}`);
+            } catch (e) {
+                try { stmt.finalize(); } catch { /* ignore */ }
+                try { db.exec('ROLLBACK'); } catch { /* ignore */ }
+                logger.error(MODULE_NAME, `Shadow population failed in ${cryptoTableName}:`, e);
+                throw e;
+            }
         }
-    } catch (e) {
-        // Crypto table insert is best-effort — don't fail the import
-        logger.warn(MODULE_NAME, `Could not store in ${cryptoTableName}:`, e);
     }
 
     // Import decrypted rows into open table
@@ -1450,4 +1619,132 @@ async function bulkImportEncrypted(dbName: string, encryptedPayload: Uint8Array,
 
     logger.info(MODULE_NAME, `✓ bulkImportEncrypted: decrypted ${v2Bytes.length} bytes, ${rows.length} rows`);
     return bulkInsertRows(db, header, rows, conflictStrategy, 'bulkImportEncrypted', readonlyColumns);
+}
+
+/**
+ * Bulk re-key rotation: re-encrypts every row in a crypto shadow table under a new content key,
+ * in place, inside a single SQLite transaction. Executes entirely in the worker — plain and
+ * ciphertext bytes never leave this function.
+ *
+ * This is the hot path for revoke and ownership-transfer operations. No C# round-trip of data —
+ * C# only hands over the two keys (64 bytes total) and a filter, and receives a row count.
+ *
+ * Payload layout: 64 bytes = oldKey[0..32] | newKey[32..64]
+ * Metadata: { type: "bulkRotateKey", database, tableName, sharingId? }
+ *   - tableName: the domain table ("CryptoTestItems", "ShoppingItems", …). The worker operates
+ *     on the corresponding "_crypto_<tableName>" shadow table.
+ *   - sharingId: optional filter. When provided, only shadow rows where SharingId = this value
+ *     are rotated (scopes the revoke to one ShareGroup). When omitted, every row in the shadow
+ *     is rotated.
+ *
+ * Returns: { rowsAffected }
+ */
+async function bulkRotateKey(dbName: string, keyPayload: Uint8Array, metadata: any) {
+    const db = openDatabases.get(dbName);
+    if (!db) {
+        throw new Error(`Database ${dbName} not open`);
+    }
+
+    const tableName = metadata.tableName as string | undefined;
+    if (!tableName) {
+        throw new Error('bulkRotateKey: metadata.tableName is required');
+    }
+
+    if (keyPayload.length < 64) {
+        throw new Error(`bulkRotateKey: keyPayload must be 64 bytes (oldKey+newKey), got ${keyPayload.length}`);
+    }
+
+    const sharingId = metadata.sharingId as string | undefined;
+    const cryptoTable = `_crypto_${tableName}`;
+
+    // Copy key material into local buffers so we can zero them unconditionally in finally.
+    const oldKeyBytes = new Uint8Array(32);
+    const newKeyBytes = new Uint8Array(32);
+    oldKeyBytes.set(keyPayload.slice(0, 32));
+    newKeyBytes.set(keyPayload.slice(32, 64));
+
+    try {
+        // Verify the shadow table exists before starting any work.
+        const tableCheck = db.exec({
+            sql: `SELECT name FROM sqlite_master WHERE type='table' AND name=?`,
+            bind: [cryptoTable],
+            returnValue: 'resultRows',
+            rowMode: 'array'
+        });
+        if (!tableCheck || tableCheck.length === 0) {
+            throw new Error(`bulkRotateKey: crypto shadow table not found: ${cryptoTable}`);
+        }
+
+        // Import both keys via SubtleCrypto. Only the capabilities we need.
+        const oldKey = await crypto.subtle.importKey(
+            'raw', oldKeyBytes.buffer, { name: 'AES-GCM' }, false, ['decrypt']);
+        const newKey = await crypto.subtle.importKey(
+            'raw', newKeyBytes.buffer, { name: 'AES-GCM' }, false, ['encrypt']);
+
+        // Read all rows that need rotation. For a real revoke this is scoped by SharingId;
+        // when sharingId is omitted, we process the whole shadow (benchmark path).
+        const selectSql = sharingId !== undefined
+            ? `SELECT Id, EncryptedRow, Nonce FROM "${cryptoTable}" WHERE SharingId = ?`
+            : `SELECT Id, EncryptedRow, Nonce FROM "${cryptoTable}"`;
+
+        const rows = db.exec({
+            sql: selectSql,
+            bind: sharingId !== undefined ? [sharingId] : [],
+            returnValue: 'resultRows',
+            rowMode: 'array'
+        });
+
+        if (!rows || rows.length === 0) {
+            logger.info(MODULE_NAME, `bulkRotateKey: no rows match in ${cryptoTable}${sharingId !== undefined ? ` for SharingId=${sharingId}` : ''}`);
+            return { rowsAffected: 0 };
+        }
+
+        // Single prepared UPDATE, executed once per row inside the transaction.
+        const updateSql = `UPDATE "${cryptoTable}" SET EncryptedRow = ?, Nonce = ? WHERE Id = ?`;
+        const stmt = db.prepare(updateSql);
+
+        let rowsAffected = 0;
+        db.exec('BEGIN');
+        try {
+            for (let i = 0; i < rows.length; i++) {
+                const row = rows[i] as any[];
+                const id = row[0];
+                const oldCipher = row[1] as Uint8Array;
+                const oldNonce = row[2] as Uint8Array;
+
+                // Decrypt with the old key
+                const plaintext = await crypto.subtle.decrypt(
+                    { name: 'AES-GCM', iv: oldNonce.buffer as ArrayBuffer },
+                    oldKey,
+                    oldCipher.buffer as ArrayBuffer
+                );
+
+                // Fresh per-row nonce, then encrypt under the new key
+                const newNonce = crypto.getRandomValues(new Uint8Array(12));
+                const newCipher = await crypto.subtle.encrypt(
+                    { name: 'AES-GCM', iv: newNonce.buffer as ArrayBuffer },
+                    newKey,
+                    plaintext
+                );
+
+                stmt.bind([new Uint8Array(newCipher), newNonce, id]);
+                stmt.step();
+                stmt.reset();
+                rowsAffected++;
+            }
+            stmt.finalize();
+            db.exec('COMMIT');
+        } catch (e) {
+            try { stmt.finalize(); } catch { /* ignore */ }
+            try { db.exec('ROLLBACK'); } catch { /* ignore */ }
+            throw e;
+        }
+
+        logger.info(MODULE_NAME, `✓ bulkRotateKey: re-encrypted ${rowsAffected} rows in ${cryptoTable}${sharingId !== undefined ? ` (SharingId=${sharingId})` : ''}`);
+        return { rowsAffected };
+    } finally {
+        // Zero key material we copied into this function — regardless of success/failure.
+        oldKeyBytes.fill(0);
+        newKeyBytes.fill(0);
+    }
 }
