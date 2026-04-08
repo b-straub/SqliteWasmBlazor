@@ -76,7 +76,7 @@ public class SyncOrchestrator(
                 {
                     throw new InvalidOperationException($"Key wrapping failed: {wrapResult.ErrorCode}");
                 }
-                recipientEnvelopes[recipientPk] = SerializeEnvelopeMessage(wrapResult.Value!);
+                recipientEnvelopes[recipientPk] = EnvelopeBytes.Serialize(wrapResult.Value!);
             }
 
             // 6. Assemble + serialize the envelope.
@@ -132,7 +132,7 @@ public class SyncOrchestrator(
         }
 
         // 5. ECIES-unwrap the content key.
-        var encryptedMsg = DeserializeEnvelopeMessage(wrappedKeyBytes);
+        var encryptedMsg = EnvelopeBytes.Deserialize(wrappedKeyBytes);
         var recipientPrivateKey = Convert.FromBase64String(recipientKeys.X25519PrivateKey);
         var unwrapResult = await crypto.DecryptAsymmetricAsync(encryptedMsg, recipientPrivateKey);
         if (!unwrapResult.Success)
@@ -156,38 +156,7 @@ public class SyncOrchestrator(
         }
     }
 
-    // ============================================================
-    // ECIES envelope serialization
-    // Format: [ephPkLen(1) | ephPk | nonceLen(1) | nonce | ciphertext]
-    // ============================================================
-
-    private static byte[] SerializeEnvelopeMessage(EncryptedMessage msg)
-    {
-        var ephPk = Convert.FromBase64String(msg.EphemeralPublicKey);
-        var ct = Convert.FromBase64String(msg.Ciphertext);
-        var nonce = Convert.FromBase64String(msg.Nonce);
-
-        var result = new byte[1 + ephPk.Length + 1 + nonce.Length + ct.Length];
-        result[0] = (byte)ephPk.Length;
-        ephPk.CopyTo(result.AsSpan(1));
-        result[1 + ephPk.Length] = (byte)nonce.Length;
-        nonce.CopyTo(result.AsSpan(2 + ephPk.Length));
-        ct.CopyTo(result.AsSpan(2 + ephPk.Length + nonce.Length));
-        return result;
-    }
-
-    private static EncryptedMessage DeserializeEnvelopeMessage(byte[] data)
-    {
-        var ephPkLen = data[0];
-        var ephPk = data.AsSpan(1, ephPkLen);
-        var nonceLen = data[1 + ephPkLen];
-        var nonce = data.AsSpan(2 + ephPkLen, nonceLen);
-        var ct = data.AsSpan(2 + ephPkLen + nonceLen);
-
-        return new EncryptedMessage(
-            Convert.ToBase64String(ephPk),
-            Convert.ToBase64String(ct),
-            Convert.ToBase64String(nonce)
-        );
-    }
+    // Envelope serialization helpers moved to EnvelopeBytes — shared with
+    // CryptoSyncBootstrap (writes admin's self-SharingKey) and any future
+    // ECIES consumer that needs the wire format.
 }
