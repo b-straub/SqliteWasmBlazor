@@ -540,6 +540,53 @@ internal sealed partial class SqliteWasmWorkerBridge : ISqliteWasmDatabaseServic
         }
     }
 
+    public async Task<byte[]> BulkExportEncryptedV2Async(
+        string databaseName, BulkExportMetadata exportMetadata,
+        byte[] headerBytes, CancellationToken cancellationToken = default)
+    {
+        await EnsureInitializedAsync(cancellationToken);
+
+        var requestId = Interlocked.Increment(ref _nextRequestId);
+        var tcs = new TaskCompletionSource<byte[]>();
+        _pendingBinaryRequests[requestId] = tcs;
+
+        try
+        {
+            await using var registration = cancellationToken.Register(() =>
+            {
+                _pendingBinaryRequests.TryRemove(requestId, out _);
+                tcs.TrySetCanceled();
+            });
+
+            // Binary payload = MessagePack-serialized V2CryptoHeader (opaque to the
+            // base bridge layer — only the worker parses it). Metadata JSON carries
+            // the BulkExportMetadata so the worker can reuse the existing export
+            // path to read rows from the open table.
+            var dataDict = JsonSerializer.SerializeToNode(exportMetadata, JsonOptions)?.AsObject()
+                ?? new System.Text.Json.Nodes.JsonObject();
+            dataDict["type"] = "bulkExportEncryptedV2";
+            dataDict["database"] = databaseName;
+
+            var metadataJson = JsonSerializer.Serialize(new { id = requestId, data = dataDict });
+
+            SendBinaryToWorker(headerBytes.AsSpan(), metadataJson);
+
+            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeoutCts.CancelAfter(300_000);
+
+            // Worker returns the MessagePack-packed ShadowRowGroup as a single blob.
+            return await tcs.Task.WaitAsync(timeoutCts.Token);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new TimeoutException("Encrypted bulk export (V2) timed out.");
+        }
+        finally
+        {
+            _pendingBinaryRequests.TryRemove(requestId, out _);
+        }
+    }
+
     public async Task<int> BulkImportEncryptedAsync(
         string databaseName, byte[] encryptedPayload, byte[] nonce,
         byte[] contentKey, ConflictResolutionStrategy conflictStrategy = ConflictResolutionStrategy.None,

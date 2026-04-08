@@ -118,6 +118,40 @@ public interface ISqliteWasmDatabaseService
         byte[] contentKey, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Encrypted bulk export — V2 shadow-as-wire format. The worker walks the open
+    /// table, groups rows by <c>(SharingScope, SharingId)</c>, derives a per-group
+    /// AES-GCM content key from the session's X25519 private key via HKDF-SHA256
+    /// (deterministic, single-actor — two-actor ECIES unwrap is a later stage),
+    /// encrypts each row with a fresh nonce, upserts the sender's
+    /// <c>_crypto_&lt;table&gt;</c> shadow, and returns the per-row shadow entries
+    /// as the wire payload.
+    ///
+    /// <para>
+    /// Input <paramref name="headerBytes"/> is a MessagePack-serialized
+    /// <c>V2CryptoHeader</c> (hand-written record in <c>SqliteWasmBlazor.CryptoSync</c>):
+    /// system-table list, sharing-table name, client contact id, and the session's
+    /// 32-byte X25519 private key. The worker zeroes its copy of the private key
+    /// material after each call; the caller MUST also zero the buffer it passed in.
+    /// </para>
+    ///
+    /// <para>
+    /// Return bytes are a MessagePack-packed <c>ShadowRowGroup</c> (one table's
+    /// rows — the orchestrator bundles multiple groups into a <c>DeltaEnvelope</c>).
+    /// No outer envelope encryption — per-row AES-GCM inside each
+    /// <c>ShadowRow.EncryptedRow</c> is the only confidentiality layer, per the
+    /// Stage 3 / D-3 shadow-as-wire decision.
+    /// </para>
+    /// </summary>
+    /// <param name="databaseName">Source database filename.</param>
+    /// <param name="exportMetadata">Export parameters (tableName, columns, where, orderBy, …).</param>
+    /// <param name="headerBytes">MessagePack-serialized <c>V2CryptoHeader</c>. Caller owns
+    /// the buffer and MUST zero the private-key region after the call returns.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>MessagePack-packed <c>ShadowRowGroup</c> bytes.</returns>
+    Task<byte[]> BulkExportEncryptedV2Async(string databaseName, BulkExportMetadata exportMetadata,
+        byte[] headerBytes, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Encrypted bulk import: worker decrypts with content key, inserts into open table + _crypto_ table.
     /// Content key is zeroed in worker after use.
     /// </summary>

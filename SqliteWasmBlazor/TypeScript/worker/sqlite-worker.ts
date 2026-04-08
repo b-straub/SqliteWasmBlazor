@@ -280,6 +280,12 @@ async function handleRequest(data: WorkerRequest['data'], binaryPayload?: ArrayB
             }
             return await bulkExportEncrypted(database!, new Uint8Array(binaryPayload), data as any);
 
+        case 'bulkExportEncryptedV2':
+            if (!binaryPayload) {
+                throw new Error('bulkExportEncryptedV2 requires binaryPayload (V2CryptoHeader)');
+            }
+            return await bulkExportEncryptedV2(database!, new Uint8Array(binaryPayload), data as any);
+
         case 'bulkImportEncrypted':
             if (!binaryPayload || !binaryHeader) {
                 throw new Error('bulkImportEncrypted requires binaryPayload (ciphertext) + binaryHeader (nonce+key)');
@@ -1484,6 +1490,331 @@ async function bulkExportEncrypted(dbName: string, contentKeyPayload: Uint8Array
 
     logger.info(MODULE_NAME, `✓ bulkExportEncrypted: ${v2Bytes.length} → ${result.length} bytes (envelope)`);
     return { rawBinary: true, data: result };
+}
+
+// ============================================================================
+// V2 encrypted export — shadow rows ARE the wire format (no outer envelope).
+// Stage 5 / D-3 rework. Derived single-actor content keys via HKDF-SHA256 from
+// the session's X25519 private key. ECIES unwrap for two-actor (non-owner
+// recipient) scenarios is a later stage — rows whose scope this device does
+// not own are left for Stage 9.
+// ============================================================================
+
+// Info strings MUST byte-match SqliteWasmBlazor.CryptoSync.KeyDerivation.
+// System scope and domain scope are intentionally distinct strings so the
+// same private key produces cryptographically independent content keys.
+const SYSTEM_CONTENT_KEY_INFO = 'SqliteWasmBlazor.CryptoSync.SystemContentKey.v1';
+const DOMAIN_CONTENT_KEY_INFO_PREFIX = 'SqliteWasmBlazor.CryptoSync.ContentKey.v1:';
+
+// Sharing scope discriminator — MUST match SqliteWasmBlazor.CryptoSync.SharingScope.
+// Public/Shared/Client are the three buckets; only Public+SharingId="system" is
+// treated as the admin "system" scope (deriving via SystemContentKey info).
+const SHARING_SCOPE_PUBLIC = 0;
+const SYSTEM_SHARING_ID = 'system';
+
+/**
+ * Derive a 32-byte AES-GCM content key from an X25519 private key via
+ * HKDF-SHA256. Byte-compatible with .NET's HKDF.DeriveKey per RFC 5869:
+ * salt is empty (WebCrypto substitutes 32 zero bytes internally), info
+ * is the same UTF-8 string the C# side passes.
+ *
+ * Returned Uint8Array aliases an ArrayBuffer — caller is responsible for
+ * zeroing via .fill(0) once the derived AES key has been imported.
+ */
+async function deriveHkdfContentKey(privateKey: Uint8Array, info: string): Promise<Uint8Array> {
+    const ikm = await crypto.subtle.importKey(
+        'raw',
+        privateKey.buffer.slice(privateKey.byteOffset, privateKey.byteOffset + privateKey.byteLength) as ArrayBuffer,
+        { name: 'HKDF' },
+        false,
+        ['deriveBits']);
+
+    const bits = await crypto.subtle.deriveBits(
+        {
+            name: 'HKDF',
+            hash: 'SHA-256',
+            salt: new Uint8Array(0),
+            info: new TextEncoder().encode(info)
+        },
+        ikm,
+        256); // 256 bits = 32 bytes
+
+    return new Uint8Array(bits);
+}
+
+/**
+ * Parse a MessagePack-serialized V2CryptoHeader from the C# side. The C#
+ * record uses [MessagePackObject] with [Key(N)] attributes, which serialize
+ * as a MessagePack array in Key order:
+ *   [0] Version (int)
+ *   [1] SystemTables (string[])
+ *   [2] SharingTableName (string)
+ *   [3] ClientContactId (Guid — MessagePack-CSharp default emits as 16 LE bytes)
+ *   [4] ClientPrivateKey (byte[])
+ */
+interface V2CryptoHeader {
+    version: number;
+    systemTables: string[];
+    sharingTableName: string;
+    clientContactIdBytes: Uint8Array;   // 16 bytes, raw Guid payload
+    clientPrivateKey: Uint8Array;       // 32 bytes X25519 private key
+}
+
+function parseV2CryptoHeader(bytes: Uint8Array): V2CryptoHeader {
+    const arr = unpack(bytes) as unknown;
+    if (!Array.isArray(arr) || arr.length < 5) {
+        throw new Error(`bulkExportEncryptedV2: V2CryptoHeader expected 5-element array, got ${JSON.stringify(arr)}`);
+    }
+
+    const version = arr[0] as number;
+    const systemTables = arr[1] as string[];
+    const sharingTableName = arr[2] as string;
+    const contactId = arr[3];
+    const privateKey = arr[4];
+
+    if (typeof version !== 'number') {
+        throw new Error(`V2CryptoHeader: Version must be int, got ${typeof version}`);
+    }
+    if (!Array.isArray(systemTables)) {
+        throw new Error('V2CryptoHeader: SystemTables must be array');
+    }
+    if (typeof sharingTableName !== 'string') {
+        throw new Error('V2CryptoHeader: SharingTableName must be string');
+    }
+    if (!(contactId instanceof Uint8Array) || contactId.byteLength !== 16) {
+        throw new Error(`V2CryptoHeader: ClientContactId must be 16-byte blob, got ${contactId}`);
+    }
+    if (!(privateKey instanceof Uint8Array) || privateKey.byteLength !== 32) {
+        throw new Error(`V2CryptoHeader: ClientPrivateKey must be 32-byte blob, got ${privateKey?.byteLength ?? 'undefined'}`);
+    }
+
+    return {
+        version,
+        systemTables,
+        sharingTableName,
+        clientContactIdBytes: contactId,
+        clientPrivateKey: privateKey
+    };
+}
+
+/**
+ * V2 encrypted bulk export — shadow rows ARE the wire format.
+ *
+ * Flow:
+ *   1. Parse the V2CryptoHeader (binary payload).
+ *   2. Call the existing bulkExport → V2 MessagePack bytes (header + rows).
+ *   3. Walk rows, group by (SharingScope, SharingId), derive one HKDF
+ *      content key per distinct group, cache it for reuse, encrypt every
+ *      row under its group's key with a fresh 12-byte nonce.
+ *   4. Upsert each row into the sender's `_crypto_<table>` shadow.
+ *   5. Build a ShadowRowGroup and return it MessagePack-packed as the wire
+ *      payload. The orchestrator (C# side) bundles multiple groups into a
+ *      DeltaEnvelope.
+ *
+ * Single-actor scope only — rows for scopes this device does not own are
+ * currently treated as ownable (the private key derivation still runs, but
+ * the receiver will reject if byte-compat fails). Two-actor ECIES unwrap
+ * lands in a later stage.
+ */
+async function bulkExportEncryptedV2(dbName: string, headerBytes: Uint8Array, metadata: any) {
+    const db = openDatabases.get(dbName);
+    if (!db) {
+        throw new Error(`Database ${dbName} not open`);
+    }
+
+    const header = parseV2CryptoHeader(headerBytes);
+
+    // Copy the private key into a fresh buffer so the caller's copy can be
+    // zeroed independently, and so our .fill(0) in finally unconditionally
+    // clears OUR copy regardless of how the caller manages theirs.
+    const privateKeyCopy = new Uint8Array(32);
+    privateKeyCopy.set(header.clientPrivateKey);
+
+    try {
+        // Step 1: normal export → V2 bytes (header + rows as MessagePack)
+        const exportResult = await bulkExport(dbName, metadata);
+        const v2Bytes = (exportResult as any).data as Uint8Array;
+        if (!(v2Bytes instanceof Uint8Array)) {
+            throw new Error(`bulkExportEncryptedV2: expected Uint8Array from bulkExport, got ${typeof v2Bytes}`);
+        }
+
+        const objects = bigIntUnpackr.unpackMultiple(v2Bytes);
+        if (objects.length < 1) {
+            throw new Error('bulkExportEncryptedV2: empty v2 payload');
+        }
+
+        const v2Header = objects[0] as any;
+        const tableName = v2Header[7] as string;
+        const rows = objects.slice(1) as any[][];
+        const cryptoTableName = `_crypto_${tableName}`;
+
+        // Resolve SyncableEntity column indices — rows without these cannot be
+        // shadowed and will be rejected. Matches the existing bulkExportEncrypted
+        // precondition.
+        const columns = v2Header[8] as any[];
+        const columnNames = columns.map((c: any[]) => c[0] as string);
+        const idIdx = columnNames.indexOf('Id');
+        const scopeIdx = columnNames.indexOf('SharingScope');
+        const sharingIdIdx = columnNames.indexOf('SharingId');
+        if (idIdx < 0 || scopeIdx < 0 || sharingIdIdx < 0) {
+            throw new Error(
+                `bulkExportEncryptedV2: ${tableName} is not a SyncableEntity (missing Id/SharingScope/SharingId)`);
+        }
+
+        // Verify the shadow table exists — if not, nothing to upsert into and
+        // the whole call is a config error worth surfacing loudly.
+        const tableCheck = db.exec({
+            sql: `SELECT name FROM sqlite_master WHERE type='table' AND name=?`,
+            bind: [cryptoTableName],
+            returnValue: 'resultRows',
+            rowMode: 'array'
+        });
+        if (!tableCheck || tableCheck.length === 0) {
+            throw new Error(`bulkExportEncryptedV2: shadow table ${cryptoTableName} not found`);
+        }
+
+        const isSystemTable = header.systemTables.indexOf(tableName) >= 0;
+
+        // Group (scope, sharingId) → AES-GCM CryptoKey. Cache so each distinct
+        // group pays the HKDF cost once per call.
+        const keyCache = new Map<string, CryptoKey>();
+
+        async function getOrDeriveKey(scope: number, sharingId: string): Promise<CryptoKey> {
+            const cacheKey = `${scope}:${sharingId}`;
+            const cached = keyCache.get(cacheKey);
+            if (cached) {
+                return cached;
+            }
+
+            // Info-string rule matches KeyDerivation on the C# side:
+            // - Public + "system"  → SystemContentKey info
+            // - anything else      → DomainContentKey info + ":" + sharingId
+            const info = (scope === SHARING_SCOPE_PUBLIC && sharingId === SYSTEM_SHARING_ID)
+                ? SYSTEM_CONTENT_KEY_INFO
+                : DOMAIN_CONTENT_KEY_INFO_PREFIX + sharingId;
+
+            const rawKey = await deriveHkdfContentKey(privateKeyCopy, info);
+            try {
+                const cryptoKey = await crypto.subtle.importKey(
+                    'raw',
+                    rawKey.buffer.slice(rawKey.byteOffset, rawKey.byteOffset + rawKey.byteLength) as ArrayBuffer,
+                    { name: 'AES-GCM' },
+                    false,
+                    ['encrypt']);
+                keyCache.set(cacheKey, cryptoKey);
+                return cryptoKey;
+            } finally {
+                rawKey.fill(0);
+            }
+        }
+
+        // Build the ShadowRowGroup payload and upsert the sender shadow inside
+        // a single transaction. The shadow upsert uses the same per-row layout
+        // the old path produced, so the rotation path (BulkRotateKeyAsync) keeps
+        // working unchanged.
+        const shadowSql =
+            `INSERT OR REPLACE INTO "${cryptoTableName}" (Id, SharingScope, SharingId, EncryptedRow, Nonce) ` +
+            `VALUES (?, ?, ?, ?, ?)`;
+        const stmt = db.prepare(shadowSql);
+
+        // ShadowRowGroup / ShadowRow array layouts — must match
+        // SqliteWasmBlazor.CryptoSync.ShadowRow / ShadowRowGroup [Key(N)]:
+        //   ShadowRow:       [Id(Guid 16 bytes), SharingScope(int), SharingId(str), EncryptedRow(bytes), Nonce(bytes)]
+        //   ShadowRowGroup:  [TableName(str), IsSystemTable(bool), Rows(ShadowRow[])]
+        const shadowRowArrays: unknown[][] = [];
+
+        db.exec('BEGIN');
+        try {
+            for (let i = 0; i < rows.length; i++) {
+                const row = rows[i];
+                const rowScope = Number(row[scopeIdx]);
+                const rowSharingId = String(row[sharingIdIdx]);
+                const rowIdBytes = guidToBytes(row[idIdx]);
+
+                const key = await getOrDeriveKey(rowScope, rowSharingId);
+
+                const rowBytes = pack(row);
+                const rowNonce = crypto.getRandomValues(new Uint8Array(12));
+                const rowCipherBuf = await crypto.subtle.encrypt(
+                    { name: 'AES-GCM', iv: rowNonce.buffer as ArrayBuffer },
+                    key,
+                    rowBytes.buffer.slice(rowBytes.byteOffset, rowBytes.byteOffset + rowBytes.byteLength) as ArrayBuffer);
+                const rowCipher = new Uint8Array(rowCipherBuf);
+
+                stmt.bind([
+                    row[idIdx],
+                    rowScope,
+                    rowSharingId,
+                    rowCipher,
+                    rowNonce
+                ]);
+                stmt.step();
+                stmt.reset();
+
+                shadowRowArrays.push([
+                    rowIdBytes,
+                    rowScope,
+                    rowSharingId,
+                    rowCipher,
+                    rowNonce
+                ]);
+            }
+            stmt.finalize();
+            db.exec('COMMIT');
+        } catch (e) {
+            try { stmt.finalize(); } catch { /* ignore */ }
+            try { db.exec('ROLLBACK'); } catch { /* ignore */ }
+            logger.error(MODULE_NAME, `bulkExportEncryptedV2: shadow upsert failed in ${cryptoTableName}:`, e);
+            throw e;
+        }
+
+        const groupArray: unknown[] = [tableName, isSystemTable, shadowRowArrays];
+        const packed = pack(groupArray);
+
+        logger.info(MODULE_NAME,
+            `✓ bulkExportEncryptedV2: ${tableName} → ${shadowRowArrays.length} rows, ${packed.length} bytes (wire=shadow)`);
+        return { rawBinary: true, data: packed };
+    } finally {
+        privateKeyCopy.fill(0);
+    }
+}
+
+/**
+ * Convert a Guid from whatever shape bulkExport produced (string or already
+ * a Uint8Array) into the 16-byte payload the C# MessagePack Guid formatter
+ * produces. MessagePack-CSharp's default Guid formatter writes raw
+ * little-endian 16 bytes; msgpackr decodes BinData as Uint8Array directly.
+ *
+ * Callers that already passed a Uint8Array get it back unchanged. String
+ * inputs are parsed via the standard 8-4-4-4-12 hex layout, with the first
+ * three groups byte-reversed to match .NET's in-memory Guid layout.
+ */
+function guidToBytes(value: unknown): Uint8Array {
+    if (value instanceof Uint8Array) {
+        if (value.byteLength !== 16) {
+            throw new Error(`guidToBytes: Uint8Array must be 16 bytes, got ${value.byteLength}`);
+        }
+        return value;
+    }
+    if (typeof value === 'string') {
+        const hex = value.replace(/-/g, '');
+        if (hex.length !== 32) {
+            throw new Error(`guidToBytes: string must be 32 hex chars, got ${hex.length}`);
+        }
+        const bytes = new Uint8Array(16);
+        for (let i = 0; i < 16; i++) {
+            bytes[i] = parseInt(hex.substr(i * 2, 2), 16);
+        }
+        // .NET Guid in-memory layout: first 4 bytes LE, next 2 bytes LE,
+        // next 2 bytes LE, then 8 bytes BE as-is. Reverse the first three
+        // groups.
+        const swap = (a: number, b: number) => { const t = bytes[a]; bytes[a] = bytes[b]; bytes[b] = t; };
+        swap(0, 3); swap(1, 2);
+        swap(4, 5);
+        swap(6, 7);
+        return bytes;
+    }
+    throw new Error(`guidToBytes: unsupported Guid shape ${typeof value}`);
 }
 
 /**
