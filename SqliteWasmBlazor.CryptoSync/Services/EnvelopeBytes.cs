@@ -4,7 +4,7 @@ namespace SqliteWasmBlazor.CryptoSync;
 
 /// <summary>
 /// Wire format for an ECIES-wrapped content key (or any
-/// <see cref="EncryptedMessage"/>) — the byte layout used both in
+/// <see cref="AsymmetricEncryptedData"/>) — the byte layout used both in
 /// <c>SharingKey.WrappedContentKey</c> at rest and inside delta envelopes
 /// over the wire.
 ///
@@ -28,10 +28,10 @@ namespace SqliteWasmBlazor.CryptoSync;
 public static class EnvelopeBytes
 {
     /// <summary>
-    /// Pack an <see cref="EncryptedMessage"/> (the result of
+    /// Pack an <see cref="AsymmetricEncryptedData"/> (the result of
     /// <c>ICryptoProvider.EncryptAsymmetricAsync</c>) into the wire byte format.
     /// </summary>
-    public static byte[] Serialize(EncryptedMessage msg)
+    public static byte[] Serialize(AsymmetricEncryptedData msg)
     {
         var ephPk = Convert.FromBase64String(msg.EphemeralPublicKey);
         var ct = Convert.FromBase64String(msg.Ciphertext);
@@ -47,10 +47,10 @@ public static class EnvelopeBytes
     }
 
     /// <summary>
-    /// Unpack a wire-format buffer back into an <see cref="EncryptedMessage"/>
+    /// Unpack a wire-format buffer back into an <see cref="AsymmetricEncryptedData"/>
     /// suitable for <c>ICryptoProvider.DecryptAsymmetricAsync</c>.
     /// </summary>
-    public static EncryptedMessage Deserialize(byte[] data)
+    public static AsymmetricEncryptedData Deserialize(byte[] data)
     {
         var ephPkLen = data[0];
         var ephPk = data.AsSpan(1, ephPkLen);
@@ -58,7 +58,7 @@ public static class EnvelopeBytes
         var nonce = data.AsSpan(2 + ephPkLen, nonceLen);
         var ct = data.AsSpan(2 + ephPkLen + nonceLen);
 
-        return new EncryptedMessage(
+        return new AsymmetricEncryptedData(
             Convert.ToBase64String(ephPk),
             Convert.ToBase64String(ct),
             Convert.ToBase64String(nonce)

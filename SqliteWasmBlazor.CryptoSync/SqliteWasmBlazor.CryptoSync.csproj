@@ -16,8 +16,17 @@
                       OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
   </ItemGroup>
 
-  <ItemGroup>
+  <!-- During development: use ProjectReference for latest renamed models -->
+  <ItemGroup Condition="'$(Configuration)' == 'Debug'">
+    <ProjectReference Include="..\..\BlazorPRF\BlazorPRF.Crypto.Abstractions\BlazorPRF.Crypto.Abstractions.csproj" />
+  </ItemGroup>
+
+  <!-- Release: use NuGet -->
+  <ItemGroup Condition="'$(Configuration)' == 'Release'">
     <PackageReference Include="BlazorPRF.Crypto.Abstractions" Version="$(BlazorPRFVersion)" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="MessagePack" Version="$(MessagePackVersion)" />
     <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.5" />
   </ItemGroup>

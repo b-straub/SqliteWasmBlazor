@@ -13,6 +13,10 @@
     "build:bridge:release": "esbuild bridge/worker-bridge.ts --bundle --format=esm --minify --outfile=../wwwroot/sqlite-wasm-bridge.js"
   },
   "dependencies": {
+    "@blazorprf/crypto-core": "file:../../../BlazorPRF/BlazorPRF.Crypto/TypeScript/packages/crypto-core",
+    "@noble/ciphers": "^1.2.1",
+    "@noble/curves": "^1.7.0",
+    "@noble/hashes": "^1.6.1",
     "@sqlite.org/sqlite-wasm": "^3.51.2-build8",
     "msgpackr": "^1.11.5"
   },
