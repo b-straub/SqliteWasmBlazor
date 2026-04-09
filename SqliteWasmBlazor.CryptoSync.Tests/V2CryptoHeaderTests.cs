@@ -3,138 +3,96 @@ using Xunit;
 
 namespace SqliteWasmBlazor.CryptoSync.Tests;
 
-/// <summary>
-/// Tests for <see cref="V2CryptoHeader"/> — the per-call worker metadata
-/// record. Locks the shape (both the record surface and the MessagePack
-/// serialization) and the constructor invariants so Stages 5/6 can assume
-/// well-formed input.
-/// </summary>
 public class V2CryptoHeaderTests
 {
-    private static byte[] MakePrivateKey(byte seed)
+    private static byte[] MakeKey(byte seed, int len = 32)
     {
-        var key = new byte[32];
-        for (var i = 0; i < 32; i++)
+        var key = new byte[len];
+        for (var i = 0; i < len; i++)
         {
             key[i] = (byte)(seed + i);
         }
         return key;
     }
 
-    [Fact]
-    public void Create_WithAllInputs_PopulatesAllFields()
+    private static V2CryptoHeader MakeHeader(byte seed = 1)
     {
-        var contactId = Guid.NewGuid();
-        var privateKey = MakePrivateKey(1);
-        var systemTables = new[] { "Contacts", "Permissions" };
-
-        var header = V2CryptoHeader.Create(systemTables, contactId, privateKey);
-
-        Assert.Equal(1, header.Version);
-        Assert.Equal(systemTables, header.SystemTables);
-        Assert.Equal(V2CryptoHeader.DefaultSharingTableName, header.SharingTableName);
-        Assert.Equal(contactId, header.ClientContactId);
-        Assert.Equal(privateKey, header.ClientPrivateKey);
+        return new V2CryptoHeader
+        {
+            Version = 2,
+            SystemTables = ["Contacts", "Permissions"],
+            ClientContactId = Guid.NewGuid(),
+            ClientX25519PrivateKey = MakeKey(seed),
+            AdminX25519PublicKey = MakeKey((byte)(seed + 50)),
+            GroupContext = "system:v1",
+            KeyVersion = 1,
+            WrappedCek = MakeKey((byte)(seed + 100), 44), // nonce(12) + ciphertext(32)
+            ClientEd25519PrivateKey = MakeKey((byte)(seed + 150)),
+            ClientEd25519PublicKey = MakeKey((byte)(seed + 200))
+        };
     }
 
     [Fact]
-    public void Create_CopiesPrivateKey_DoesNotAliasCallerBuffer()
+    public void DefaultInstance_HasSafeDefaults()
     {
-        var original = MakePrivateKey(7);
-        var contactId = Guid.NewGuid();
-
-        var header = V2CryptoHeader.Create(["Contacts"], contactId, original);
-
-        // Mutating the caller's buffer must NOT affect the header copy.
-        original[0] = 0xFF;
-        Assert.NotEqual(0xFF, header.ClientPrivateKey[0]);
+        var header = new V2CryptoHeader();
+        Assert.Equal(2, header.Version);
+        Assert.NotNull(header.SystemTables);
+        Assert.Empty(header.SystemTables);
+        Assert.NotNull(header.ClientX25519PrivateKey);
+        Assert.Empty(header.ClientX25519PrivateKey);
+        Assert.NotNull(header.WrappedCek);
+        Assert.Empty(header.WrappedCek);
     }
 
     [Fact]
-    public void Create_RejectsWrongSizedPrivateKey()
+    public void IsSystemTable_MatchesExactNames()
     {
-        var tooShort = new byte[16];
-        var tooLong = new byte[64];
-        var contactId = Guid.NewGuid();
-
-        Assert.Throws<ArgumentException>(() =>
-            V2CryptoHeader.Create(["Contacts"], contactId, tooShort));
-        Assert.Throws<ArgumentException>(() =>
-            V2CryptoHeader.Create(["Contacts"], contactId, tooLong));
-    }
-
-    [Fact]
-    public void Create_CustomSharingTableName_IsHonored()
-    {
-        var header = V2CryptoHeader.Create(
-            ["Contacts"],
-            Guid.NewGuid(),
-            MakePrivateKey(2),
-            sharingTableName: "CustomSharingKeys");
-
-        Assert.Equal("CustomSharingKeys", header.SharingTableName);
-    }
-
-    [Fact]
-    public void IsSystemTable_MatchesExactNamesOnly()
-    {
-        var header = V2CryptoHeader.Create(
-            ["Contacts", "Permissions"],
-            Guid.NewGuid(),
-            MakePrivateKey(3));
-
+        var header = MakeHeader();
         Assert.True(header.IsSystemTable("Contacts"));
         Assert.True(header.IsSystemTable("Permissions"));
-        Assert.False(header.IsSystemTable("contacts")); // case-sensitive
+        Assert.False(header.IsSystemTable("contacts"));
         Assert.False(header.IsSystemTable("CryptoTestItems"));
-        Assert.False(header.IsSystemTable(""));
     }
 
     [Fact]
-    public void Clear_ZerosPrivateKeyBuffer()
+    public void Clear_ZerosPrivateKeyBuffers()
     {
-        var header = V2CryptoHeader.Create(
-            ["Contacts"],
-            Guid.NewGuid(),
-            MakePrivateKey(4));
-
-        Assert.Contains(header.ClientPrivateKey, b => b != 0);
+        var header = MakeHeader();
+        Assert.Contains(header.ClientX25519PrivateKey, b => b != 0);
+        Assert.Contains(header.ClientEd25519PrivateKey, b => b != 0);
 
         header.Clear();
 
-        Assert.All(header.ClientPrivateKey, b => Assert.Equal(0, b));
+        Assert.All(header.ClientX25519PrivateKey, b => Assert.Equal(0, b));
+        Assert.All(header.ClientEd25519PrivateKey, b => Assert.Equal(0, b));
     }
 
     [Fact]
     public void RoundTripsViaMessagePack()
     {
-        var contactId = Guid.NewGuid();
-        var privateKey = MakePrivateKey(5);
-        var header = V2CryptoHeader.Create(
-            ["Contacts", "Permissions"],
-            contactId,
-            privateKey,
-            sharingTableName: "SharingKeys");
+        var header = MakeHeader();
 
         var bytes = MessagePackSerializer.Serialize(header);
         var restored = MessagePackSerializer.Deserialize<V2CryptoHeader>(bytes);
 
         Assert.Equal(header.Version, restored.Version);
         Assert.Equal(header.SystemTables, restored.SystemTables);
-        Assert.Equal(header.SharingTableName, restored.SharingTableName);
         Assert.Equal(header.ClientContactId, restored.ClientContactId);
-        Assert.Equal(header.ClientPrivateKey, restored.ClientPrivateKey);
+        Assert.Equal(header.ClientX25519PrivateKey, restored.ClientX25519PrivateKey);
+        Assert.Equal(header.AdminX25519PublicKey, restored.AdminX25519PublicKey);
+        Assert.Equal(header.GroupContext, restored.GroupContext);
+        Assert.Equal(header.KeyVersion, restored.KeyVersion);
+        Assert.Equal(header.WrappedCek, restored.WrappedCek);
+        Assert.Equal(header.ClientEd25519PrivateKey, restored.ClientEd25519PrivateKey);
+        Assert.Equal(header.ClientEd25519PublicKey, restored.ClientEd25519PublicKey);
     }
 
     [Fact]
-    public void DefaultInstance_HasEmptyButNonNullCollections()
+    public void GroupContext_AndKeyVersion_FormAadString()
     {
-        var header = new V2CryptoHeader();
-
-        Assert.NotNull(header.SystemTables);
-        Assert.Empty(header.SystemTables);
-        Assert.Equal(V2CryptoHeader.DefaultSharingTableName, header.SharingTableName);
-        Assert.NotNull(header.ClientPrivateKey);
-        Assert.Empty(header.ClientPrivateKey);
+        var header = MakeHeader();
+        var aad = $"{header.GroupContext}:{header.KeyVersion}";
+        Assert.Equal("system:v1:1", aad);
     }
 }

@@ -5,6 +5,13 @@
 import sqlite3InitModule, { type SqlValue } from '@sqlite.org/sqlite-wasm';
 import { logger } from './sqlite-logger';
 import { pack, unpack, Unpackr } from 'msgpackr';
+import {
+    deriveWrappingKey, unwrapContentKey,
+    encryptAesGcm, decryptAesGcm,
+    ed25519Sign, ed25519Verify,
+    clearBytes,
+    type SymmetricEncryptedData
+} from '@blazorprf/crypto-core';
 
 // Unpackr preserving int64 as BigInt — JS Number loses precision for values > 2^53-1
 const bigIntUnpackr = new Unpackr({ int64AsType: 'bigint' });
@@ -274,23 +281,17 @@ async function handleRequest(data: WorkerRequest['data'], binaryPayload?: ArrayB
         case 'bulkExport':
             return await bulkExport(database!, data as any);
 
-        case 'bulkExportEncrypted':
-            if (!binaryPayload) {
-                throw new Error('bulkExportEncrypted requires binaryPayload (contentKey)');
-            }
-            return await bulkExportEncrypted(database!, new Uint8Array(binaryPayload), data as any);
-
         case 'bulkExportEncryptedV2':
             if (!binaryPayload) {
                 throw new Error('bulkExportEncryptedV2 requires binaryPayload (V2CryptoHeader)');
             }
             return await bulkExportEncryptedV2(database!, new Uint8Array(binaryPayload), data as any);
 
-        case 'bulkImportEncrypted':
+        case 'bulkImportEncryptedV2':
             if (!binaryPayload || !binaryHeader) {
-                throw new Error('bulkImportEncrypted requires binaryPayload (ciphertext) + binaryHeader (nonce+key)');
+                throw new Error('bulkImportEncryptedV2 requires binaryPayload (V2CryptoHeader) + binaryHeader (ShadowRowGroup)');
             }
-            return await bulkImportEncrypted(
+            return await bulkImportEncryptedV2(
                 database!,
                 new Uint8Array(binaryPayload),
                 new Uint8Array(binaryHeader),
@@ -1364,257 +1365,119 @@ function base64ToBytes(base64: string): Uint8Array {
     return bytes;
 }
 
-/**
- * Encrypted bulk export:
- *   1. Read the open table → V2 bytes (header + rows as MessagePack).
- *   2. Parse V2 → (header, rows).
- *   3. Populate the sender's `_crypto_<table>` shadow with one entry per row, each
- *      individually encrypted with a fresh nonce under the content key. This keeps
- *      the sender's shadow in sync with their open table so BulkRotateKeyAsync has
- *      something to rotate on the sender side, and so recovery from a local wipe
- *      can restore the open table from shadow ciphertext.
- *   4. Encrypt the whole V2 blob with a single nonce under the same content key —
- *      this is the wire envelope shipped to recipients.
- *
- * Symmetric with bulkImportEncrypted: both sides populate the per-row shadow.
- */
-async function bulkExportEncrypted(dbName: string, contentKeyPayload: Uint8Array, metadata: any) {
-    const db = openDatabases.get(dbName);
-    if (!db) {
-        throw new Error(`Database ${dbName} not open`);
-    }
-
-    // 1. Normal export → V2 bytes
-    const exportResult = await bulkExport(dbName, metadata);
-    const v2Bytes = (exportResult as any).data as Uint8Array;
-
-    if (!(v2Bytes instanceof Uint8Array)) {
-        throw new Error(`bulkExportEncrypted: expected Uint8Array from bulkExport, got ${typeof v2Bytes}`);
-    }
-
-    // 2. Content key from binary payload (32 bytes). Copy into a fresh
-    //    ArrayBuffer-backed Uint8Array so TS sees a narrow type and we can
-    //    zero it unconditionally in finally. Import once, reuse for envelope
-    //    encrypt + per-row shadow encrypt.
-    const contentKeyBytes = new Uint8Array(32);
-    contentKeyBytes.set(contentKeyPayload.subarray(0, 32));
-    let contentKey: CryptoKey;
-    try {
-        contentKey = await crypto.subtle.importKey(
-            'raw', contentKeyBytes, { name: 'AES-GCM' }, false, ['encrypt']);
-    } finally {
-        contentKeyBytes.fill(0);
-    }
-
-    // 3. Populate sender's shadow per-row, if the crypto shadow table exists for this table.
-    //    Skipped for non-syncable entities (no _crypto_ table, no Id/SharingScope/SharingId).
-    const objects = bigIntUnpackr.unpackMultiple(v2Bytes);
-    if (objects.length >= 1) {
-        const header = objects[0] as any;
-        const tableName = header[7] as string;
-        const rows = objects.slice(1) as any[][];
-        const cryptoTableName = `_crypto_${tableName}`;
-
-        if (rows.length > 0) {
-            const tableCheck = db.exec({
-                sql: `SELECT name FROM sqlite_master WHERE type='table' AND name=?`,
-                bind: [cryptoTableName],
-                returnValue: 'resultRows',
-                rowMode: 'array'
-            });
-
-            if (tableCheck && tableCheck.length > 0) {
-                const columns = header[8] as any[];
-                const columnNames = columns.map((c: any[]) => c[0] as string);
-                const idIdx = columnNames.indexOf('Id');
-                const scopeIdx = columnNames.indexOf('SharingScope');
-                const sharingIdIdx = columnNames.indexOf('SharingId');
-
-                if (idIdx < 0 || scopeIdx < 0 || sharingIdIdx < 0) {
-                    logger.warn(MODULE_NAME,
-                        `bulkExportEncrypted: ${tableName} is not a SyncableEntity (missing Id/SharingScope/SharingId); skipping shadow population`);
-                } else {
-                    const shadowSql =
-                        `INSERT OR REPLACE INTO "${cryptoTableName}" (Id, SharingScope, SharingId, EncryptedRow, Nonce) ` +
-                        `VALUES (?, ?, ?, ?, ?)`;
-                    const stmt = db.prepare(shadowSql);
-
-                    db.exec('BEGIN');
-                    let shadowCount = 0;
-                    try {
-                        for (let i = 0; i < rows.length; i++) {
-                            const row = rows[i];
-                            const rowBytes = pack(row);
-                            const rowNonce = crypto.getRandomValues(new Uint8Array(12));
-                            const rowCipher = await crypto.subtle.encrypt(
-                                { name: 'AES-GCM', iv: rowNonce.buffer as ArrayBuffer },
-                                contentKey,
-                                rowBytes.buffer.slice(rowBytes.byteOffset, rowBytes.byteOffset + rowBytes.byteLength) as ArrayBuffer);
-
-                            stmt.bind([
-                                row[idIdx],
-                                row[scopeIdx],
-                                row[sharingIdIdx],
-                                new Uint8Array(rowCipher),
-                                rowNonce
-                            ]);
-                            stmt.step();
-                            stmt.reset();
-                            shadowCount++;
-                        }
-                        stmt.finalize();
-                        db.exec('COMMIT');
-                        logger.info(MODULE_NAME, `✓ bulkExportEncrypted: sender shadow populated with ${shadowCount} rows in ${cryptoTableName}`);
-                    } catch (e) {
-                        try { stmt.finalize(); } catch { /* ignore */ }
-                        try { db.exec('ROLLBACK'); } catch { /* ignore */ }
-                        logger.error(MODULE_NAME, `bulkExportEncrypted: sender shadow population failed in ${cryptoTableName}:`, e);
-                        throw e;
-                    }
-                }
-            }
-        }
-    }
-
-    // 4. Encrypt the whole V2 blob with a single nonce → the wire envelope.
-    const nonce = crypto.getRandomValues(new Uint8Array(12));
-    const ciphertext = await crypto.subtle.encrypt(
-        { name: 'AES-GCM', iv: nonce.buffer as ArrayBuffer },
-        contentKey,
-        v2Bytes.buffer.slice(v2Bytes.byteOffset, v2Bytes.byteOffset + v2Bytes.byteLength) as ArrayBuffer);
-
-    // Return [12-byte nonce | ciphertext] as single binary blob
-    const result = new Uint8Array(12 + ciphertext.byteLength);
-    result.set(nonce, 0);
-    result.set(new Uint8Array(ciphertext), 12);
-
-    logger.info(MODULE_NAME, `✓ bulkExportEncrypted: ${v2Bytes.length} → ${result.length} bytes (envelope)`);
-    return { rawBinary: true, data: result };
-}
-
 // ============================================================================
-// V2 encrypted export — shadow rows ARE the wire format (no outer envelope).
-// Stage 5 / D-3 rework. Derived single-actor content keys via HKDF-SHA256 from
-// the session's X25519 private key. ECIES unwrap for two-actor (non-owner
-// recipient) scenarios is a later stage — rows whose scope this device does
-// not own are left for Stage 9.
+// V2 encrypted export/import — crypto-core integration
+// Shadow rows ARE the wire format (no outer envelope encryption).
+// Key derivation: ECDH + HKDF via crypto-core's deriveWrappingKey.
+// Three tamper detection layers per GroupEncryption Persistence PDF.
 // ============================================================================
 
-// Info strings MUST byte-match SqliteWasmBlazor.CryptoSync.KeyDerivation.
-// System scope and domain scope are intentionally distinct strings so the
-// same private key produces cryptographically independent content keys.
-const SYSTEM_CONTENT_KEY_INFO = 'SqliteWasmBlazor.CryptoSync.SystemContentKey.v1';
-const DOMAIN_CONTENT_KEY_INFO_PREFIX = 'SqliteWasmBlazor.CryptoSync.ContentKey.v1:';
-
-// Sharing scope discriminator — MUST match SqliteWasmBlazor.CryptoSync.SharingScope.
-// Public/Shared/Client are the three buckets; only Public+SharingId="system" is
-// treated as the admin "system" scope (deriving via SystemContentKey info).
-const SHARING_SCOPE_PUBLIC = 0;
-const SYSTEM_SHARING_ID = 'system';
-
 /**
- * Derive a 32-byte AES-GCM content key from an X25519 private key via
- * HKDF-SHA256. Byte-compatible with .NET's HKDF.DeriveKey per RFC 5869:
- * salt is empty (WebCrypto substitutes 32 zero bytes internally), info
- * is the same UTF-8 string the C# side passes.
- *
- * Returned Uint8Array aliases an ArrayBuffer — caller is responsible for
- * zeroing via .fill(0) once the derived AES key has been imported.
- */
-async function deriveHkdfContentKey(privateKey: Uint8Array, info: string): Promise<Uint8Array> {
-    const ikm = await crypto.subtle.importKey(
-        'raw',
-        privateKey.buffer.slice(privateKey.byteOffset, privateKey.byteOffset + privateKey.byteLength) as ArrayBuffer,
-        { name: 'HKDF' },
-        false,
-        ['deriveBits']);
-
-    const bits = await crypto.subtle.deriveBits(
-        {
-            name: 'HKDF',
-            hash: 'SHA-256',
-            salt: new Uint8Array(0),
-            info: new TextEncoder().encode(info)
-        },
-        ikm,
-        256); // 256 bits = 32 bytes
-
-    return new Uint8Array(bits);
-}
-
-/**
- * Parse a MessagePack-serialized V2CryptoHeader from the C# side. The C#
- * record uses [MessagePackObject] with [Key(N)] attributes, which serialize
- * as a MessagePack array in Key order:
- *   [0] Version (int)
+ * Parse a MessagePack-serialized V2CryptoHeader (version 2). Array layout:
+ *   [0] Version (int, must be 2)
  *   [1] SystemTables (string[])
- *   [2] SharingTableName (string)
- *   [3] ClientContactId (Guid — MessagePack-CSharp default emits as 16 LE bytes)
- *   [4] ClientPrivateKey (byte[])
+ *   [2] ClientContactId (Guid — 16 LE bytes)
+ *   [3] ClientX25519PrivateKey (32 bytes)
+ *   [4] AdminX25519PublicKey (32 bytes)
+ *   [5] GroupContext (string)
+ *   [6] KeyVersion (int)
+ *   [7] WrappedCek (byte[] — [nonce(12)|ciphertext])
+ *   [8] ClientEd25519PrivateKey (32 bytes)
+ *   [9] ClientEd25519PublicKey (32 bytes)
  */
 interface V2CryptoHeader {
     version: number;
     systemTables: string[];
-    sharingTableName: string;
-    clientContactIdBytes: Uint8Array;   // 16 bytes, raw Guid payload
-    clientPrivateKey: Uint8Array;       // 32 bytes X25519 private key
+    clientContactIdBytes: Uint8Array;
+    clientX25519PrivateKey: Uint8Array;
+    adminX25519PublicKey: Uint8Array;
+    groupContext: string;
+    keyVersion: number;
+    wrappedCek: Uint8Array;
+    clientEd25519PrivateKey: Uint8Array;
+    clientEd25519PublicKey: Uint8Array;
 }
 
 function parseV2CryptoHeader(bytes: Uint8Array): V2CryptoHeader {
     const arr = unpack(bytes) as unknown;
-    if (!Array.isArray(arr) || arr.length < 5) {
-        throw new Error(`bulkExportEncryptedV2: V2CryptoHeader expected 5-element array, got ${JSON.stringify(arr)}`);
+    if (!Array.isArray(arr) || arr.length < 10) {
+        throw new Error(`V2CryptoHeader: expected 10-element array, got length ${Array.isArray(arr) ? arr.length : typeof arr}`);
     }
 
     const version = arr[0] as number;
-    const systemTables = arr[1] as string[];
-    const sharingTableName = arr[2] as string;
-    const contactId = arr[3];
-    const privateKey = arr[4];
-
-    if (typeof version !== 'number') {
-        throw new Error(`V2CryptoHeader: Version must be int, got ${typeof version}`);
-    }
-    if (!Array.isArray(systemTables)) {
-        throw new Error('V2CryptoHeader: SystemTables must be array');
-    }
-    if (typeof sharingTableName !== 'string') {
-        throw new Error('V2CryptoHeader: SharingTableName must be string');
-    }
-    if (!(contactId instanceof Uint8Array) || contactId.byteLength !== 16) {
-        throw new Error(`V2CryptoHeader: ClientContactId must be 16-byte blob, got ${contactId}`);
-    }
-    if (!(privateKey instanceof Uint8Array) || privateKey.byteLength !== 32) {
-        throw new Error(`V2CryptoHeader: ClientPrivateKey must be 32-byte blob, got ${privateKey?.byteLength ?? 'undefined'}`);
+    if (version !== 2) {
+        throw new Error(`V2CryptoHeader: unsupported version ${version}, expected 2`);
     }
 
     return {
         version,
-        systemTables,
-        sharingTableName,
-        clientContactIdBytes: contactId,
-        clientPrivateKey: privateKey
+        systemTables: arr[1] as string[],
+        clientContactIdBytes: arr[2] as Uint8Array,
+        clientX25519PrivateKey: arr[3] as Uint8Array,
+        adminX25519PublicKey: arr[4] as Uint8Array,
+        groupContext: arr[5] as string,
+        keyVersion: arr[6] as number,
+        wrappedCek: arr[7] as Uint8Array,
+        clientEd25519PrivateKey: arr[8] as Uint8Array,
+        clientEd25519PublicKey: arr[9] as Uint8Array
     };
 }
 
 /**
+ * Unwrap the CEK from the V2CryptoHeader using crypto-core's ECDH + HKDF
+ * key derivation, then AES-GCM unwrap. Returns the raw 32-byte CEK.
+ * Caller MUST clearBytes() when done.
+ */
+async function unwrapCekFromHeader(header: V2CryptoHeader): Promise<Uint8Array> {
+    const wrappingKey = deriveWrappingKey(
+        header.clientX25519PrivateKey,
+        header.adminX25519PublicKey,
+        header.groupContext);
+    try {
+        const wrapped: SymmetricEncryptedData = {
+            nonce: header.wrappedCek.subarray(0, 12),
+            ciphertext: header.wrappedCek.subarray(12)
+        };
+        return await unwrapContentKey(wrapped, wrappingKey);
+    } finally {
+        clearBytes(wrappingKey);
+    }
+}
+
+/**
+ * Build AAD for Layer 1 tamper detection: `${groupContext}:${keyVersion}`
+ */
+function buildAad(groupContext: string, keyVersion: number): Uint8Array {
+    return new TextEncoder().encode(`${groupContext}:${keyVersion}`);
+}
+
+/**
+ * Build the canonical per-row envelope payload for Layer 2 Ed25519 signing.
+ * Format: `${rowId}|${sharingId}|${keyVersion}|${senderPubKeyHex}|${sha256hex(ciphertext)}`
+ */
+async function buildCanonicalEnvelope(
+    rowIdBytes: Uint8Array, sharingId: string, keyVersion: number,
+    senderPubKey: Uint8Array, ciphertext: Uint8Array
+): Promise<Uint8Array> {
+    const { sha256 } = await import('@noble/hashes/sha256');
+    const rowIdHex = bytesToHex(rowIdBytes);
+    const senderHex = bytesToHex(senderPubKey);
+    const ctHash = bytesToHex(sha256(ciphertext));
+    const canonical = `${rowIdHex}|${sharingId}|${keyVersion}|${senderHex}|${ctHash}`;
+    return new TextEncoder().encode(canonical);
+}
+
+function bytesToHex(bytes: Uint8Array): string {
+    return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+/**
  * V2 encrypted bulk export — shadow rows ARE the wire format.
- *
- * Flow:
- *   1. Parse the V2CryptoHeader (binary payload).
- *   2. Call the existing bulkExport → V2 MessagePack bytes (header + rows).
- *   3. Walk rows, group by (SharingScope, SharingId), derive one HKDF
- *      content key per distinct group, cache it for reuse, encrypt every
- *      row under its group's key with a fresh 12-byte nonce.
- *   4. Upsert each row into the sender's `_crypto_<table>` shadow.
- *   5. Build a ShadowRowGroup and return it MessagePack-packed as the wire
- *      payload. The orchestrator (C# side) bundles multiple groups into a
- *      DeltaEnvelope.
- *
- * Single-actor scope only — rows for scopes this device does not own are
- * currently treated as ownable (the private key derivation still runs, but
- * the receiver will reject if byte-compat fails). Two-actor ECIES unwrap
- * lands in a later stage.
+ * Uses crypto-core for key derivation (ECDH + HKDF) and AES-GCM.
+ * Implements all three tamper detection layers:
+ *   Layer 1: AAD binding (groupContext:keyVersion) on per-row AES-GCM
+ *   Layer 2: Ed25519 per-row envelope signature
+ *   Layer 3: CEK wrapped via ECDH-derived wrapping key (inherent in header)
  */
 async function bulkExportEncryptedV2(dbName: string, headerBytes: Uint8Array, metadata: any) {
     const db = openDatabases.get(dbName);
@@ -1623,15 +1486,13 @@ async function bulkExportEncryptedV2(dbName: string, headerBytes: Uint8Array, me
     }
 
     const header = parseV2CryptoHeader(headerBytes);
-
-    // Copy the private key into a fresh buffer so the caller's copy can be
-    // zeroed independently, and so our .fill(0) in finally unconditionally
-    // clears OUR copy regardless of how the caller manages theirs.
-    const privateKeyCopy = new Uint8Array(32);
-    privateKeyCopy.set(header.clientPrivateKey);
+    let cek: Uint8Array | null = null;
 
     try {
-        // Step 1: normal export → V2 bytes (header + rows as MessagePack)
+        // Unwrap CEK from header (Layer 3: ECDH + HKDF + AES-GCM unwrap)
+        cek = await unwrapCekFromHeader(header);
+
+        // Normal export → V2 bytes (header + rows as MessagePack)
         const exportResult = await bulkExport(dbName, metadata);
         const v2Bytes = (exportResult as any).data as Uint8Array;
         if (!(v2Bytes instanceof Uint8Array)) {
@@ -1648,9 +1509,6 @@ async function bulkExportEncryptedV2(dbName: string, headerBytes: Uint8Array, me
         const rows = objects.slice(1) as any[][];
         const cryptoTableName = `_crypto_${tableName}`;
 
-        // Resolve SyncableEntity column indices — rows without these cannot be
-        // shadowed and will be rejected. Matches the existing bulkExportEncrypted
-        // precondition.
         const columns = v2Header[8] as any[];
         const columnNames = columns.map((c: any[]) => c[0] as string);
         const idIdx = columnNames.indexOf('Id');
@@ -1661,8 +1519,6 @@ async function bulkExportEncryptedV2(dbName: string, headerBytes: Uint8Array, me
                 `bulkExportEncryptedV2: ${tableName} is not a SyncableEntity (missing Id/SharingScope/SharingId)`);
         }
 
-        // Verify the shadow table exists — if not, nothing to upsert into and
-        // the whole call is a config error worth surfacing loudly.
         const tableCheck = db.exec({
             sql: `SELECT name FROM sqlite_master WHERE type='table' AND name=?`,
             bind: [cryptoTableName],
@@ -1674,53 +1530,18 @@ async function bulkExportEncryptedV2(dbName: string, headerBytes: Uint8Array, me
         }
 
         const isSystemTable = header.systemTables.indexOf(tableName) >= 0;
+        const aad = buildAad(header.groupContext, header.keyVersion);
+        const senderPubKeyHex = bytesToHex(header.clientEd25519PublicKey);
 
-        // Group (scope, sharingId) → AES-GCM CryptoKey. Cache so each distinct
-        // group pays the HKDF cost once per call.
-        const keyCache = new Map<string, CryptoKey>();
-
-        async function getOrDeriveKey(scope: number, sharingId: string): Promise<CryptoKey> {
-            const cacheKey = `${scope}:${sharingId}`;
-            const cached = keyCache.get(cacheKey);
-            if (cached) {
-                return cached;
-            }
-
-            // Info-string rule matches KeyDerivation on the C# side:
-            // - Public + "system"  → SystemContentKey info
-            // - anything else      → DomainContentKey info + ":" + sharingId
-            const info = (scope === SHARING_SCOPE_PUBLIC && sharingId === SYSTEM_SHARING_ID)
-                ? SYSTEM_CONTENT_KEY_INFO
-                : DOMAIN_CONTENT_KEY_INFO_PREFIX + sharingId;
-
-            const rawKey = await deriveHkdfContentKey(privateKeyCopy, info);
-            try {
-                const cryptoKey = await crypto.subtle.importKey(
-                    'raw',
-                    rawKey.buffer.slice(rawKey.byteOffset, rawKey.byteOffset + rawKey.byteLength) as ArrayBuffer,
-                    { name: 'AES-GCM' },
-                    false,
-                    ['encrypt']);
-                keyCache.set(cacheKey, cryptoKey);
-                return cryptoKey;
-            } finally {
-                rawKey.fill(0);
-            }
-        }
-
-        // Build the ShadowRowGroup payload and upsert the sender shadow inside
-        // a single transaction. The shadow upsert uses the same per-row layout
-        // the old path produced, so the rotation path (BulkRotateKeyAsync) keeps
-        // working unchanged.
+        // Shadow upsert SQL with tamper detection columns
         const shadowSql =
-            `INSERT OR REPLACE INTO "${cryptoTableName}" (Id, SharingScope, SharingId, EncryptedRow, Nonce) ` +
-            `VALUES (?, ?, ?, ?, ?)`;
+            `INSERT OR REPLACE INTO "${cryptoTableName}" ` +
+            `(Id, SharingScope, SharingId, EncryptedRow, Nonce, KeyVersion, SenderPublicKey, EnvelopeSignature) ` +
+            `VALUES (?, ?, ?, ?, ?, ?, ?, ?)`;
         const stmt = db.prepare(shadowSql);
 
-        // ShadowRowGroup / ShadowRow array layouts — must match
-        // SqliteWasmBlazor.CryptoSync.ShadowRow / ShadowRowGroup [Key(N)]:
-        //   ShadowRow:       [Id(Guid 16 bytes), SharingScope(int), SharingId(str), EncryptedRow(bytes), Nonce(bytes)]
-        //   ShadowRowGroup:  [TableName(str), IsSystemTable(bool), Rows(ShadowRow[])]
+        // ShadowRow array layout [Key(0)-Key(7)]:
+        //   [Id, SharingScope, SharingId, EncryptedRow, Nonce, KeyVersion, SenderPublicKey, EnvelopeSignature]
         const shadowRowArrays: unknown[][] = [];
 
         db.exec('BEGIN');
@@ -1731,22 +1552,26 @@ async function bulkExportEncryptedV2(dbName: string, headerBytes: Uint8Array, me
                 const rowSharingId = String(row[sharingIdIdx]);
                 const rowIdBytes = guidToBytes(row[idIdx]);
 
-                const key = await getOrDeriveKey(rowScope, rowSharingId);
-
+                // Layer 1: encrypt with AAD
                 const rowBytes = pack(row);
-                const rowNonce = crypto.getRandomValues(new Uint8Array(12));
-                const rowCipherBuf = await crypto.subtle.encrypt(
-                    { name: 'AES-GCM', iv: rowNonce.buffer as ArrayBuffer },
-                    key,
-                    rowBytes.buffer.slice(rowBytes.byteOffset, rowBytes.byteOffset + rowBytes.byteLength) as ArrayBuffer);
-                const rowCipher = new Uint8Array(rowCipherBuf);
+                const encrypted = await encryptAesGcm(rowBytes, cek, aad);
 
+                // Layer 2: sign canonical per-row envelope
+                const envelope = await buildCanonicalEnvelope(
+                    rowIdBytes, rowSharingId, header.keyVersion,
+                    header.clientEd25519PublicKey, encrypted.ciphertext);
+                const sig = ed25519Sign(envelope, header.clientEd25519PrivateKey);
+
+                // Upsert to shadow with tamper detection columns
                 stmt.bind([
                     row[idIdx],
                     rowScope,
                     rowSharingId,
-                    rowCipher,
-                    rowNonce
+                    encrypted.ciphertext,
+                    encrypted.nonce,
+                    header.keyVersion,
+                    senderPubKeyHex,
+                    sig
                 ]);
                 stmt.step();
                 stmt.reset();
@@ -1755,8 +1580,11 @@ async function bulkExportEncryptedV2(dbName: string, headerBytes: Uint8Array, me
                     rowIdBytes,
                     rowScope,
                     rowSharingId,
-                    rowCipher,
-                    rowNonce
+                    encrypted.ciphertext,
+                    encrypted.nonce,
+                    header.keyVersion,
+                    senderPubKeyHex,
+                    sig
                 ]);
             }
             stmt.finalize();
@@ -1772,10 +1600,10 @@ async function bulkExportEncryptedV2(dbName: string, headerBytes: Uint8Array, me
         const packed = pack(groupArray);
 
         logger.info(MODULE_NAME,
-            `✓ bulkExportEncryptedV2: ${tableName} → ${shadowRowArrays.length} rows, ${packed.length} bytes (wire=shadow)`);
+            `✓ bulkExportEncryptedV2: ${tableName} → ${shadowRowArrays.length} rows, ${packed.length} bytes`);
         return { rawBinary: true, data: packed };
     } finally {
-        privateKeyCopy.fill(0);
+        if (cek) { clearBytes(cek); }
     }
 }
 
@@ -1818,138 +1646,193 @@ function guidToBytes(value: unknown): Uint8Array {
 }
 
 /**
- * Encrypted bulk import:
- *   1. Decrypt the envelope with the content key.
- *   2. Parse V2 → (header, rows).
- *   3. Populate the `_crypto_<table>` shadow with one entry per row, each individually
- *      encrypted with a fresh nonce under the same content key. This is the recovery /
- *      rotation source — subsequent BulkRotateKeyAsync walks this table row-by-row.
- *   4. Insert the plaintext rows into the open table via bulkInsertRows.
+ * V2 encrypted bulk import with three-layer tamper detection.
+ * Receives a MessagePack-packed ShadowRowGroup (from the sender's export)
+ * plus a V2CryptoHeader (as binary payload). Returns an ImportReport.
  *
- * Content key bytes are zeroed after importKey. The CryptoKey handle survives and is
- * reused for both the envelope decrypt and the per-row shadow encrypts.
+ * Verification order per PDF spec:
+ *   1. Derive wrapping key + unwrap CEK (Layer 3)
+ *   2. For each row: verify Ed25519 signature (Layer 2) → skip if invalid
+ *   3. For each row: decrypt with AAD (Layer 1) → skip if auth tag fails
+ *   4. Apply to open table + upsert shadow
  */
-async function bulkImportEncrypted(dbName: string, encryptedPayload: Uint8Array, cryptoHeader: Uint8Array, metadata: any) {
+async function bulkImportEncryptedV2(dbName: string, headerBytes: Uint8Array, groupBytes: Uint8Array, metadata: any) {
     const db = openDatabases.get(dbName);
     if (!db) {
         throw new Error(`Database ${dbName} not open`);
     }
 
-    // cryptoHeader: [nonce(12) | contentKey(32)]
-    // Copy into fresh ArrayBuffer-backed Uint8Arrays for strict TS typing and
-    // unconditional zeroing.
-    const nonceBytes = new Uint8Array(12);
-    nonceBytes.set(cryptoHeader.subarray(0, 12));
-    const contentKeyBytes = new Uint8Array(32);
-    contentKeyBytes.set(cryptoHeader.subarray(12, 44));
+    const header = parseV2CryptoHeader(headerBytes);
+    const errors: { code: string; table: string; rowId: string; groupId: string; message: string }[] = [];
+    let rowsImported = 0;
+    let rowsSkipped = 0;
+    let cek: Uint8Array | null = null;
 
-    // Import the key with BOTH capabilities once, reuse for envelope decrypt + per-row encrypt.
-    // Once imported, the source bytes can be zeroed — CryptoKey retains the material internally.
-    let contentKey: CryptoKey;
     try {
-        contentKey = await crypto.subtle.importKey(
-            'raw', contentKeyBytes, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt']);
-    } finally {
-        contentKeyBytes.fill(0);
-    }
+        // Layer 3: unwrap CEK
+        try {
+            cek = await unwrapCekFromHeader(header);
+        } catch (e) {
+            errors.push({
+                code: 'TAMPER_CEK_UNWRAP_FAILED',
+                table: 'group',
+                rowId: '',
+                groupId: header.groupContext,
+                message: `CEK unwrap failed: ${e instanceof Error ? e.message : String(e)}`
+            });
+            return pack([rowsImported, rowsSkipped, errors]);
+        }
 
-    // Copy the encrypted payload into a fresh ArrayBuffer-backed Uint8Array for
-    // the same TS strictness reason.
-    const encryptedPayloadCopy = new Uint8Array(encryptedPayload.byteLength);
-    encryptedPayloadCopy.set(encryptedPayload);
+        // Parse the ShadowRowGroup: [tableName, isSystemTable, rows[]]
+        const group = unpack(groupBytes) as unknown[];
+        if (!Array.isArray(group) || group.length < 3) {
+            throw new Error('bulkImportEncryptedV2: invalid ShadowRowGroup');
+        }
+        const tableName = group[0] as string;
+        const shadowRows = group[2] as unknown[][];
+        const cryptoTableName = `_crypto_${tableName}`;
 
-    let v2Bytes: Uint8Array;
-    try {
-        const plaintext = await crypto.subtle.decrypt(
-            { name: 'AES-GCM', iv: nonceBytes }, contentKey, encryptedPayloadCopy);
-        v2Bytes = new Uint8Array(plaintext);
-    } finally {
-        nonceBytes.fill(0);
-    }
+        const aad = buildAad(header.groupContext, header.keyVersion);
 
-    // Parse V2 header to get table name, column layout, and rows
-    const objects = bigIntUnpackr.unpackMultiple(v2Bytes);
-    if (objects.length < 1) {
-        throw new Error('bulkImportEncrypted: empty decrypted payload');
-    }
+        // Shadow upsert SQL (same schema as export — tamper detection columns included)
+        const shadowSql =
+            `INSERT OR REPLACE INTO "${cryptoTableName}" ` +
+            `(Id, SharingScope, SharingId, EncryptedRow, Nonce, KeyVersion, SenderPublicKey, EnvelopeSignature) ` +
+            `VALUES (?, ?, ?, ?, ?, ?, ?, ?)`;
 
-    const header = objects[0] as any;
-    const tableName = header[7] as string;
-    const rows = objects.slice(1) as any[][];
+        // Collect decrypted rows for open-table apply
+        const decryptedRows: any[][] = [];
+        let openTableHeader: any = null;
 
-    // Populate the shadow table with one per-row entry.
-    // SyncableEntity-backed tables have Id/SharingScope/SharingId columns; non-syncable
-    // tables don't and are skipped here (their _crypto_ shadow doesn't exist anyway).
-    const cryptoTableName = `_crypto_${tableName}`;
-    const tableCheck = db.exec({
-        sql: `SELECT name FROM sqlite_master WHERE type='table' AND name=?`,
-        bind: [cryptoTableName],
-        returnValue: 'resultRows',
-        rowMode: 'array'
-    });
-
-    if (tableCheck && tableCheck.length > 0 && rows.length > 0) {
-        const columns = header[8] as any[]; // [[name, sqlType, csharpType], ...]
-        const columnNames = columns.map((c: any[]) => c[0] as string);
-        const idIdx = columnNames.indexOf('Id');
-        const scopeIdx = columnNames.indexOf('SharingScope');
-        const sharingIdIdx = columnNames.indexOf('SharingId');
-
-        if (idIdx < 0 || scopeIdx < 0 || sharingIdIdx < 0) {
-            logger.warn(MODULE_NAME,
-                `bulkImportEncrypted: ${tableName} is not a SyncableEntity (missing Id/SharingScope/SharingId); skipping shadow population`);
-        } else {
-            const shadowSql =
-                `INSERT OR REPLACE INTO "${cryptoTableName}" (Id, SharingScope, SharingId, EncryptedRow, Nonce) ` +
-                `VALUES (?, ?, ?, ?, ?)`;
+        db.exec('BEGIN');
+        try {
             const stmt = db.prepare(shadowSql);
 
-            db.exec('BEGIN');
-            let shadowCount = 0;
-            try {
-                for (let i = 0; i < rows.length; i++) {
-                    const row = rows[i];
-                    // Serialize THIS row (as an array) to MessagePack.
-                    const rowBytes = pack(row);
+            for (let i = 0; i < shadowRows.length; i++) {
+                // ShadowRow: [Id, SharingScope, SharingId, EncryptedRow, Nonce, KeyVersion, SenderPubKey, Sig]
+                const sr = shadowRows[i] as any[];
+                const rowIdBytes = sr[0] as Uint8Array;
+                const rowScope = sr[1] as number;
+                const rowSharingId = sr[2] as string;
+                const rowCiphertext = sr[3] as Uint8Array;
+                const rowNonce = sr[4] as Uint8Array;
+                const rowKeyVersion = sr[5] as number;
+                const rowSenderPubKey = sr[6] as string;
+                const rowSig = sr[7] as Uint8Array;
 
-                    // Fresh per-row nonce.
-                    const rowNonce = crypto.getRandomValues(new Uint8Array(12));
+                const rowIdHex = bytesToHex(rowIdBytes);
 
-                    // Encrypt with the content key already imported above.
-                    const rowCipher = await crypto.subtle.encrypt(
-                        { name: 'AES-GCM', iv: rowNonce.buffer as ArrayBuffer },
-                        contentKey,
-                        rowBytes.buffer.slice(rowBytes.byteOffset, rowBytes.byteOffset + rowBytes.byteLength) as ArrayBuffer);
-
-                    stmt.bind([
-                        row[idIdx],
-                        row[scopeIdx],
-                        row[sharingIdIdx],
-                        new Uint8Array(rowCipher),
-                        rowNonce
-                    ]);
-                    stmt.step();
-                    stmt.reset();
-                    shadowCount++;
+                // Layer 2: verify per-row Ed25519 signature
+                try {
+                    const senderPubKeyBytes = hexToBytes(rowSenderPubKey);
+                    const envelope = await buildCanonicalEnvelope(
+                        rowIdBytes, rowSharingId, rowKeyVersion,
+                        senderPubKeyBytes, rowCiphertext);
+                    const sigValid = ed25519Verify(rowSig, envelope, senderPubKeyBytes);
+                    if (!sigValid) {
+                        errors.push({
+                            code: 'TAMPER_SIGNATURE_INVALID',
+                            table: tableName,
+                            rowId: rowIdHex,
+                            groupId: header.groupContext,
+                            message: `Ed25519 signature invalid for row ${rowIdHex}`
+                        });
+                        rowsSkipped++;
+                        continue;
+                    }
+                } catch (e) {
+                    errors.push({
+                        code: 'TAMPER_SIGNATURE_INVALID',
+                        table: tableName,
+                        rowId: rowIdHex,
+                        groupId: header.groupContext,
+                        message: `Signature verification error: ${e instanceof Error ? e.message : String(e)}`
+                    });
+                    rowsSkipped++;
+                    continue;
                 }
-                stmt.finalize();
-                db.exec('COMMIT');
-                logger.info(MODULE_NAME, `✓ Shadow populated: ${shadowCount} rows in ${cryptoTableName}`);
-            } catch (e) {
-                try { stmt.finalize(); } catch { /* ignore */ }
-                try { db.exec('ROLLBACK'); } catch { /* ignore */ }
-                logger.error(MODULE_NAME, `Shadow population failed in ${cryptoTableName}:`, e);
-                throw e;
+
+                // Layer 1: decrypt with AAD
+                let plainRowBytes: Uint8Array;
+                try {
+                    const encrypted: SymmetricEncryptedData = { ciphertext: rowCiphertext, nonce: rowNonce };
+                    plainRowBytes = await decryptAesGcm(encrypted, cek, aad);
+                } catch (e) {
+                    errors.push({
+                        code: 'TAMPER_AAD_MISMATCH',
+                        table: tableName,
+                        rowId: rowIdHex,
+                        groupId: header.groupContext,
+                        message: `AES-GCM decrypt failed (AAD mismatch or corrupt): ${e instanceof Error ? e.message : String(e)}`
+                    });
+                    rowsSkipped++;
+                    continue;
+                }
+
+                // Deserialize the decrypted row (MessagePack array)
+                const row = bigIntUnpackr.unpack(plainRowBytes) as any[];
+
+                // Upsert shadow (store the received encrypted form as-is)
+                stmt.bind([
+                    sr[0], // Id (original format for SQLite)
+                    rowScope,
+                    rowSharingId,
+                    rowCiphertext,
+                    rowNonce,
+                    rowKeyVersion,
+                    rowSenderPubKey,
+                    rowSig
+                ]);
+                stmt.step();
+                stmt.reset();
+
+                decryptedRows.push(row);
+                rowsImported++;
             }
+            stmt.finalize();
+            db.exec('COMMIT');
+        } catch (e) {
+            try { db.exec('ROLLBACK'); } catch { /* ignore */ }
+            logger.error(MODULE_NAME, `bulkImportEncryptedV2: shadow upsert failed:`, e);
+            throw e;
         }
+
+        logger.info(MODULE_NAME,
+            `✓ bulkImportEncryptedV2: ${tableName} → ${rowsImported} imported, ${rowsSkipped} skipped, ${errors.length} errors`);
+
+        // ImportReport: [rowsImported, rowsSkipped, errors[]]
+        // MessagePack array layout matching C# ImportReport [Key(0)-Key(2)]
+        const report = [rowsImported, rowsSkipped, errors.map(e => [
+            importErrorCodeToInt(e.code), e.table, e.rowId, e.groupId, e.message
+        ])];
+        return { rawBinary: true, data: pack(report) };
+    } finally {
+        if (cek) { clearBytes(cek); }
     }
+}
 
-    // Import decrypted rows into open table
-    const conflictStrategy = metadata.conflictStrategy ?? 0;
-    const readonlyColumns = metadata.readonlyColumns as Record<string, string[]> | undefined;
+function hexToBytes(hex: string): Uint8Array {
+    const bytes = new Uint8Array(hex.length / 2);
+    for (let i = 0; i < bytes.length; i++) {
+        bytes[i] = parseInt(hex.substr(i * 2, 2), 16);
+    }
+    return bytes;
+}
 
-    logger.info(MODULE_NAME, `✓ bulkImportEncrypted: decrypted ${v2Bytes.length} bytes, ${rows.length} rows`);
-    return bulkInsertRows(db, header, rows, conflictStrategy, 'bulkImportEncrypted', readonlyColumns);
+/** Map string error codes to the C# ImportErrorCode enum int values */
+function importErrorCodeToInt(code: string): number {
+    switch (code) {
+        case 'TAMPER_SIGNATURE_INVALID': return 1;
+        case 'TAMPER_CEK_UNWRAP_FAILED': return 2;
+        case 'TAMPER_AAD_MISMATCH': return 3;
+        case 'TAMPER_DECRYPT_FAILED': return 4;
+        case 'PERMISSION_INSERT_DENIED': return 10;
+        case 'PERMISSION_UPDATE_DENIED': return 11;
+        case 'PERMISSION_DELETE_DENIED': return 12;
+        case 'PERMISSION_COLUMN_READONLY': return 13;
+        case 'UNKNOWN_GROUP': return 20;
+        default: return 99;
+    }
 }
 
 /**
