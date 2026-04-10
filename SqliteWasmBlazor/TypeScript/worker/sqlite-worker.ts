@@ -1292,6 +1292,43 @@ function base64ToBytes(base64: string): Uint8Array {
     return bytes;
 }
 
+/**
+ * Convert a single MessagePack-deserialized value to a SQLite-bindable primitive.
+ * Used by the V2 import path where column C# type metadata is not available —
+ * conversion is based on the JS runtime type of the deserialized value.
+ *
+ * SQLite bind() accepts: string, number, Uint8Array, null.
+ * MessagePack produces: Date (for DateTime), BigInt (for Int64), arrays, etc.
+ */
+function convertMsgpackValueForSqlite(value: any): SqlValue {
+    if (value === null || value === undefined) {
+        return null;
+    }
+    if (value instanceof Date) {
+        return value.toISOString();
+    }
+    if (typeof value === 'bigint') {
+        // SQLite INTEGER can hold int64; bind as string for safety (text affinity)
+        return value.toString();
+    }
+    if (value instanceof Uint8Array) {
+        return value as any;
+    }
+    if (Array.isArray(value)) {
+        // DateTimeOffset arrives as [Date, offsetMinutes] from MessagePack-CSharp
+        if (value.length === 2 && value[0] instanceof Date) {
+            return (value[0] as Date).toISOString();
+        }
+        // Generic array → JSON text
+        return JSON.stringify(value);
+    }
+    if (typeof value === 'object') {
+        return JSON.stringify(value);
+    }
+    // string, number, boolean — pass through
+    return value;
+}
+
 // ============================================================================
 // V2 encrypted export/import — crypto-core integration
 // Shadow rows ARE the wire format (no outer envelope encryption).
@@ -1773,8 +1810,11 @@ async function bulkImportEncryptedV2(dbName: string, headerBytes: Uint8Array, gr
                         deleteShadowStmt.reset();
                         rowsDeleted++;
                     } else {
-                        // INSERT OR REPLACE into open table
-                        insertStmt.bind(arrived.row);
+                        // INSERT OR REPLACE into open table.
+                        // Convert msgpack values to SQLite-compatible primitives:
+                        // Date → ISO string, BigInt → string, arrays/objects → JSON.
+                        const converted = arrived.row.map((val: any) => convertMsgpackValueForSqlite(val));
+                        insertStmt.bind(converted);
                         insertStmt.step();
                         insertStmt.reset();
                         rowsImported++;
