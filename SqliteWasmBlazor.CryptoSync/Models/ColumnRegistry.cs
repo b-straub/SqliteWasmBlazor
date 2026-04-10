@@ -14,6 +14,7 @@ namespace SqliteWasmBlazor.CryptoSync;
 /// encrypted during transport. Column metadata is plaintext in the local DB.
 /// </para>
 /// </summary>
+[SystemTable]
 public sealed class ColumnRegistryEntry
 {
     /// <summary>Deterministic PK derived from TableName + ColumnIndex.</summary>

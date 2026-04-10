@@ -158,6 +158,41 @@ public class CryptoSyncGenerator : IIncrementalGenerator
     }
 
     /// <summary>
+    /// Normalize a C# type symbol to the short name expected by the TypeScript
+    /// <c>convertValueForSqlite</c> switch: <c>Guid</c>, <c>DateTime</c>, <c>Boolean</c>,
+    /// <c>Enum</c>, <c>ByteArray</c>, etc. Uses the semantic model — no string heuristics.
+    /// </summary>
+    private static string NormalizeCSharpType(ITypeSymbol type)
+    {
+        // Nullable value type (Guid?, DateTime?, etc.)
+        if (type is INamedTypeSymbol { OriginalDefinition.SpecialType: SpecialType.System_Nullable_T } nullableVt)
+        {
+            return NormalizeCSharpType(nullableVt.TypeArguments[0]) + "?";
+        }
+
+        // byte[] → "ByteArray"
+        if (type is IArrayTypeSymbol { ElementType.SpecialType: SpecialType.System_Byte })
+        {
+            return "ByteArray";
+        }
+
+        // Enum → "Enum" (SharingScope, SyncRole, etc.)
+        if (type.TypeKind == TypeKind.Enum)
+        {
+            return "Enum";
+        }
+
+        // Nullable reference type annotation (string?, etc.)
+        var isNullableRef = type.NullableAnnotation == NullableAnnotation.Annotated;
+
+        // ITypeSymbol.Name gives CLR name without namespace:
+        // string→String, int→Int32, bool→Boolean, Guid→Guid, DateTime→DateTime
+        var name = type.Name;
+
+        return isNullableRef ? name + "?" : name;
+    }
+
+    /// <summary>
     /// All syncable entities reachable from the context — walks the concrete context AND the
     /// base context inheritance chain. Includes both domain entities (`IsSystemTable == false`)
     /// and system entities marked <c>[SystemTable]</c> (`IsSystemTable == true`). Both kinds
@@ -198,11 +233,12 @@ public class CryptoSyncGenerator : IIncrementalGenerator
 
                 var entityType = (INamedTypeSymbol)propertyType.TypeArguments[0];
 
-                // Must inherit SyncableEntity — that's what gives the row an Id / SharingScope /
-                // SharingId / UpdatedAt / IsDeleted shape. Standalone classes like
-                // DeviceSettings, SentInvitation, ReceivedInvitation do NOT inherit
-                // SyncableEntity and are deliberately skipped — they're local-only.
-                if (!InheritsSyncableEntity(entityType))
+                // Include entities that either inherit SyncableEntity (domain entities with
+                // Id / SharingScope / SharingId / UpdatedAt / IsDeleted) OR carry
+                // [SystemTable] (system tables like SyncPermission, ColumnRegistryEntry).
+                // Standalone classes like DeviceSettings, SentInvitation, ReceivedInvitation
+                // have neither and are deliberately skipped — they're local-only.
+                if (!InheritsSyncableEntity(entityType) && !HasAttribute(entityType, "SystemTableAttribute"))
                 {
                     continue;
                 }
@@ -268,15 +304,37 @@ public class CryptoSyncGenerator : IIncrementalGenerator
                     continue;
                 }
 
-                // Skip navigation properties (collections)
-                if (prop.Type is INamedTypeSymbol namedType &&
-                    namedType.IsGenericType &&
-                    (namedType.Name == "List" || namedType.Name == "ICollection" || namedType.Name == "IList"))
+                // Skip navigation properties — both collections and single-entity references.
+                // After stripping nullable, any class type except System.String is a navigation.
+                var propType = prop.Type;
+                if (propType is INamedTypeSymbol { IsGenericType: true, Name: "Nullable" } nullable)
+                {
+                    propType = nullable.TypeArguments[0];
+                }
+
+                // Strip nullable reference type annotation (e.g. ShareGroup?)
+                propType = propType.WithNullableAnnotation(NullableAnnotation.None);
+
+                if (propType is INamedTypeSymbol nt &&
+                    nt.TypeKind == TypeKind.Class &&
+                    nt.SpecialType != SpecialType.System_String)
+                {
+                    // Allow byte[] (IArrayTypeSymbol won't reach here, but guard against edge cases)
+                    continue;
+                }
+
+                if (propType is IArrayTypeSymbol)
+                {
+                    // byte[] is fine — it's a BLOB column, not a navigation
+                }
+                else if (propType is INamedTypeSymbol collType &&
+                    collType.IsGenericType &&
+                    (collType.Name == "List" || collType.Name == "ICollection" || collType.Name == "IList"))
                 {
                     continue;
                 }
 
-                properties.Add(new PropertyInfo(prop.Name, prop.Type.ToDisplayString()));
+                properties.Add(new PropertyInfo(prop.Name, NormalizeCSharpType(prop.Type)));
             }
 
             current = current.BaseType;
@@ -455,34 +513,24 @@ public class CryptoSyncGenerator : IIncrementalGenerator
     }
 
     /// <summary>
-    /// Map a C# type name to the SQLite column type that EF Core uses.
-    /// Must match the logic in MessagePackFileHeaderV2.GetSqlType and the
-    /// actual EF Core migration output for SQLite.
+    /// Map a normalized C# type name (from <see cref="NormalizeCSharpType"/>) to the
+    /// SQLite column type that EF Core uses. Input is already short/CLR-named.
     /// </summary>
     private static string MapCSharpTypeToSqlType(string csharpType)
     {
         // Strip nullable suffix
         var baseType = csharpType.EndsWith("?") ? csharpType.Substring(0, csharpType.Length - 1) : csharpType;
-        // Strip namespace if present
-        var lastDot = baseType.LastIndexOf('.');
-        if (lastDot >= 0)
-        {
-            baseType = baseType.Substring(lastDot + 1);
-        }
 
         return baseType switch
         {
-            "Guid" => "TEXT",
-            "String" or "string" => "TEXT",
-            "DateTime" or "DateTimeOffset" or "TimeSpan" => "TEXT",
-            "Decimal" or "decimal" => "TEXT",
-            "Char" or "char" => "TEXT",
-            "Boolean" or "bool" or "Int32" or "int" or "Int64" or "long" or "Int16" or "short"
-                or "Byte" or "byte" or "UInt32" or "uint" or "UInt64" or "ulong"
-                or "UInt16" or "ushort" or "SByte" or "sbyte" => "INTEGER",
-            "Double" or "double" or "Single" or "float" => "REAL",
-            "Byte[]" => "BLOB",
-            _ => "TEXT" // Default fallback
+            "Guid" or "String" or "DateTime" or "DateTimeOffset" or "TimeSpan"
+                or "Decimal" or "Char" => "TEXT",
+            "Boolean" or "Int32" or "Int64" or "Int16" or "Byte"
+                or "UInt32" or "UInt64" or "UInt16" or "SByte"
+                or "Enum" => "INTEGER",
+            "Double" or "Single" => "REAL",
+            "ByteArray" => "BLOB",
+            _ => "TEXT"
         };
     }
 

@@ -7,7 +7,7 @@ namespace SqliteWasmBlazor.CryptoSync;
 /// Provides system tables for contacts, group encryption, permissions, and sync tracking.
 /// Domain apps inherit this and add their own DbSets.
 /// </summary>
-public abstract class CryptoSyncContextBase : DbContext
+public class CryptoSyncContextBase : DbContext
 {
     protected CryptoSyncContextBase(DbContextOptions options) : base(options)
     {

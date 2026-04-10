@@ -1170,115 +1170,6 @@ function bulkInsertRows(db: any, header: V2Header, rows: any[][], conflictStrate
     return { rowsAffected };
 }
 
-/**
- * Bulk export (internal): query SQLite, pack V2 header + rows as MessagePack.
- * Not exposed via dispatcher — called internally by bulkExportEncryptedV2.
- */
-async function bulkExport(dbName: string, metadata: any) {
-    const db = openDatabases.get(dbName);
-    if (!db) {
-        throw new Error(`Database ${dbName} not open`);
-    }
-
-    const { tableName, columns, primaryKeyColumn, schemaHash, dataType,
-            appIdentifier, mode, where, whereParams, orderBy } = metadata;
-
-    if (!tableName || !columns) {
-        throw new Error('bulkExport requires tableName and columns metadata');
-    }
-
-    // Build SELECT statement
-    const columnNames = (columns as string[][]).map((c: string[]) => `"${c[0]}"`);
-    let sql = `SELECT ${columnNames.join(', ')} FROM "${tableName}"`;
-
-    if (where) {
-        sql += ` WHERE ${where}`;
-    }
-
-    if (orderBy) {
-        sql += ` ORDER BY ${orderBy}`;
-    }
-
-    logger.info(MODULE_NAME, `bulkExport: "${tableName}" — ${sql.substring(0, 120)}`);
-
-    // Prepared statement for memory-safe row-by-row export.
-    // Int64/UInt64 columns read as SQLITE_TEXT to avoid sqlite3_column_int64
-    // boundary errors (returns wrong BigInt for values near int64 limits).
-    const colMeta = columns as string[][];
-    const csharpTypes = colMeta.map((c: string[]) => c[2]);
-    const sqlTypes = colMeta.map((c: string[]) => c[1]);
-    const colCount = colMeta.length;
-
-    // Pre-compute which columns need text-based BigInt reading
-    const isInt64Col = csharpTypes.map(t => {
-        const base = t.endsWith('?') ? t.slice(0, -1) : t;
-        return base === 'Int64' || base === 'UInt64';
-    });
-    const SQLITE_TEXT = sqlite3!.capi.SQLITE_TEXT;
-
-    const rows: any[][] = [];
-    const stmt = db.prepare(sql);
-    try {
-        if (whereParams) {
-            const binds: Record<string, any> = {};
-            (whereParams as any[]).forEach((v: any, i: number) => {
-                binds[`$${i}`] = v;
-            });
-            stmt.bind(binds);
-        }
-
-        while (stmt.step()) {
-            const row: any[] = [];
-            for (let i = 0; i < colCount; i++) {
-                if (isInt64Col[i]) {
-                    // Read as text to bypass buggy sqlite3_column_int64, then parse to BigInt
-                    const textVal = stmt.get(i, SQLITE_TEXT);
-                    row.push(textVal !== null ? BigInt(textVal as string) : null);
-                } else {
-                    row.push(stmt.get(i));
-                }
-            }
-            rows.push(row);
-        }
-    } finally {
-        stmt.finalize();
-    }
-
-    // Build V2 header
-    const header = [
-        'SWBV2',           // [0] magic
-        schemaHash || '',  // [1] schemaHash
-        dataType || '',    // [2] dataType
-        appIdentifier,     // [3] appIdentifier
-        new Date().toISOString(), // [4] exportedAt
-        rows.length,       // [5] recordCount
-        mode ?? 0,         // [6] mode
-        tableName,         // [7] tableName
-        columns,           // [8] columns metadata
-        primaryKeyColumn || '' // [9] primaryKeyColumn
-    ];
-
-    const parts: Uint8Array[] = [];
-    parts.push(pack(header));
-    for (const row of rows) {
-        const converted = row.map((val, idx) =>
-            convertValueFromSqlite(val, csharpTypes[idx], sqlTypes[idx]));
-        parts.push(pack(converted));
-    }
-
-    // Concatenate into single buffer
-    const totalLength = parts.reduce((sum, p) => sum + p.length, 0);
-    const result = new Uint8Array(totalLength);
-    let offset = 0;
-    for (const part of parts) {
-        result.set(part, offset);
-        offset += part.length;
-    }
-
-    logger.info(MODULE_NAME, `✓ bulkExport: ${rows.length} rows, ${totalLength} bytes`);
-    return { rawBinary: true, data: result };
-}
-
 // ============================================================
 // ENCRYPTED BULK OPERATIONS (SubtleCrypto AES-GCM, content key zeroed after use)
 // ============================================================
@@ -1440,32 +1331,33 @@ async function bulkExportEncryptedV2(dbName: string, headerBytes: Uint8Array, me
         throw new Error(`Database ${dbName} not open`);
     }
 
-    const header = parseV2CryptoHeader(headerBytes);
+    const tableName = metadata.tableName as string;
+    const cryptoTableName = `_crypto_${tableName}`;
+    const cryptoHeader = parseV2CryptoHeader(headerBytes);
     let cek: Uint8Array | null = null;
 
     try {
-        // Unwrap CEK from header (Layer 3: ECDH + HKDF + AES-GCM unwrap)
-        cek = await unwrapCekFromHeader(header);
+        // Layer 3: unwrap CEK
+        cek = await unwrapCekFromHeader(cryptoHeader);
 
-        // Normal export → V2 bytes (header + rows as MessagePack)
-        const exportResult = await bulkExport(dbName, metadata);
-        const v2Bytes = (exportResult as any).data as Uint8Array;
-        if (!(v2Bytes instanceof Uint8Array)) {
-            throw new Error(`bulkExportEncryptedV2: expected Uint8Array from bulkExport, got ${typeof v2Bytes}`);
+        // Column metadata from _column_registry — single source of truth for
+        // column names, types, and order. Both export and import use this.
+        const colRows = db.exec({
+            sql: `SELECT ColumnName, SqlType, CSharpType, IsPrimaryKey FROM _column_registry WHERE TableName = ? ORDER BY ColumnIndex`,
+            bind: [tableName],
+            returnValue: 'resultRows',
+            rowMode: 'array'
+        }) as any[][];
+
+        if (!colRows || colRows.length === 0) {
+            throw new Error(`bulkExportEncryptedV2: no _column_registry entries for table '${tableName}'`);
         }
 
-        const objects = bigIntUnpackr.unpackMultiple(v2Bytes);
-        if (objects.length < 1) {
-            throw new Error('bulkExportEncryptedV2: empty v2 payload');
-        }
+        const columnNames = colRows.map((r: any[]) => r[0] as string);
+        const sqlTypes = colRows.map((r: any[]) => r[1] as string);
+        const csharpTypes = colRows.map((r: any[]) => r[2] as string);
+        const colCount = colRows.length;
 
-        const v2Header = objects[0] as any;
-        const tableName = v2Header[7] as string;
-        const rows = objects.slice(1) as any[][];
-        const cryptoTableName = `_crypto_${tableName}`;
-
-        const columns = v2Header[8] as any[];
-        const columnNames = columns.map((c: any[]) => c[0] as string);
         const idIdx = columnNames.indexOf('Id');
         const scopeIdx = columnNames.indexOf('SharingScope');
         const sharingIdIdx = columnNames.indexOf('SharingId');
@@ -1484,9 +1376,44 @@ async function bulkExportEncryptedV2(dbName: string, headerBytes: Uint8Array, me
             throw new Error(`bulkExportEncryptedV2: shadow table ${cryptoTableName} not found`);
         }
 
-        const isSystemTable = header.systemTables.indexOf(tableName) >= 0;
-        const aad = buildAad(header.groupContext, header.keyVersion);
-        const senderPubKeyHex = bytesToHex(header.clientEd25519PublicKey);
+        // Read open table rows in _column_registry order
+        const selectCols = columnNames.map(c => `"${c}"`).join(', ');
+        const selectSql = `SELECT ${selectCols} FROM "${tableName}"`;
+        logger.info(MODULE_NAME, `bulkExportEncryptedV2: "${tableName}" — ${selectSql.substring(0, 120)}`);
+
+        // Pre-compute Int64/UInt64 columns that need text-based reading
+        const isInt64Col = csharpTypes.map(t => {
+            const base = t.endsWith('?') ? t.slice(0, -1) : t;
+            return base === 'Int64' || base === 'UInt64';
+        });
+        const SQLITE_TEXT = sqlite3!.capi.SQLITE_TEXT;
+
+        const rows: any[][] = [];
+        const readStmt = db.prepare(selectSql);
+        try {
+            while (readStmt.step()) {
+                const row: any[] = [];
+                for (let i = 0; i < colCount; i++) {
+                    if (isInt64Col[i]) {
+                        const textVal = readStmt.get(i, SQLITE_TEXT);
+                        row.push(textVal !== null ? BigInt(textVal as string) : null);
+                    } else {
+                        row.push(readStmt.get(i));
+                    }
+                }
+                rows.push(row);
+            }
+        } finally {
+            readStmt.finalize();
+        }
+
+        // Convert SQLite values to MessagePack wire format
+        const convertedRows = rows.map(row =>
+            row.map((val, idx) => convertValueFromSqlite(val, csharpTypes[idx], sqlTypes[idx])));
+
+        const isSystemTable = cryptoHeader.systemTables.indexOf(tableName) >= 0;
+        const aad = buildAad(cryptoHeader.groupContext, cryptoHeader.keyVersion);
+        const senderPubKeyHex = bytesToHex(cryptoHeader.clientEd25519PublicKey);
 
         // Shadow upsert SQL with tamper detection columns
         const shadowSql =
@@ -1495,14 +1422,12 @@ async function bulkExportEncryptedV2(dbName: string, headerBytes: Uint8Array, me
             `VALUES (?, ?, ?, ?, ?, ?, ?, ?)`;
         const stmt = db.prepare(shadowSql);
 
-        // ShadowRow array layout [Key(0)-Key(7)]:
-        //   [Id, SharingScope, SharingId, EncryptedRow, Nonce, KeyVersion, SenderPublicKey, EnvelopeSignature]
         const shadowRowArrays: unknown[][] = [];
 
         db.exec('BEGIN');
         try {
-            for (let i = 0; i < rows.length; i++) {
-                const row = rows[i];
+            for (let i = 0; i < convertedRows.length; i++) {
+                const row = convertedRows[i];
                 const rowScope = Number(row[scopeIdx]);
                 const rowSharingId = String(row[sharingIdIdx]);
                 const rowIdBytes = guidToBytes(row[idIdx]);
@@ -1513,9 +1438,9 @@ async function bulkExportEncryptedV2(dbName: string, headerBytes: Uint8Array, me
 
                 // Layer 2: sign canonical per-row envelope
                 const envelope = await buildCanonicalEnvelope(
-                    rowIdBytes, rowSharingId, header.keyVersion,
-                    header.clientEd25519PublicKey, encrypted.ciphertext);
-                const sig = ed25519Sign(envelope, header.clientEd25519PrivateKey);
+                    rowIdBytes, rowSharingId, cryptoHeader.keyVersion,
+                    cryptoHeader.clientEd25519PublicKey, encrypted.ciphertext);
+                const sig = ed25519Sign(envelope, cryptoHeader.clientEd25519PrivateKey);
 
                 // Upsert to shadow with tamper detection columns
                 stmt.bind([
@@ -1524,7 +1449,7 @@ async function bulkExportEncryptedV2(dbName: string, headerBytes: Uint8Array, me
                     rowSharingId,
                     encrypted.ciphertext,
                     encrypted.nonce,
-                    header.keyVersion,
+                    cryptoHeader.keyVersion,
                     senderPubKeyHex,
                     sig
                 ]);
@@ -1537,7 +1462,7 @@ async function bulkExportEncryptedV2(dbName: string, headerBytes: Uint8Array, me
                     rowSharingId,
                     encrypted.ciphertext,
                     encrypted.nonce,
-                    header.keyVersion,
+                    cryptoHeader.keyVersion,
                     senderPubKeyHex,
                     sig
                 ]);

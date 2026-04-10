@@ -19,10 +19,22 @@ namespace SqliteWasmBlazor.CryptoSync;
 /// </para>
 /// </summary>
 [SystemTable]
-public sealed class SyncPermission : SyncableEntity
+public sealed class SyncPermission
 {
     /// <summary>Schema version of the nested PermissionDiffJson format.</summary>
     public const int PermissionDiffSchemaVersion = 2;
+
+    public Guid Id { get; set; }
+
+    public SharingScope SharingScope { get; set; }
+
+    public string SharingId { get; set; } = "";
+
+    public DateTime UpdatedAt { get; set; }
+
+    public bool IsDeleted { get; set; }
+
+    public DateTime? DeletedAt { get; set; }
 
     public SyncRole Role { get; set; }
 
@@ -50,6 +62,4 @@ public sealed class SyncPermission : SyncableEntity
     [MaxLength(64)]
     public string? AdminPublicKey { get; set; }
 
-    // SyncableEntity defaults for system table
-    // SharingScope = Public, SharingId = "system" (set in seed data)
 }

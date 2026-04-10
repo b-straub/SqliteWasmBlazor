@@ -13,6 +13,7 @@ internal class CryptoSyncGeneratorTest : CSharpSourceGeneratorTest<CryptoSyncGen
     public CryptoSyncGeneratorTest()
     {
         ReferenceAssemblies = TestShared.ReferenceAssemblies();
+        TestState.AdditionalReferences.Add(typeof(CryptoSyncContextBase).Assembly);
     }
 
     protected override ParseOptions CreateParseOptions()

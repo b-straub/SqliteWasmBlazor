@@ -6,6 +6,7 @@
   </Configurations>
   <Project Path="../BlazorPRF/BlazorPRF.Crypto.Abstractions/BlazorPRF.Crypto.Abstractions.csproj" />
   <Project Path="../BlazorPRF/BlazorPRF.Crypto.Testing/BlazorPRF.Crypto.Testing.csproj" />
+  <Project Path="GeneratorRunner/GeneratorRunner.csproj" />
   <Project Path="SqliteWasmBlazor.AdminSeed/SqliteWasmBlazor.AdminSeed.csproj" />
   <Project Path="SqliteWasmBlazor.AdoNetSample/SqliteWasmBlazor.AdoNetSample.csproj" />
   <Project Path="SqliteWasmBlazor.Components/SqliteWasmBlazor.Components.csproj" />
