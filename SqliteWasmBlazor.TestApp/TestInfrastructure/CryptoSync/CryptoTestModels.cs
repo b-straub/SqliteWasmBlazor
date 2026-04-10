@@ -35,5 +35,6 @@ public partial class CryptoTestContext : CryptoSyncContextBase
         base.OnModelCreating(modelBuilder);
         ConfigureCryptoTables(modelBuilder);
         SeedPermissions(modelBuilder);
+        SeedAdminBootstrap(modelBuilder);
     }
 }
