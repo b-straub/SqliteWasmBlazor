@@ -907,7 +907,7 @@ export async function bulkImportEncryptedV2(dbName: string, headerBytes: Uint8Ar
 
             if (rowsToInsert.length > 0) {
                 const result = bulkInsertRows(db, v2ImportHeader, rowsToInsert,
-                    2 /* LocalWins = INSERT ON CONFLICT DO NOTHING */,
+                    3 /* DeltaWins = always overwrite; permission enforcement is the gatekeeper */,
                     'bulkImportEncryptedV2');
                 rowsImported = result.rowsAffected;
             }
