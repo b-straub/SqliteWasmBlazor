@@ -54,20 +54,11 @@ internal class WorkerEncryptedRoundTripTest(
                 throw new InvalidOperationException("System ShareGroup not found in seed");
             }
 
-            // Debug: check ShareTargets without query filter
-            var allTargets = await ctx.ShareTargets.IgnoreQueryFilters().ToListAsync();
-            Console.WriteLine($"[{Name}] Debug: ShareTargets count (no filter) = {allTargets.Count}");
-            foreach (var t in allTargets)
-            {
-                Console.WriteLine($"[{Name}] Debug: ShareTarget Id={t.Id}, GroupId={t.ShareGroupId}, MemberPk={t.MemberPublicKey}, IsDeleted={t.IsDeleted}");
-            }
-            Console.WriteLine($"[{Name}] Debug: Looking for GroupId={group.Id}, MemberPk={admin.X25519PublicKey}");
-
             var target = await ctx.ShareTargets.SingleOrDefaultAsync(t =>
                 t.ShareGroupId == group.Id && t.MemberPublicKey == admin.X25519PublicKey);
             if (target is null)
             {
-                throw new InvalidOperationException($"Admin ShareTarget not found in seed. ShareTargets count={allTargets.Count}");
+                throw new InvalidOperationException("Admin ShareTarget not found in seed");
             }
 
             Console.WriteLine($"[{Name}] Step 1 OK: admin={admin.Username}, group={group.GroupContext}, target CEK={target.WrappedContentKey.Length}b");
@@ -102,7 +93,7 @@ internal class WorkerEncryptedRoundTripTest(
             var group = await ctx.ShareGroups.SingleAsync(g =>
                 g.GroupContext == CryptoSyncBootstrap.SystemGroupContext);
             var target = await ctx.ShareTargets.SingleAsync(t =>
-                t.ShareGroupId == group.Id && t.MemberPublicKey == adminX25519PublicKey);
+                t.MemberPublicKey == adminX25519PublicKey);
 
             v2Header = new V2CryptoHeader
             {
@@ -150,7 +141,7 @@ internal class WorkerEncryptedRoundTripTest(
             var group = await ctx.ShareGroups.SingleAsync(g =>
                 g.GroupContext == CryptoSyncBootstrap.SystemGroupContext);
             var target = await ctx.ShareTargets.SingleAsync(t =>
-                t.ShareGroupId == group.Id && t.MemberPublicKey == adminX25519PublicKey);
+                t.MemberPublicKey == adminX25519PublicKey);
 
             v2Header = new V2CryptoHeader
             {

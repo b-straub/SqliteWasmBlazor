@@ -236,13 +236,13 @@ public sealed class SqliteWasmParameterCollection : DbParameterCollection
             }
             else if (value is Guid guid)
             {
-                // Convert Guid to byte array, then base64 for binary(16) columns
-                value = Convert.ToBase64String(guid.ToByteArray());
-                sqliteType = "blob";
+                // Match the uppercase TEXT format that EF Core's EnsureCreated/HasData
+                // generates for Guid INSERT literals.
+                value = guid.ToString().ToUpperInvariant();
+                sqliteType = "text";
             }
             else if (value is byte[] bytes)
             {
-                // Convert byte array to base64 for JSON serialization
                 value = Convert.ToBase64String(bytes);
                 sqliteType = "blob";
             }

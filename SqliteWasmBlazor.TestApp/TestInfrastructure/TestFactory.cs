@@ -81,6 +81,7 @@ internal class TestFactory
         Add("Type Marshalling", new TimeSpanConversionTest(factory));
         Add("Type Marshalling", new CharSingleCharStringTest(factory));
         Add("Type Marshalling", new GuidUtf8ByteArrayTest(factory));
+        Add("Type Marshalling", new GuidHasDataSeedQueryTest(factory));
 
         // JSON Collection Tests
         Add("JSON Collections", new IntListRoundTripTest(factory));

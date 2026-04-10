@@ -25,6 +25,11 @@ public class TodoDbContext : DbContext
 
         // Register automatic UpdatedAt timestamp interceptor for delta sync
         optionsBuilder.AddInterceptors(new UpdatedAtInterceptor());
+
+        // Suppress pending migration warning — WASM apps use EnsureCreated, not migrations.
+        // HasData seeds (e.g. Guid regression test) trigger this warning without a migration.
+        optionsBuilder.ConfigureWarnings(w =>
+            w.Ignore(Microsoft.EntityFrameworkCore.Diagnostics.RelationalEventId.PendingModelChangesWarning));
     }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -77,6 +82,16 @@ public class TodoDbContext : DbContext
         });
 
         // SyncState checkpoints are created dynamically (no seeding needed)
+
+        // Regression test seed: Guid PK queried via EF Core parameter binding
+        // must match the TEXT format that EnsureCreated generates for HasData.
+        modelBuilder.Entity<TodoList>().HasData(new
+        {
+            Id = Guid.Parse("a1b2c3d4-e5f6-7890-abcd-ef1234567890"),
+            Title = "HasData Guid Seed Test",
+            CreatedAt = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+            IsActive = true
+        });
     }
 
     /// <summary>
