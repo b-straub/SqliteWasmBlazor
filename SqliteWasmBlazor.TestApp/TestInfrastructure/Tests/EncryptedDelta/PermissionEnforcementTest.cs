@@ -7,18 +7,24 @@ using SqliteWasmBlazor.TestApp.TestInfrastructure.CryptoSync;
 namespace SqliteWasmBlazor.TestApp.TestInfrastructure.Tests.EncryptedDelta;
 
 /// <summary>
-/// Verifies that the worker enforces CRUD permissions on encrypted import.
+/// Comprehensive permission enforcement test covering all CRUD + column-level scenarios.
 ///
-/// Test flow:
-///   1. Seed 2 items as admin (Owner), export encrypted delta
-///   2. Downgrade admin's ShareTarget role to Viewer in the DB
-///   3. Mark one item as deleted (tombstone) in the exported data
-///   4. Import — Viewer's delete should be rejected (PERMISSION_DELETE_DENIED)
-///   5. Verify: 1 imported (non-tombstone), 1 skipped (tombstone denied)
+/// CryptoTestItem permissions (from attributes):
+///   [Permissions("Editor", Delete = "Owner")]
+///   [AllowUpdate("Viewer")] on IsBought
 ///
-/// The trick: the export happened with admin keys (valid signature), but by the
-/// time the import runs, the sender's role in ShareTargets has been changed to
-/// Viewer. The worker resolves the sender's role from the DB at import time.
+/// Resolved permissions:
+///   Owner:  insert=✓ read=✓ update=✓ delete=✓
+///   Editor: insert=✓ read=✓ update=✓ delete=✗
+///   Viewer: insert=✗ read=✗ update=✗ delete=✗  readwrite=[IsBought]
+///
+/// Test steps:
+///   A. Viewer insert denied (new row)
+///   B. Viewer delete denied (tombstone)
+///   C. Editor delete denied (tombstone)
+///   D. Editor insert + update allowed
+///   E. Viewer update denied (changes Price)
+///   F. Viewer IsBought-only update allowed (readwrite override)
 /// </summary>
 internal class PermissionEnforcementTest(
     IDbContextFactory<CryptoTestContext> cryptoFactory,
@@ -34,124 +40,240 @@ internal class PermissionEnforcementTest(
             throw new InvalidOperationException("ISqliteWasmDatabaseService not available");
         }
 
-        var adminX25519PrivateKey = CryptoTestContext.AdminX25519PrivateKey;
-        var adminX25519PublicKey = CryptoTestContext.AdminX25519PublicKey;
-        var adminEd25519PrivateKey = CryptoTestContext.AdminEd25519PrivateKey;
-        var adminEd25519PublicKey = CryptoTestContext.AdminEd25519PublicKey;
-
-        // ===== STEP 1: Seed domain data + export =====
-        Console.WriteLine($"[{Name}] Step 1: Seed items + export as Owner");
-
-        var item1Id = Guid.NewGuid();
-        var item2Id = Guid.NewGuid();
-        await using (var ctx = await CryptoFactory.CreateDbContextAsync())
+        // ===== STEP A+B: Viewer insert + delete denied =====
+        Console.WriteLine($"[{Name}] Step A+B: Viewer insert + delete denied");
         {
-            ctx.CryptoTestItems.Add(new CryptoTestItem
-            {
-                Id = item1Id, Title = "Allowed", Description = "should import",
-                Price = 1.00m, IsBought = false,
-                SharingScope = SharingScope.Public,
-                SharingId = CryptoSyncBootstrap.SystemSharingId, UpdatedAt = DateTime.UtcNow
-            });
-            ctx.CryptoTestItems.Add(new CryptoTestItem
-            {
-                Id = item2Id, Title = "Tombstone", Description = "should be denied",
-                Price = 2.00m, IsBought = false,
-                IsDeleted = true, DeletedAt = DateTime.UtcNow,
-                SharingScope = SharingScope.Public,
-                SharingId = CryptoSyncBootstrap.SystemSharingId, UpdatedAt = DateTime.UtcNow
-            });
-            await ctx.SaveChangesAsync();
+            var itemId = Guid.NewGuid();
+            var tombstoneId = Guid.NewGuid();
+            await SeedItems(
+                new CryptoTestItem
+                {
+                    Id = itemId, Title = "NewItem", Description = "insert test",
+                    Price = 1.00m, IsBought = false
+                },
+                new CryptoTestItem
+                {
+                    Id = tombstoneId, Title = "Deleted", Description = "delete test",
+                    Price = 2.00m, IsBought = false,
+                    IsDeleted = true, DeletedAt = DateTime.UtcNow
+                });
+
+            var delta = await ExportDelta();
+            await ClearOpenTable();
+            await SetSenderRole(SyncRole.Viewer);
+
+            var (imported, skipped, errors) = await ImportDelta(delta);
+
+            AssertEqual(0, imported, "Viewer imported");
+            AssertEqual(2, skipped, "Viewer skipped");
+            AssertEqual(2, errors.Length, "Viewer errors");
+
+            var openCount = await CountOpenTable();
+            AssertEqual(0, openCount, "open table after Viewer insert+delete");
+
+            Console.WriteLine($"[{Name}] Step A+B OK: Viewer insert + delete denied (0 imported, 2 skipped)");
         }
 
-        // Build header + export
-        V2CryptoHeader v2Header;
-        await using (var ctx = await CryptoFactory.CreateDbContextAsync())
+        // ===== STEP C: Editor delete denied =====
+        Console.WriteLine($"[{Name}] Step C: Editor delete denied");
+        await ResetDatabase();
         {
-            var group = await ctx.ShareGroups.SingleAsync(g =>
-                g.GroupContext == CryptoSyncBootstrap.SystemGroupContext);
-            var target = await ctx.ShareTargets.SingleAsync(t =>
-                t.MemberPublicKey == adminX25519PublicKey);
+            var tombstoneId = Guid.NewGuid();
+            await SeedItems(
+                new CryptoTestItem
+                {
+                    Id = tombstoneId, Title = "EditorDelete", Description = "should be denied",
+                    Price = 3.00m, IsBought = false,
+                    IsDeleted = true, DeletedAt = DateTime.UtcNow
+                });
 
-            v2Header = new V2CryptoHeader
-            {
-                Version = 2,
-                SystemTables = ["Contacts", "ShareGroups", "ShareTargets"],
-                ClientContactId = (await ctx.Contacts.SingleAsync(c => c.IsAdmin)).Id,
-                ClientX25519PrivateKey = Convert.FromBase64String(adminX25519PrivateKey),
-                AdminX25519PublicKey = Convert.FromBase64String(group.AdminPublicKey),
-                GroupContext = group.GroupContext,
-                KeyVersion = group.KeyVersion,
-                WrappedCek = target.WrappedContentKey,
-                ClientEd25519PrivateKey = Convert.FromBase64String(adminEd25519PrivateKey),
-                ClientEd25519PublicKey = Convert.FromBase64String(adminEd25519PublicKey)
-            };
+            var delta = await ExportDelta();
+            await ClearOpenTable();
+            await SetSenderRole(SyncRole.Editor);
+
+            var (imported, skipped, errors) = await ImportDelta(delta);
+
+            AssertEqual(0, imported, "Editor delete imported");
+            AssertEqual(1, skipped, "Editor delete skipped");
+            AssertEqual(1, errors.Length, "Editor delete errors");
+
+            Console.WriteLine($"[{Name}] Step C OK: Editor delete denied");
         }
 
-        var exportMetadata = BuildExportMetadata("CryptoTestItems");
+        // ===== STEP D: Editor insert + update allowed =====
+        Console.WriteLine($"[{Name}] Step D: Editor insert + update allowed");
+        await ResetDatabase();
+        {
+            var itemId = Guid.NewGuid();
+            await SeedItems(
+                new CryptoTestItem
+                {
+                    Id = itemId, Title = "EditorInsert", Description = "should work",
+                    Price = 4.00m, IsBought = false
+                });
+
+            var delta = await ExportDelta();
+            await ClearOpenTable();
+            await SetSenderRole(SyncRole.Editor);
+
+            var (imported, skipped, _) = await ImportDelta(delta);
+
+            AssertEqual(1, imported, "Editor insert imported");
+            AssertEqual(0, skipped, "Editor insert skipped");
+
+            // Now update: re-export with changed data, import as update
+            await using (var ctx = await CryptoFactory.CreateDbContextAsync())
+            {
+                var item = await ctx.CryptoTestItems.SingleAsync(i => i.Id == itemId);
+                item.Price = 5.00m;
+                item.UpdatedAt = DateTime.UtcNow;
+                await ctx.SaveChangesAsync();
+            }
+
+            var updateDelta = await ExportDelta();
+            var (updated, updateSkipped, _) = await ImportDelta(updateDelta);
+
+            AssertEqual(1, updated, "Editor update imported");
+            AssertEqual(0, updateSkipped, "Editor update skipped");
+
+            Console.WriteLine($"[{Name}] Step D OK: Editor insert + update allowed");
+        }
+
+        // ===== STEP E: Viewer update denied (changes Price) =====
+        Console.WriteLine($"[{Name}] Step E: Viewer update denied (Price change)");
+        await ResetDatabase();
+        {
+            var itemId = Guid.NewGuid();
+            // First seed and import as Owner so the row exists
+            await SeedItems(
+                new CryptoTestItem
+                {
+                    Id = itemId, Title = "ViewerUpdate", Description = "exists",
+                    Price = 6.00m, IsBought = false
+                });
+            var seedDelta = await ExportDelta();
+            // Keep Owner role for seeding
+            await SetSenderRole(SyncRole.Owner);
+            await ImportDelta(seedDelta);
+
+            // Now modify Price and re-export
+            await using (var ctx = await CryptoFactory.CreateDbContextAsync())
+            {
+                var item = await ctx.CryptoTestItems.SingleAsync(i => i.Id == itemId);
+                item.Price = 99.99m;
+                item.UpdatedAt = DateTime.UtcNow;
+                await ctx.SaveChangesAsync();
+            }
+            var updateDelta = await ExportDelta();
+
+            // Switch to Viewer, import the update
+            await SetSenderRole(SyncRole.Viewer);
+            var (imported, skipped, errors) = await ImportDelta(updateDelta);
+
+            AssertEqual(0, imported, "Viewer Price update imported");
+            AssertEqual(1, skipped, "Viewer Price update skipped");
+
+            // Verify Price unchanged
+            await using (var ctx = await CryptoFactory.CreateDbContextAsync())
+            {
+                var item = await ctx.CryptoTestItems.SingleAsync(i => i.Id == itemId);
+                AssertEqual(6.00m, item.Price, "Price after denied update");
+            }
+
+            Console.WriteLine($"[{Name}] Step E OK: Viewer update denied (Price unchanged)");
+        }
+
+        // ===== STEP F: Viewer IsBought-only update allowed (readwrite override) =====
+        Console.WriteLine($"[{Name}] Step F: Viewer IsBought readwrite override");
+        await ResetDatabase();
+        {
+            var itemId = Guid.NewGuid();
+            // Seed as Owner
+            await SeedItems(
+                new CryptoTestItem
+                {
+                    Id = itemId, Title = "ViewerIsBought", Description = "override test",
+                    Price = 7.00m, IsBought = false
+                });
+            var seedDelta = await ExportDelta();
+            await SetSenderRole(SyncRole.Owner);
+            await ImportDelta(seedDelta);
+
+            // Modify ONLY IsBought (keep Price, Title, Description the same)
+            await using (var ctx = await CryptoFactory.CreateDbContextAsync())
+            {
+                var item = await ctx.CryptoTestItems.SingleAsync(i => i.Id == itemId);
+                item.IsBought = true;
+                item.UpdatedAt = DateTime.UtcNow;
+                await ctx.SaveChangesAsync();
+            }
+            var updateDelta = await ExportDelta();
+
+            // Switch to Viewer, import — should be allowed (IsBought is readwrite)
+            await SetSenderRole(SyncRole.Viewer);
+            var (imported, skipped, _) = await ImportDelta(updateDelta);
+
+            AssertEqual(1, imported, "Viewer IsBought update imported");
+            AssertEqual(0, skipped, "Viewer IsBought update skipped");
+
+            // Verify IsBought changed
+            await using (var ctx = await CryptoFactory.CreateDbContextAsync())
+            {
+                var item = await ctx.CryptoTestItems.SingleAsync(i => i.Id == itemId);
+                AssertEqual(true, item.IsBought, "IsBought after readwrite update");
+                AssertEqual(7.00m, item.Price, "Price unchanged after readwrite update");
+            }
+
+            Console.WriteLine($"[{Name}] Step F OK: Viewer IsBought readwrite override works");
+        }
+
+        Console.WriteLine($"[{Name}] All permission scenarios passed");
+        return "OK";
+    }
+
+    // ================================================================
+    // Helpers — reduce boilerplate across steps
+    // ================================================================
+
+    private async ValueTask SeedItems(params CryptoTestItem[] items)
+    {
+        await using var ctx = await CryptoFactory.CreateDbContextAsync();
+        foreach (var item in items)
+        {
+            item.SharingScope = SharingScope.Public;
+            item.SharingId = CryptoSyncBootstrap.SystemSharingId;
+            if (item.UpdatedAt == default)
+            {
+                item.UpdatedAt = DateTime.UtcNow;
+            }
+            ctx.CryptoTestItems.Add(item);
+        }
+        await ctx.SaveChangesAsync();
+    }
+
+    private async ValueTask<byte[]> ExportDelta()
+    {
+        var v2Header = await BuildV2Header();
         var headerBytes = MessagePackSerializer.Serialize(v2Header);
-        byte[] shadowGroupBytes;
         try
         {
-            shadowGroupBytes = await DatabaseService.BulkExportEncryptedV2Async(
-                CryptoDatabaseName, exportMetadata, headerBytes);
+            return await DatabaseService!.BulkExportEncryptedV2Async(
+                CryptoDatabaseName, BuildExportMetadata("CryptoTestItems"), headerBytes);
         }
         finally
         {
             v2Header.Clear();
         }
+    }
 
-        Console.WriteLine($"[{Name}] Step 1 OK: exported {shadowGroupBytes.Length} bytes");
-
-        // ===== STEP 2: Downgrade sender's role to Viewer =====
-        Console.WriteLine($"[{Name}] Step 2: Downgrade sender to Viewer");
-
-        await using (var ctx = await CryptoFactory.CreateDbContextAsync())
-        {
-            var target = await ctx.ShareTargets.SingleAsync(t =>
-                t.MemberPublicKey == adminX25519PublicKey);
-            target.Role = SyncRole.Viewer;
-            await ctx.SaveChangesAsync();
-        }
-
-        // ===== STEP 3: Clear open table + import =====
-        Console.WriteLine($"[{Name}] Step 3: Import with Viewer role");
-
-        await using (var ctx = await CryptoFactory.CreateDbContextAsync())
-        {
-            var items = await ctx.CryptoTestItems.IgnoreQueryFilters().ToListAsync();
-            ctx.CryptoTestItems.RemoveRange(items);
-            await ctx.SaveChangesAsync();
-        }
-
-        // Rebuild header
-        await using (var ctx = await CryptoFactory.CreateDbContextAsync())
-        {
-            var group = await ctx.ShareGroups.SingleAsync(g =>
-                g.GroupContext == CryptoSyncBootstrap.SystemGroupContext);
-            var target = await ctx.ShareTargets.SingleAsync(t =>
-                t.MemberPublicKey == adminX25519PublicKey);
-
-            v2Header = new V2CryptoHeader
-            {
-                Version = 2,
-                SystemTables = ["Contacts", "ShareGroups", "ShareTargets"],
-                ClientContactId = (await ctx.Contacts.SingleAsync(c => c.IsAdmin)).Id,
-                ClientX25519PrivateKey = Convert.FromBase64String(adminX25519PrivateKey),
-                AdminX25519PublicKey = Convert.FromBase64String(group.AdminPublicKey),
-                GroupContext = group.GroupContext,
-                KeyVersion = group.KeyVersion,
-                WrappedCek = target.WrappedContentKey,
-                ClientEd25519PrivateKey = Convert.FromBase64String(adminEd25519PrivateKey),
-                ClientEd25519PublicKey = Convert.FromBase64String(adminEd25519PublicKey)
-            };
-        }
-
-        headerBytes = MessagePackSerializer.Serialize(v2Header);
-        byte[] importReportBytes;
+    private async ValueTask<(int Imported, int Skipped, object[] Errors)> ImportDelta(byte[] shadowGroupBytes)
+    {
+        var v2Header = await BuildV2Header();
+        var headerBytes = MessagePackSerializer.Serialize(v2Header);
+        byte[] reportBytes;
         try
         {
-            importReportBytes = await DatabaseService.BulkImportEncryptedV2Async(
+            reportBytes = await DatabaseService!.BulkImportEncryptedV2Async(
                 CryptoDatabaseName, headerBytes, shadowGroupBytes);
         }
         finally
@@ -159,51 +281,73 @@ internal class PermissionEnforcementTest(
             v2Header.Clear();
         }
 
-        // ===== STEP 4: Verify ImportReport =====
-        var reportArray = MessagePackSerializer.Deserialize<object[]>(importReportBytes);
-        var rowsImported = Convert.ToInt32(reportArray[0]);
-        var rowsSkipped = Convert.ToInt32(reportArray[1]);
-        var errorsArray = reportArray[2] as object[];
+        var report = MessagePackSerializer.Deserialize<object[]>(reportBytes);
+        var imported = Convert.ToInt32(report[0]);
+        var skipped = Convert.ToInt32(report[1]);
+        var errors = report[2] as object[] ?? [];
 
-        Console.WriteLine($"[{Name}] Import result: {rowsImported} imported, {rowsSkipped} skipped, {errorsArray?.Length ?? 0} errors");
+        return (imported, skipped, errors);
+    }
 
-        // Viewer should be able to import the non-tombstone row (insert is allowed for Editor+
-        // but CryptoTestItem has [Permissions("Editor")] which means Viewer gets insert=deny).
-        // So BOTH rows should be denied for a Viewer:
-        // - item1 (non-tombstone): PERMISSION_INSERT_DENIED (Viewer can't insert)
-        // - item2 (tombstone): PERMISSION_DELETE_DENIED (Viewer can't delete)
+    private async ValueTask<V2CryptoHeader> BuildV2Header()
+    {
+        await using var ctx = await CryptoFactory.CreateDbContextAsync();
+        var group = await ctx.ShareGroups.SingleAsync(g =>
+            g.GroupContext == CryptoSyncBootstrap.SystemGroupContext);
+        var target = await ctx.ShareTargets.SingleAsync(t =>
+            t.MemberPublicKey == CryptoTestContext.AdminX25519PublicKey);
 
-        if (rowsImported != 0)
+        return new V2CryptoHeader
         {
-            throw new InvalidOperationException(
-                $"Expected 0 rows imported (Viewer can't insert), got {rowsImported}");
-        }
-        if (rowsSkipped != 2)
-        {
-            throw new InvalidOperationException(
-                $"Expected 2 rows skipped (1 insert denied + 1 delete denied), got {rowsSkipped}");
-        }
+            Version = 2,
+            SystemTables = ["Contacts", "ShareGroups", "ShareTargets"],
+            ClientContactId = (await ctx.Contacts.SingleAsync(c => c.IsAdmin)).Id,
+            ClientX25519PrivateKey = Convert.FromBase64String(CryptoTestContext.AdminX25519PrivateKey),
+            AdminX25519PublicKey = Convert.FromBase64String(group.AdminPublicKey),
+            GroupContext = group.GroupContext,
+            KeyVersion = group.KeyVersion,
+            WrappedCek = target.WrappedContentKey,
+            ClientEd25519PrivateKey = Convert.FromBase64String(CryptoTestContext.AdminEd25519PrivateKey),
+            ClientEd25519PublicKey = Convert.FromBase64String(CryptoTestContext.AdminEd25519PublicKey)
+        };
+    }
 
-        // Verify error codes
-        if (errorsArray is null || errorsArray.Length != 2)
-        {
-            throw new InvalidOperationException(
-                $"Expected 2 errors in report, got {errorsArray?.Length ?? 0}");
-        }
+    private async ValueTask SetSenderRole(SyncRole role)
+    {
+        await using var ctx = await CryptoFactory.CreateDbContextAsync();
+        var target = await ctx.ShareTargets.SingleAsync(t =>
+            t.MemberPublicKey == CryptoTestContext.AdminX25519PublicKey);
+        target.Role = role;
+        await ctx.SaveChangesAsync();
+    }
 
-        // Verify open table is still empty
-        await using (var ctx = await CryptoFactory.CreateDbContextAsync())
-        {
-            var count = await ctx.CryptoTestItems.IgnoreQueryFilters().CountAsync();
-            if (count != 0)
-            {
-                throw new InvalidOperationException(
-                    $"Expected 0 items in open table (all denied), got {count}");
-            }
-        }
+    private async ValueTask ClearOpenTable()
+    {
+        await using var ctx = await CryptoFactory.CreateDbContextAsync();
+        var items = await ctx.CryptoTestItems.IgnoreQueryFilters().ToListAsync();
+        ctx.CryptoTestItems.RemoveRange(items);
+        await ctx.SaveChangesAsync();
+    }
 
-        Console.WriteLine($"[{Name}] Step 4 OK: Viewer's insert + delete correctly denied");
-        return "OK";
+    private async ValueTask<int> CountOpenTable()
+    {
+        await using var ctx = await CryptoFactory.CreateDbContextAsync();
+        return await ctx.CryptoTestItems.IgnoreQueryFilters().CountAsync();
+    }
+
+    private async ValueTask ResetDatabase()
+    {
+        await using var ctx = await CryptoFactory.CreateDbContextAsync();
+        await ctx.Database.EnsureDeletedAsync();
+        await ctx.Database.EnsureCreatedAsync();
+    }
+
+    private static void AssertEqual<T>(T expected, T actual, string label)
+    {
+        if (!Equals(expected, actual))
+        {
+            throw new InvalidOperationException($"{label}: expected {expected}, got {actual}");
+        }
     }
 
     private static BulkExportMetadata BuildExportMetadata(string tableName)

@@ -187,6 +187,39 @@ function importErrorCodeToInt(code: string): number {
 }
 
 // ============================================================================
+// Schema versioning
+// ============================================================================
+
+/**
+ * Compute a deterministic hex hash of the _column_registry entries for a table.
+ * Format: SHA-256 of "col0:sqlType0:csharpType0|col1:sqlType1:csharpType1|..."
+ * ordered by ColumnIndex. Both sender and receiver compute this independently;
+ * a mismatch means different app versions (different migrations).
+ */
+function computeColumnRegistryHash(db: any, tableName: string): string {
+    const rows = db.exec({
+        sql: `SELECT ColumnName, SqlType, CSharpType FROM _column_registry WHERE TableName = ? ORDER BY ColumnIndex`,
+        bind: [tableName],
+        returnValue: 'resultRows',
+        rowMode: 'array'
+    }) as any[][];
+
+    if (!rows || rows.length === 0) {
+        return '';
+    }
+
+    const canonical = rows.map((r: any[]) => `${r[0]}:${r[1]}:${r[2]}`).join('|');
+    // Use synchronous FNV-1a 32-bit hash — fast, deterministic, no async needed.
+    // Cryptographic strength not required — this is a version check, not a security boundary.
+    let hash = 0x811c9dc5;
+    for (let i = 0; i < canonical.length; i++) {
+        hash ^= canonical.charCodeAt(i);
+        hash = Math.imul(hash, 0x01000193);
+    }
+    return (hash >>> 0).toString(16).padStart(8, '0');
+}
+
+// ============================================================================
 // Admin verification + Permission enforcement helpers
 // ============================================================================
 
@@ -547,7 +580,11 @@ export async function bulkExportEncryptedV2(dbName: string, headerBytes: Uint8Ar
             throw e;
         }
 
-        const groupArray: unknown[] = [tableName, isSystemTable, shadowRowArrays];
+        // Schema hash: deterministic hash of _column_registry for this table.
+        // The receiver compares this against its own registry to detect version mismatches.
+        const schemaHash = computeColumnRegistryHash(db, tableName);
+
+        const groupArray: unknown[] = [tableName, isSystemTable, shadowRowArrays, schemaHash];
         const packed = pack(groupArray);
 
         logger.info(MODULE_NAME,
@@ -596,6 +633,19 @@ export async function bulkImportEncryptedV2(dbName: string, headerBytes: Uint8Ar
         const tableName = group[0] as string;
         const shadowRows = group[2] as unknown[][];
         const cryptoTableName = `_crypto_${tableName}`;
+
+        // Schema version check: compare sender's column registry hash against local.
+        // Rejects deltas from clients running a different app version (different migrations).
+        if (group.length >= 4 && group[3]) {
+            const senderHash = group[3] as string;
+            const localHash = computeColumnRegistryHash(db, tableName);
+            if (senderHash !== localHash) {
+                throw new Error(
+                    `bulkImportEncryptedV2: schema mismatch for table '${tableName}' — ` +
+                    `sender hash ${senderHash.substring(0, 16)}… ≠ local hash ${localHash.substring(0, 16)}…. ` +
+                    `All clients must run the same app version.`);
+            }
+        }
 
         const aad = buildAad(header.groupContext, header.keyVersion);
 
