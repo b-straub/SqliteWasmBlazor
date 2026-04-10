@@ -1292,43 +1292,6 @@ function base64ToBytes(base64: string): Uint8Array {
     return bytes;
 }
 
-/**
- * Convert a single MessagePack-deserialized value to a SQLite-bindable primitive.
- * Used by the V2 import path where column C# type metadata is not available —
- * conversion is based on the JS runtime type of the deserialized value.
- *
- * SQLite bind() accepts: string, number, Uint8Array, null.
- * MessagePack produces: Date (for DateTime), BigInt (for Int64), arrays, etc.
- */
-function convertMsgpackValueForSqlite(value: any): SqlValue {
-    if (value === null || value === undefined) {
-        return null;
-    }
-    if (value instanceof Date) {
-        return value.toISOString();
-    }
-    if (typeof value === 'bigint') {
-        // SQLite INTEGER can hold int64; bind as string for safety (text affinity)
-        return value.toString();
-    }
-    if (value instanceof Uint8Array) {
-        return value as any;
-    }
-    if (Array.isArray(value)) {
-        // DateTimeOffset arrives as [Date, offsetMinutes] from MessagePack-CSharp
-        if (value.length === 2 && value[0] instanceof Date) {
-            return (value[0] as Date).toISOString();
-        }
-        // Generic array → JSON text
-        return JSON.stringify(value);
-    }
-    if (typeof value === 'object') {
-        return JSON.stringify(value);
-    }
-    // string, number, boolean — pass through
-    return value;
-}
-
 // ============================================================================
 // V2 encrypted export/import — crypto-core integration
 // Shadow rows ARE the wire format (no outer envelope encryption).
@@ -1691,7 +1654,7 @@ async function bulkImportEncryptedV2(dbName: string, headerBytes: Uint8Array, gr
 
         // Phase 1: Upsert shadow rows as-is + verify + decrypt
         // Track arrived rows: { originalId, decryptedRow } for open-table apply
-        const arrivedRows: { id: unknown; row: any[]; isDeleted: boolean }[] = [];
+        const arrivedRows: { id: unknown; row: any[] }[] = [];
 
         const shadowSql =
             `INSERT OR REPLACE INTO "${cryptoTableName}" ` +
@@ -1763,10 +1726,7 @@ async function bulkImportEncryptedV2(dbName: string, headerBytes: Uint8Array, gr
                 stmt.step();
                 stmt.reset();
 
-                // Track for open-table apply. Detect IsDeleted from the row.
-                // SyncableEntity layout: Id[0], SharingScope[1], SharingId[2], UpdatedAt[3], IsDeleted[4], DeletedAt[5], ...
-                const isDeleted = !!row[4];
-                arrivedRows.push({ id: sr[0], row, isDeleted });
+                arrivedRows.push({ id: sr[0], row });
             }
             stmt.finalize();
             db.exec('COMMIT');
@@ -1787,6 +1747,7 @@ async function bulkImportEncryptedV2(dbName: string, headerBytes: Uint8Array, gr
 
         if (pragmaRows && pragmaRows.length > 0 && arrivedRows.length > 0) {
             const columnNames = pragmaRows.map((r: any[]) => r[1] as string);
+            const isDeletedIdx = columnNames.indexOf('IsDeleted');
             const quotedColumns = columnNames.map(c => `"${c}"`).join(', ');
             const placeholders = columnNames.map(() => '?').join(', ');
             const insertSql = `INSERT OR REPLACE INTO "${tableName}" (${quotedColumns}) VALUES (${placeholders})`;
@@ -1800,7 +1761,8 @@ async function bulkImportEncryptedV2(dbName: string, headerBytes: Uint8Array, gr
                 const deleteShadowStmt = db.prepare(deleteShadowSql);
 
                 for (const arrived of arrivedRows) {
-                    if (arrived.isDeleted) {
+                    const isDeleted = isDeletedIdx >= 0 && !!arrived.row[isDeletedIdx];
+                    if (isDeleted) {
                         // Hard-delete from both open + shadow
                         deleteStmt.bind([arrived.id]);
                         deleteStmt.step();
@@ -1811,10 +1773,9 @@ async function bulkImportEncryptedV2(dbName: string, headerBytes: Uint8Array, gr
                         rowsDeleted++;
                     } else {
                         // INSERT OR REPLACE into open table.
-                        // Convert msgpack values to SQLite-compatible primitives:
-                        // Date → ISO string, BigInt → string, arrays/objects → JSON.
-                        const converted = arrived.row.map((val: any) => convertMsgpackValueForSqlite(val));
-                        insertStmt.bind(converted);
+                        // Values are already SQLite-ready — bulkExport converted them
+                        // via convertValueForSqlite before packing into MessagePack.
+                        insertStmt.bind(arrived.row);
                         insertStmt.step();
                         insertStmt.reset();
                         rowsImported++;
