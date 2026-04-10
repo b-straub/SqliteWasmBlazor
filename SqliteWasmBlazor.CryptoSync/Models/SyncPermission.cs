@@ -14,7 +14,7 @@ namespace SqliteWasmBlazor.CryptoSync;
 /// non-null means a per-row write-lock that overrides the table-wide rule.
 /// </para>
 /// </summary>
-[SystemTable]
+/// <summary>Compile-time immutable — seeded by generator, identical on every client, not synced.</summary>
 public sealed class SyncPermission
 {
     public Guid Id { get; set; }

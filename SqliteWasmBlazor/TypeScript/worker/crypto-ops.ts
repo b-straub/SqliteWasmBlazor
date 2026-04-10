@@ -187,8 +187,50 @@ function importErrorCodeToInt(code: string): number {
 }
 
 // ============================================================================
-// Permission enforcement helpers
+// Admin verification + Permission enforcement helpers
 // ============================================================================
+
+/**
+ * Verify the sender of the most recent shadow row is the admin device.
+ * Admin's Ed25519 public key is found via: Contacts WHERE IsAdmin = 1.
+ * The sender's Ed25519 key (hex) is stored in the shadow table's SenderPublicKey column.
+ */
+function verifySenderIsAdmin(db: any, tableName: string): boolean {
+    const cryptoTableName = `_crypto_${tableName}`;
+
+    // Get sender's Ed25519 hex from the just-upserted shadow
+    const senderRows = db.exec({
+        sql: `SELECT SenderPublicKey FROM "${cryptoTableName}" LIMIT 1`,
+        returnValue: 'resultRows',
+        rowMode: 'array'
+    }) as any[][];
+
+    if (!senderRows || senderRows.length === 0) {
+        return false;
+    }
+
+    const senderEd25519Hex = senderRows[0][0] as string;
+
+    // Get admin's Ed25519 public key (base64) from Contacts
+    const adminRows = db.exec({
+        sql: `SELECT Ed25519PublicKey FROM Contacts WHERE IsAdmin = 1 LIMIT 1`,
+        returnValue: 'resultRows',
+        rowMode: 'array'
+    }) as any[][];
+
+    if (!adminRows || adminRows.length === 0) {
+        logger.warn(MODULE_NAME, 'verifySenderIsAdmin: no admin contact found');
+        return false;
+    }
+
+    const adminEd25519Base64 = adminRows[0][0] as string;
+
+    // Convert admin's base64 to hex for comparison
+    const adminBytes = Uint8Array.from(atob(adminEd25519Base64), c => c.charCodeAt(0));
+    const adminHex = bytesToHex(adminBytes);
+
+    return senderEd25519Hex === adminHex;
+}
 
 interface ParsedPermissions {
     insertDenied: boolean;
@@ -665,8 +707,31 @@ export async function bulkImportEncryptedV2(dbName: string, headerBytes: Uint8Ar
                 9: pkColumn
             };
 
-            // Permission enforcement for domain tables.
-            // System tables skip checks — they're admin-only, signature-verified.
+            // System tables: verify sender IS the admin (only admin may modify
+            // Contacts, ShareGroups, ShareTargets). Non-admin senders are rejected
+            // entirely — no partial row-level checks.
+            if (isSystemTable) {
+                const senderIsAdmin = verifySenderIsAdmin(db, tableName);
+                if (!senderIsAdmin) {
+                    for (const arrived of arrivedRows) {
+                        const rowIdHex = arrived.id instanceof Uint8Array
+                            ? bytesToHex(arrived.id) : String(arrived.id);
+                        errors.push({
+                            code: 'PERMISSION_INSERT_DENIED',
+                            table: tableName, rowId: rowIdHex, groupId: header.groupContext,
+                            message: `Only admin may modify system table ${tableName}`
+                        });
+                        rowsSkipped++;
+                    }
+
+                    const report = [rowsImported, rowsSkipped, errors.map(e => [
+                        importErrorCodeToInt(e.code), e.table, e.rowId, e.groupId, e.message
+                    ])];
+                    return { rawBinary: true, data: pack(report) };
+                }
+            }
+
+            // Domain tables: resolve sender's role and enforce CRUD permissions.
             const permissions = isSystemTable
                 ? null
                 : resolveSenderPermissions(db, tableName, header);

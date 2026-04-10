@@ -98,7 +98,7 @@ internal class WorkerEncryptedRoundTripTest(
             v2Header = new V2CryptoHeader
             {
                 Version = 2,
-                SystemTables = ["Contacts", "ShareGroups", "ShareTargets", "Permissions"],
+                SystemTables = ["Contacts", "ShareGroups", "ShareTargets"],
                 ClientContactId = (await ctx.Contacts.SingleAsync(c => c.IsAdmin)).Id,
                 ClientX25519PrivateKey = Convert.FromBase64String(adminX25519PrivateKey),
                 AdminX25519PublicKey = Convert.FromBase64String(group.AdminPublicKey),
@@ -146,7 +146,7 @@ internal class WorkerEncryptedRoundTripTest(
             v2Header = new V2CryptoHeader
             {
                 Version = 2,
-                SystemTables = ["Contacts", "ShareGroups", "ShareTargets", "Permissions"],
+                SystemTables = ["Contacts", "ShareGroups", "ShareTargets"],
                 ClientContactId = (await ctx.Contacts.SingleAsync(c => c.IsAdmin)).Id,
                 ClientX25519PrivateKey = Convert.FromBase64String(adminX25519PrivateKey),
                 AdminX25519PublicKey = Convert.FromBase64String(group.AdminPublicKey),

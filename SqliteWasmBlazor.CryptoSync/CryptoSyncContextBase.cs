@@ -94,7 +94,7 @@ public class CryptoSyncContextBase : DbContext
 
     private static void SeedSystemTablePermissions(ModelBuilder modelBuilder)
     {
-        var systemTables = new[] { "Contacts", "ShareGroups", "ShareTargets", "Permissions" };
+        var systemTables = new[] { "Contacts", "ShareGroups", "ShareTargets" };
 
         var seeds = new List<SyncPermission>();
 
