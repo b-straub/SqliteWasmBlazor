@@ -71,7 +71,11 @@ internal class PermissionEnforcementTest(
             var openCount = await CountOpenTable();
             AssertEqual(0, openCount, "open table after Viewer insert+delete");
 
-            Console.WriteLine($"[{Name}] Step A+B OK: Viewer insert + delete denied (0 imported, 2 skipped)");
+            // Denied rows must also leave NO shadow entry
+            var shadowCount = await CountShadowTable();
+            AssertEqual(0, shadowCount, "shadow table after Viewer denial");
+
+            Console.WriteLine($"[{Name}] Step A+B OK: Viewer insert + delete denied (0 imported, 0 shadow)");
         }
 
         // ===== STEP C: Editor delete denied =====
@@ -97,7 +101,10 @@ internal class PermissionEnforcementTest(
             AssertEqual(1, skipped, "Editor delete skipped");
             AssertEqual(1, errors.Length, "Editor delete errors");
 
-            Console.WriteLine($"[{Name}] Step C OK: Editor delete denied");
+            var shadowCount = await CountShadowTable();
+            AssertEqual(0, shadowCount, "shadow table after Editor delete denial");
+
+            Console.WriteLine($"[{Name}] Step C OK: Editor delete denied (0 shadow)");
         }
 
         // ===== STEP D: Editor insert + update allowed =====
@@ -365,6 +372,14 @@ internal class PermissionEnforcementTest(
     {
         await using var ctx = await CryptoFactory.CreateDbContextAsync();
         return await ctx.CryptoTestItems.IgnoreQueryFilters().CountAsync();
+    }
+
+    private async ValueTask<int> CountShadowTable()
+    {
+        // Query _crypto_CryptoTestItems directly via raw SQL
+        await using var ctx = await CryptoFactory.CreateDbContextAsync();
+        return await ctx.Database.SqlQueryRaw<int>(
+            "SELECT COUNT(*) AS Value FROM _crypto_CryptoTestItems").SingleAsync();
     }
 
     private async ValueTask ResetDatabase()
