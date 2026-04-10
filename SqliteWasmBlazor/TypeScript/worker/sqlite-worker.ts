@@ -257,30 +257,6 @@ async function handleRequest(data: WorkerRequest['data'], binaryPayload?: ArrayB
         case 'exportDb':
             return await exportDatabase(database!);
 
-        case 'bulkImport':
-            if (!binaryPayload) {
-                throw new Error('bulkImport requires binaryPayload');
-            }
-            return await bulkImport(
-                database!,
-                new Uint8Array(binaryPayload),
-                (data as any).conflictStrategy ?? 0,
-                (data as any).readonlyColumns as Record<string, string[]> | undefined
-            );
-
-        case 'bulkImportRaw':
-            if (!binaryPayload) {
-                throw new Error('bulkImportRaw requires binaryPayload');
-            }
-            return await bulkImportRaw(
-                database!,
-                new Uint8Array(binaryPayload),
-                data as any
-            );
-
-        case 'bulkExport':
-            return await bulkExport(database!, data as any);
-
         case 'bulkExportEncryptedV2':
             if (!binaryPayload) {
                 throw new Error('bulkExportEncryptedV2 requires binaryPayload (V2CryptoHeader)');
@@ -1195,57 +1171,8 @@ function bulkInsertRows(db: any, header: V2Header, rows: any[][], conflictStrate
 }
 
 /**
- * Bulk import: unpack V2 MessagePack payload (header + individually packed rows).
- */
-async function bulkImport(dbName: string, payload: Uint8Array, conflictStrategy: number, readonlyColumns?: Record<string, string[]>) {
-    const db = openDatabases.get(dbName);
-    if (!db) {
-        throw new Error(`Database ${dbName} not open`);
-    }
-
-    const objects = bigIntUnpackr.unpackMultiple(payload);
-    if (objects.length < 1) {
-        throw new Error('bulkImport: empty payload');
-    }
-
-    const header: V2Header = objects[0];
-    const rows = objects.slice(1) as any[][];
-
-    return bulkInsertRows(db, header, rows, conflictStrategy, 'bulkImport', readonlyColumns);
-}
-
-/**
- * Bulk import from raw MessagePack row data (no V2 header).
- * Metadata comes from the JSON message, rows are a single packed array.
- */
-async function bulkImportRaw(dbName: string, payload: Uint8Array, metadata: any) {
-    const db = openDatabases.get(dbName);
-    if (!db) {
-        throw new Error(`Database ${dbName} not open`);
-    }
-
-    const { tableName, columns, primaryKeyColumn, conflictStrategy } = metadata;
-    if (!tableName || !columns || !primaryKeyColumn) {
-        throw new Error('bulkImportRaw requires tableName, columns, and primaryKeyColumn in metadata');
-    }
-
-    const header: V2Header = {
-        0: 'SWBV2', 1: '', 2: '', 3: null, 4: '', 5: 0, 6: 0,
-        7: tableName,
-        8: columns,
-        9: primaryKeyColumn
-    };
-
-    const rows = bigIntUnpackr.unpack(payload) as any[][];
-    if (!Array.isArray(rows)) {
-        throw new Error('bulkImportRaw: payload must be a MessagePack array of row arrays');
-    }
-
-    return bulkInsertRows(db, header, rows, conflictStrategy ?? 0, 'bulkImportRaw');
-}
-
-/**
- * Bulk export: query SQLite, pack V2 header + rows as MessagePack, return as raw binary.
+ * Bulk export (internal): query SQLite, pack V2 header + rows as MessagePack.
+ * Not exposed via dispatcher — called internally by bulkExportEncryptedV2.
  */
 async function bulkExport(dbName: string, metadata: any) {
     const db = openDatabases.get(dbName);
@@ -1404,22 +1331,49 @@ function parseV2CryptoHeader(bytes: Uint8Array): V2CryptoHeader {
         throw new Error(`V2CryptoHeader: expected 10-element array, got length ${Array.isArray(arr) ? arr.length : typeof arr}`);
     }
 
-    const version = arr[0] as number;
-    if (version !== 2) {
+    const version = arr[0];
+    if (typeof version !== 'number' || version !== 2) {
         throw new Error(`V2CryptoHeader: unsupported version ${version}, expected 2`);
+    }
+    if (!Array.isArray(arr[1])) {
+        throw new Error('V2CryptoHeader: SystemTables must be array');
+    }
+    if (!(arr[2] instanceof Uint8Array) || arr[2].byteLength !== 16) {
+        throw new Error('V2CryptoHeader: ClientContactId must be 16-byte Uint8Array');
+    }
+    if (!(arr[3] instanceof Uint8Array) || arr[3].byteLength !== 32) {
+        throw new Error('V2CryptoHeader: ClientX25519PrivateKey must be 32-byte Uint8Array');
+    }
+    if (!(arr[4] instanceof Uint8Array) || arr[4].byteLength !== 32) {
+        throw new Error('V2CryptoHeader: AdminX25519PublicKey must be 32-byte Uint8Array');
+    }
+    if (typeof arr[5] !== 'string') {
+        throw new Error('V2CryptoHeader: GroupContext must be string');
+    }
+    if (typeof arr[6] !== 'number') {
+        throw new Error('V2CryptoHeader: KeyVersion must be number');
+    }
+    if (!(arr[7] instanceof Uint8Array) || arr[7].byteLength < 12) {
+        throw new Error('V2CryptoHeader: WrappedCek must be Uint8Array with at least 12 bytes');
+    }
+    if (!(arr[8] instanceof Uint8Array) || arr[8].byteLength !== 32) {
+        throw new Error('V2CryptoHeader: ClientEd25519PrivateKey must be 32-byte Uint8Array');
+    }
+    if (!(arr[9] instanceof Uint8Array) || arr[9].byteLength !== 32) {
+        throw new Error('V2CryptoHeader: ClientEd25519PublicKey must be 32-byte Uint8Array');
     }
 
     return {
         version,
         systemTables: arr[1] as string[],
-        clientContactIdBytes: arr[2] as Uint8Array,
-        clientX25519PrivateKey: arr[3] as Uint8Array,
-        adminX25519PublicKey: arr[4] as Uint8Array,
-        groupContext: arr[5] as string,
-        keyVersion: arr[6] as number,
-        wrappedCek: arr[7] as Uint8Array,
-        clientEd25519PrivateKey: arr[8] as Uint8Array,
-        clientEd25519PublicKey: arr[9] as Uint8Array
+        clientContactIdBytes: arr[2],
+        clientX25519PrivateKey: arr[3],
+        adminX25519PublicKey: arr[4],
+        groupContext: arr[5],
+        keyVersion: arr[6],
+        wrappedCek: arr[7],
+        clientEd25519PrivateKey: arr[8],
+        clientEd25519PublicKey: arr[9]
     };
 }
 
@@ -1631,7 +1585,7 @@ function guidToBytes(value: unknown): Uint8Array {
         }
         const bytes = new Uint8Array(16);
         for (let i = 0; i < 16; i++) {
-            bytes[i] = parseInt(hex.substr(i * 2, 2), 16);
+            bytes[i] = parseInt(hex.substring(i * 2, i * 2 + 2), 16);
         }
         // .NET Guid in-memory layout: first 4 bytes LE, next 2 bytes LE,
         // next 2 bytes LE, then 8 bytes BE as-is. Reverse the first three
@@ -1666,6 +1620,7 @@ async function bulkImportEncryptedV2(dbName: string, headerBytes: Uint8Array, gr
     const errors: { code: string; table: string; rowId: string; groupId: string; message: string }[] = [];
     let rowsImported = 0;
     let rowsSkipped = 0;
+    let rowsDeleted = 0;
     let cek: Uint8Array | null = null;
 
     try {
@@ -1680,7 +1635,9 @@ async function bulkImportEncryptedV2(dbName: string, headerBytes: Uint8Array, gr
                 groupId: header.groupContext,
                 message: `CEK unwrap failed: ${e instanceof Error ? e.message : String(e)}`
             });
-            return pack([rowsImported, rowsSkipped, errors]);
+            return { rawBinary: true, data: pack([0, 0, errors.map(e => [
+                importErrorCodeToInt(e.code), e.table, e.rowId, e.groupId, e.message
+            ])]) };
         }
 
         // Parse the ShadowRowGroup: [tableName, isSystemTable, rows[]]
@@ -1694,15 +1651,14 @@ async function bulkImportEncryptedV2(dbName: string, headerBytes: Uint8Array, gr
 
         const aad = buildAad(header.groupContext, header.keyVersion);
 
-        // Shadow upsert SQL (same schema as export — tamper detection columns included)
+        // Phase 1: Upsert shadow rows as-is + verify + decrypt
+        // Track arrived rows: { originalId, decryptedRow } for open-table apply
+        const arrivedRows: { id: unknown; row: any[]; isDeleted: boolean }[] = [];
+
         const shadowSql =
             `INSERT OR REPLACE INTO "${cryptoTableName}" ` +
             `(Id, SharingScope, SharingId, EncryptedRow, Nonce, KeyVersion, SenderPublicKey, EnvelopeSignature) ` +
             `VALUES (?, ?, ?, ?, ?, ?, ?, ?)`;
-
-        // Collect decrypted rows for open-table apply
-        const decryptedRows: any[][] = [];
-        let openTableHeader: any = null;
 
         db.exec('BEGIN');
         try {
@@ -1728,13 +1684,10 @@ async function bulkImportEncryptedV2(dbName: string, headerBytes: Uint8Array, gr
                     const envelope = await buildCanonicalEnvelope(
                         rowIdBytes, rowSharingId, rowKeyVersion,
                         senderPubKeyBytes, rowCiphertext);
-                    const sigValid = ed25519Verify(rowSig, envelope, senderPubKeyBytes);
-                    if (!sigValid) {
+                    if (!ed25519Verify(rowSig, envelope, senderPubKeyBytes)) {
                         errors.push({
                             code: 'TAMPER_SIGNATURE_INVALID',
-                            table: tableName,
-                            rowId: rowIdHex,
-                            groupId: header.groupContext,
+                            table: tableName, rowId: rowIdHex, groupId: header.groupContext,
                             message: `Ed25519 signature invalid for row ${rowIdHex}`
                         });
                         rowsSkipped++;
@@ -1743,9 +1696,7 @@ async function bulkImportEncryptedV2(dbName: string, headerBytes: Uint8Array, gr
                 } catch (e) {
                     errors.push({
                         code: 'TAMPER_SIGNATURE_INVALID',
-                        table: tableName,
-                        rowId: rowIdHex,
-                        groupId: header.groupContext,
+                        table: tableName, rowId: rowIdHex, groupId: header.groupContext,
                         message: `Signature verification error: ${e instanceof Error ? e.message : String(e)}`
                     });
                     rowsSkipped++;
@@ -1755,39 +1706,29 @@ async function bulkImportEncryptedV2(dbName: string, headerBytes: Uint8Array, gr
                 // Layer 1: decrypt with AAD
                 let plainRowBytes: Uint8Array;
                 try {
-                    const encrypted: SymmetricEncryptedData = { ciphertext: rowCiphertext, nonce: rowNonce };
-                    plainRowBytes = await decryptAesGcm(encrypted, cek, aad);
+                    plainRowBytes = await decryptAesGcm({ ciphertext: rowCiphertext, nonce: rowNonce }, cek, aad);
                 } catch (e) {
                     errors.push({
                         code: 'TAMPER_AAD_MISMATCH',
-                        table: tableName,
-                        rowId: rowIdHex,
-                        groupId: header.groupContext,
-                        message: `AES-GCM decrypt failed (AAD mismatch or corrupt): ${e instanceof Error ? e.message : String(e)}`
+                        table: tableName, rowId: rowIdHex, groupId: header.groupContext,
+                        message: `AES-GCM decrypt failed: ${e instanceof Error ? e.message : String(e)}`
                     });
                     rowsSkipped++;
                     continue;
                 }
 
-                // Deserialize the decrypted row (MessagePack array)
                 const row = bigIntUnpackr.unpack(plainRowBytes) as any[];
 
-                // Upsert shadow (store the received encrypted form as-is)
-                stmt.bind([
-                    sr[0], // Id (original format for SQLite)
-                    rowScope,
-                    rowSharingId,
-                    rowCiphertext,
-                    rowNonce,
-                    rowKeyVersion,
-                    rowSenderPubKey,
-                    rowSig
-                ]);
+                // Upsert shadow (store encrypted form as-is)
+                stmt.bind([sr[0], rowScope, rowSharingId, rowCiphertext, rowNonce,
+                    rowKeyVersion, rowSenderPubKey, rowSig]);
                 stmt.step();
                 stmt.reset();
 
-                decryptedRows.push(row);
-                rowsImported++;
+                // Track for open-table apply. Detect IsDeleted from the row.
+                // SyncableEntity layout: Id[0], SharingScope[1], SharingId[2], UpdatedAt[3], IsDeleted[4], DeletedAt[5], ...
+                const isDeleted = !!row[4];
+                arrivedRows.push({ id: sr[0], row, isDeleted });
             }
             stmt.finalize();
             db.exec('COMMIT');
@@ -1797,11 +1738,62 @@ async function bulkImportEncryptedV2(dbName: string, headerBytes: Uint8Array, gr
             throw e;
         }
 
-        logger.info(MODULE_NAME,
-            `✓ bulkImportEncryptedV2: ${tableName} → ${rowsImported} imported, ${rowsSkipped} skipped, ${errors.length} errors`);
+        // Phase 2: Apply decrypted rows to open table
+        // Read open table schema from PRAGMA — column order matches export order
+        // (both sides share the same EF Core migration)
+        const pragmaRows = db.exec({
+            sql: `PRAGMA table_info("${tableName}")`,
+            returnValue: 'resultRows',
+            rowMode: 'array'
+        }) as any[][];
 
-        // ImportReport: [rowsImported, rowsSkipped, errors[]]
-        // MessagePack array layout matching C# ImportReport [Key(0)-Key(2)]
+        if (pragmaRows && pragmaRows.length > 0 && arrivedRows.length > 0) {
+            const columnNames = pragmaRows.map((r: any[]) => r[1] as string);
+            const quotedColumns = columnNames.map(c => `"${c}"`).join(', ');
+            const placeholders = columnNames.map(() => '?').join(', ');
+            const insertSql = `INSERT OR REPLACE INTO "${tableName}" (${quotedColumns}) VALUES (${placeholders})`;
+            const deleteSql = `DELETE FROM "${tableName}" WHERE Id = ?`;
+            const deleteShadowSql = `DELETE FROM "${cryptoTableName}" WHERE Id = ?`;
+
+            db.exec('BEGIN');
+            try {
+                const insertStmt = db.prepare(insertSql);
+                const deleteStmt = db.prepare(deleteSql);
+                const deleteShadowStmt = db.prepare(deleteShadowSql);
+
+                for (const arrived of arrivedRows) {
+                    if (arrived.isDeleted) {
+                        // Hard-delete from both open + shadow
+                        deleteStmt.bind([arrived.id]);
+                        deleteStmt.step();
+                        deleteStmt.reset();
+                        deleteShadowStmt.bind([arrived.id]);
+                        deleteShadowStmt.step();
+                        deleteShadowStmt.reset();
+                        rowsDeleted++;
+                    } else {
+                        // INSERT OR REPLACE into open table
+                        insertStmt.bind(arrived.row);
+                        insertStmt.step();
+                        insertStmt.reset();
+                        rowsImported++;
+                    }
+                }
+
+                insertStmt.finalize();
+                deleteStmt.finalize();
+                deleteShadowStmt.finalize();
+                db.exec('COMMIT');
+            } catch (e) {
+                try { db.exec('ROLLBACK'); } catch { /* ignore */ }
+                logger.error(MODULE_NAME, `bulkImportEncryptedV2: open table apply failed:`, e);
+                throw e;
+            }
+        }
+
+        logger.info(MODULE_NAME,
+            `✓ bulkImportEncryptedV2: ${tableName} → ${rowsImported} imported, ${rowsDeleted} deleted, ${rowsSkipped} skipped, ${errors.length} errors`);
+
         const report = [rowsImported, rowsSkipped, errors.map(e => [
             importErrorCodeToInt(e.code), e.table, e.rowId, e.groupId, e.message
         ])];
@@ -1814,7 +1806,7 @@ async function bulkImportEncryptedV2(dbName: string, headerBytes: Uint8Array, gr
 function hexToBytes(hex: string): Uint8Array {
     const bytes = new Uint8Array(hex.length / 2);
     for (let i = 0; i < bytes.length; i++) {
-        bytes[i] = parseInt(hex.substr(i * 2, 2), 16);
+        bytes[i] = parseInt(hex.substring(i * 2, i * 2 + 2), 16);
     }
     return bytes;
 }
@@ -1913,8 +1905,12 @@ async function bulkRotateKey(dbName: string, keyPayload: Uint8Array, metadata: a
             return { rowsAffected: 0 };
         }
 
-        // Single prepared UPDATE, executed once per row inside the transaction.
-        const updateSql = `UPDATE "${cryptoTable}" SET EncryptedRow = ?, Nonce = ? WHERE Id = ?`;
+        // Update encrypted data + clear signature (invalid after re-encryption).
+        // KeyVersion updated if metadata provides newKeyVersion.
+        const newKeyVersion = metadata.newKeyVersion as number | undefined;
+        const updateSql = newKeyVersion !== undefined
+            ? `UPDATE "${cryptoTable}" SET EncryptedRow = ?, Nonce = ?, KeyVersion = ?, EnvelopeSignature = ? WHERE Id = ?`
+            : `UPDATE "${cryptoTable}" SET EncryptedRow = ?, Nonce = ?, EnvelopeSignature = ? WHERE Id = ?`;
         const stmt = db.prepare(updateSql);
 
         let rowsAffected = 0;
@@ -1941,7 +1937,12 @@ async function bulkRotateKey(dbName: string, keyPayload: Uint8Array, metadata: a
                     plaintext
                 );
 
-                stmt.bind([new Uint8Array(newCipher), newNonce, id]);
+                const emptySignature = new Uint8Array(0);
+                if (newKeyVersion !== undefined) {
+                    stmt.bind([new Uint8Array(newCipher), newNonce, newKeyVersion, emptySignature, id]);
+                } else {
+                    stmt.bind([new Uint8Array(newCipher), newNonce, emptySignature, id]);
+                }
                 stmt.step();
                 stmt.reset();
                 rowsAffected++;

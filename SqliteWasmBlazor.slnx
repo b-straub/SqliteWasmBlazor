@@ -13,7 +13,6 @@
   <Project Path="SqliteWasmBlazor.CryptoSync.Generator/SqliteWasmBlazor.CryptoSync.Generator.csproj" />
   <Project Path="SqliteWasmBlazor.CryptoSync.Tests/SqliteWasmBlazor.CryptoSync.Tests.csproj" />
   <Project Path="SqliteWasmBlazor.CryptoSync/SqliteWasmBlazor.CryptoSync.csproj" />
-  <Project Path="SqliteWasmBlazor.Demo/SqliteWasmBlazor.Demo.csproj" />
   <Project Path="SqliteWasmBlazor.FloatingWindow/SqliteWasmBlazor.FloatingWindow.csproj" />
   <Project Path="SqliteWasmBlazor.Models/SqliteWasmBlazor.Models.csproj" />
   <Project Path="SqliteWasmBlazor.TestApp/SqliteWasmBlazor.TestApp.csproj" />

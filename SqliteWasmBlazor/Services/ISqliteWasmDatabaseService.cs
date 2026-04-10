@@ -61,50 +61,6 @@ public interface ISqliteWasmDatabaseService
     Task<byte[]> ExportDatabaseAsync(string databaseName, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Bulk import: sends V2 MessagePack payload (header + items) to the worker
-    /// for direct insertion using a prepared statement loop.
-    /// The worker handles SQL construction, type conversions, and transactions.
-    /// </summary>
-    /// <param name="databaseName">Target database filename</param>
-    /// <param name="payload">V2 MessagePack bytes (header + serialized items)</param>
-    /// <param name="conflictStrategy">Conflict resolution strategy for UPSERT behavior</param>
-    /// <param name="readonlyColumns">Optional table→column mapping for readonly enforcement.
-    /// When a table has readonly columns, the worker validates in a transaction:
-    /// snapshot → apply → check no mutations and no new rows → rollback on violation.
-    /// Key = table name, Value = readonly column names for that table.</param>
-    /// <param name="cancellationToken">Cancellation token</param>
-    /// <returns>Number of rows inserted</returns>
-    Task<int> BulkImportAsync(string databaseName, byte[] payload, ConflictResolutionStrategy conflictStrategy = ConflictResolutionStrategy.None,
-        Dictionary<string, string[]>? readonlyColumns = null, CancellationToken cancellationToken = default);
-
-    /// <summary>
-    /// Bulk import from raw MessagePack row data with metadata provided separately.
-    /// The payload is a MessagePack-serialized List of row arrays (no V2 header required).
-    /// Column metadata is sent to the worker as JSON alongside the binary payload.
-    /// This enables callers that already have MessagePack-serialized data (e.g., sync services)
-    /// to bypass V2 header construction.
-    /// </summary>
-    /// <param name="databaseName">Target database filename</param>
-    /// <param name="metadata">Table structure metadata (table name, columns, primary key)</param>
-    /// <param name="rowData">MessagePack-serialized List of row arrays (msgpack List&lt;TDto&gt;)</param>
-    /// <param name="conflictStrategy">Conflict resolution strategy for UPSERT behavior</param>
-    /// <param name="cancellationToken">Cancellation token</param>
-    /// <returns>Number of rows inserted</returns>
-    Task<int> BulkImportRawAsync(string databaseName, BulkImportMetadata metadata, byte[] rowData,
-        ConflictResolutionStrategy conflictStrategy = ConflictResolutionStrategy.None,
-        CancellationToken cancellationToken = default);
-
-    /// <summary>
-    /// Bulk export: worker queries SQLite directly and returns V2 MessagePack bytes (header + rows).
-    /// C# receives raw bytes for file download without per-item processing.
-    /// </summary>
-    /// <param name="databaseName">Source database filename</param>
-    /// <param name="exportMetadata">Export parameters (tableName, columns, where, orderBy, etc.)</param>
-    /// <param name="cancellationToken">Cancellation token</param>
-    /// <returns>V2 MessagePack bytes (header + serialized rows)</returns>
-    Task<byte[]> BulkExportAsync(string databaseName, BulkExportMetadata exportMetadata, CancellationToken cancellationToken = default);
-
-    /// <summary>
     /// V2 encrypted bulk export — shadow rows as wire format. Worker derives CEK
     /// via crypto-core (ECDH + HKDF), encrypts per-row with AAD (Layer 1 tamper
     /// detection), signs per-row (Layer 2), upserts shadow, returns

@@ -11,7 +11,6 @@ using SqliteWasmBlazor.TestApp.TestInfrastructure.Tests.RaceConditions;
 using SqliteWasmBlazor.TestApp.TestInfrastructure.Tests.Relationships;
 using SqliteWasmBlazor.TestApp.TestInfrastructure.Tests.Transactions;
 using SqliteWasmBlazor.TestApp.TestInfrastructure.Tests.TypeMarshalling;
-using SqliteWasmBlazor.TestApp.TestInfrastructure.Tests.V2Bulk;
 using SqliteWasmBlazor.TestApp.TestInfrastructure.Tests.EncryptedDelta;
 using SqliteWasmBlazor.TestApp.TestInfrastructure.CryptoSync;
 
@@ -147,22 +146,7 @@ internal class TestFactory
         Add("Checkpoints", new RestoreToCheckpointBasicTest(factory));
         Add("Checkpoints", new RestoreToCheckpointWithDeltaReapplyTest(factory));
 
-        // V2 Bulk Import/Export Tests (worker-side prepared statement loop)
-        Add("V2 Bulk", new V2BulkTodoRoundTripTest(factory, databaseService));
-        Add("V2 Bulk", new V2BulkAllTypesRoundTripTest(factory, databaseService));
-        Add("V2 Bulk", new V2BulkNullableAllNullTest(factory, databaseService));
-        Add("V2 Bulk", new V2BulkConflictLastWriteWinsTest(factory, databaseService));
-        Add("V2 Bulk", new V2BulkConflictLocalWinsTest(factory, databaseService));
-        Add("V2 Bulk", new V2BulkConflictDeltaWinsTest(factory, databaseService));
-        Add("V2 Bulk Raw", new V2BulkRawImportTest(factory, databaseService));
-        Add("V2 Bulk Raw", new V2BulkRawImportConflictTest(factory, databaseService));
-
-        // Readonly column validation tests (bulk import with permission enforcement)
-        Add("V2 Bulk Readonly", new V2BulkReadonlyColumnsAllowedTest(factory, databaseService));
-        Add("V2 Bulk Readonly", new V2BulkReadonlyColumnsViolationTest(factory, databaseService));
-        Add("V2 Bulk Readonly", new V2BulkReadonlyColumnsMixedViolationTest(factory, databaseService));
-        Add("V2 Bulk Readonly", new V2BulkReadonlyColumnsMixedNewRowTest(factory, databaseService));
-        Add("V2 Bulk Readonly", new V2BulkReadonlyColumnsNewRowRejectedTest(factory, databaseService));
+        // V2 Bulk tests removed — all delta sync now goes through encrypted V2 path
     }
 }
 
