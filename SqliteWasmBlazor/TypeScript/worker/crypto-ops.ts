@@ -654,90 +654,71 @@ export async function bulkImportEncryptedV2(dbName: string, headerBytes: Uint8Ar
 
         const aad = buildAad(header.groupContext, header.keyVersion);
 
-        // Phase 1: Upsert shadow rows + verify + decrypt
-        const arrivedRows: { id: unknown; row: any[] }[] = [];
+        // Phase 1: Verify signatures + decrypt (NO writes yet).
+        // Rows that fail tamper detection are skipped immediately.
+        // Approved rows are collected for Phase 2 (permission check + write).
+        const verifiedRows: { sr: any[]; row: any[] }[] = [];
 
-        const shadowSql =
-            `INSERT OR REPLACE INTO "${cryptoTableName}" ` +
-            `(Id, SharingScope, SharingId, EncryptedRow, Nonce, KeyVersion, SenderPublicKey, EnvelopeSignature) ` +
-            `VALUES (?, ?, ?, ?, ?, ?, ?, ?)`;
+        for (let i = 0; i < shadowRows.length; i++) {
+            const sr = shadowRows[i] as any[];
+            const rowIdBytes = sr[0] as Uint8Array;
+            const rowSharingId = sr[2] as string;
+            const rowCiphertext = sr[3] as Uint8Array;
+            const rowNonce = sr[4] as Uint8Array;
+            const rowKeyVersion = sr[5] as number;
+            const rowSenderPubKey = sr[6] as string;
+            const rowSig = sr[7] as Uint8Array;
 
-        db.exec('BEGIN');
-        try {
-            const stmt = db.prepare(shadowSql);
+            const rowIdHex = bytesToHex(rowIdBytes);
 
-            for (let i = 0; i < shadowRows.length; i++) {
-                const sr = shadowRows[i] as any[];
-                const rowIdBytes = sr[0] as Uint8Array;
-                const rowScope = sr[1] as number;
-                const rowSharingId = sr[2] as string;
-                const rowCiphertext = sr[3] as Uint8Array;
-                const rowNonce = sr[4] as Uint8Array;
-                const rowKeyVersion = sr[5] as number;
-                const rowSenderPubKey = sr[6] as string;
-                const rowSig = sr[7] as Uint8Array;
-
-                const rowIdHex = bytesToHex(rowIdBytes);
-
-                // Layer 2: verify Ed25519 signature
-                try {
-                    const senderPubKeyBytes = hexToBytes(rowSenderPubKey);
-                    const envelope = await buildCanonicalEnvelope(
-                        rowIdBytes, rowSharingId, rowKeyVersion,
-                        senderPubKeyBytes, rowCiphertext);
-                    if (!ed25519Verify(rowSig, envelope, senderPubKeyBytes)) {
-                        errors.push({
-                            code: 'TAMPER_SIGNATURE_INVALID',
-                            table: tableName, rowId: rowIdHex, groupId: header.groupContext,
-                            message: `Ed25519 signature invalid for row ${rowIdHex}`
-                        });
-                        rowsSkipped++;
-                        continue;
-                    }
-                } catch (e) {
+            // Layer 2: verify Ed25519 signature
+            try {
+                const senderPubKeyBytes = hexToBytes(rowSenderPubKey);
+                const envelope = await buildCanonicalEnvelope(
+                    rowIdBytes, rowSharingId, rowKeyVersion,
+                    senderPubKeyBytes, rowCiphertext);
+                if (!ed25519Verify(rowSig, envelope, senderPubKeyBytes)) {
                     errors.push({
                         code: 'TAMPER_SIGNATURE_INVALID',
                         table: tableName, rowId: rowIdHex, groupId: header.groupContext,
-                        message: `Signature verification error: ${e instanceof Error ? e.message : String(e)}`
+                        message: `Ed25519 signature invalid for row ${rowIdHex}`
                     });
                     rowsSkipped++;
                     continue;
                 }
-
-                // Layer 1: decrypt with AAD
-                let plainRowBytes: Uint8Array;
-                try {
-                    plainRowBytes = await decryptAesGcm({ ciphertext: rowCiphertext, nonce: rowNonce }, cek, aad);
-                } catch (e) {
-                    errors.push({
-                        code: 'TAMPER_AAD_MISMATCH',
-                        table: tableName, rowId: rowIdHex, groupId: header.groupContext,
-                        message: `AES-GCM decrypt failed: ${e instanceof Error ? e.message : String(e)}`
-                    });
-                    rowsSkipped++;
-                    continue;
-                }
-
-                const row = bigIntUnpackr.unpack(plainRowBytes) as any[];
-
-                stmt.bind([sr[0], rowScope, rowSharingId, rowCiphertext, rowNonce,
-                    rowKeyVersion, rowSenderPubKey, rowSig]);
-                stmt.step();
-                stmt.reset();
-
-                arrivedRows.push({ id: sr[0], row });
+            } catch (e) {
+                errors.push({
+                    code: 'TAMPER_SIGNATURE_INVALID',
+                    table: tableName, rowId: rowIdHex, groupId: header.groupContext,
+                    message: `Signature verification error: ${e instanceof Error ? e.message : String(e)}`
+                });
+                rowsSkipped++;
+                continue;
             }
-            stmt.finalize();
-            db.exec('COMMIT');
-        } catch (e) {
-            try { db.exec('ROLLBACK'); } catch { /* ignore */ }
-            logger.error(MODULE_NAME, `bulkImportEncryptedV2: shadow upsert failed:`, e);
-            throw e;
+
+            // Layer 1: decrypt with AAD
+            let plainRowBytes: Uint8Array;
+            try {
+                plainRowBytes = await decryptAesGcm({ ciphertext: rowCiphertext, nonce: rowNonce }, cek, aad);
+            } catch (e) {
+                errors.push({
+                    code: 'TAMPER_AAD_MISMATCH',
+                    table: tableName, rowId: rowIdHex, groupId: header.groupContext,
+                    message: `AES-GCM decrypt failed: ${e instanceof Error ? e.message : String(e)}`
+                });
+                rowsSkipped++;
+                continue;
+            }
+
+            const row = bigIntUnpackr.unpack(plainRowBytes) as any[];
+            verifiedRows.push({ sr, row });
         }
 
-        // Phase 2: Apply decrypted rows to open table
+        // Phase 2: Permission check + write shadow + open table.
+        // Only rows that pass permission checks are written to BOTH tables.
+        // Denied rows are rejected entirely — no shadow, no open table.
         const isSystemTable = !!group[1];
-        if (arrivedRows.length > 0) {
+        if (verifiedRows.length > 0) {
             const colRows = db.exec({
                 sql: `SELECT ColumnName, SqlType, CSharpType, IsPrimaryKey FROM _column_registry WHERE TableName = ? ORDER BY ColumnIndex`,
                 bind: [tableName],
@@ -768,7 +749,7 @@ export async function bulkImportEncryptedV2(dbName: string, headerBytes: Uint8Ar
             if (isSystemTable) {
                 const senderIsAdmin = verifySenderIsAdmin(db, tableName);
                 if (!senderIsAdmin) {
-                    for (const arrived of arrivedRows) {
+                    for (const arrived of verifiedRows) {
                         const rowIdHex = arrived.id instanceof Uint8Array
                             ? bytesToHex(arrived.id) : String(arrived.id);
                         errors.push({
@@ -791,16 +772,19 @@ export async function bulkImportEncryptedV2(dbName: string, headerBytes: Uint8Ar
                 ? null
                 : resolveSenderPermissions(db, tableName, header);
 
-            const rowsToInsert: any[][] = [];
-            const idsToDelete: unknown[] = [];
+            // Permission check each verified row. Collect approved rows
+            // with their shadow data for atomic write.
+            const approvedInserts: { sr: any[]; converted: any[] }[] = [];
+            const approvedDeletes: { sr: any[]; id: unknown }[] = [];
 
-            for (const arrived of arrivedRows) {
-                const isDeleted = isDeletedIdx >= 0 && !!arrived.row[isDeletedIdx];
-                const rowIdHex = arrived.id instanceof Uint8Array
-                    ? bytesToHex(arrived.id) : String(arrived.id);
+            for (const verified of verifiedRows) {
+                const { sr, row } = verified;
+                const rowId = sr[0];
+                const isDeleted = isDeletedIdx >= 0 && !!row[isDeletedIdx];
+                const rowIdHex = rowId instanceof Uint8Array
+                    ? bytesToHex(rowId) : String(rowId);
 
                 if (isDeleted) {
-                    // Check delete permission
                     if (permissions && permissions.deleteDenied) {
                         errors.push({
                             code: 'PERMISSION_DELETE_DENIED',
@@ -810,10 +794,9 @@ export async function bulkImportEncryptedV2(dbName: string, headerBytes: Uint8Ar
                         rowsSkipped++;
                         continue;
                     }
-                    idsToDelete.push(arrived.id);
+                    approvedDeletes.push({ sr, id: rowId });
                 } else {
-                    // Determine if insert or update by checking existing row
-                    const converted = arrived.row.map((val: any, idx: number) =>
+                    const converted = row.map((val: any, idx: number) =>
                         convertValueForSqlite(val, csharpTypes[idx], sqlTypes[idx]));
 
                     if (permissions) {
@@ -837,12 +820,10 @@ export async function bulkImportEncryptedV2(dbName: string, headerBytes: Uint8Ar
 
                         if (!isInsert && permissions.updateDenied) {
                             if (permissions.readwriteColumns.length > 0) {
-                                // Table-level update denied, but some columns have readwrite override.
-                                // Allow if ONLY readwrite columns changed; reject if anything else changed.
                                 const changedCols = getChangedColumns(
                                     db, tableName, pkColumn, converted[pkIdx],
                                     columnNames, converted);
-                                const disallowed = changedCols.filter(c => !permissions.readwriteColumns.includes(c));
+                                const disallowed = changedCols.filter((c: string) => !permissions.readwriteColumns.includes(c));
                                 if (disallowed.length > 0) {
                                     errors.push({
                                         code: 'PERMISSION_UPDATE_DENIED',
@@ -852,7 +833,6 @@ export async function bulkImportEncryptedV2(dbName: string, headerBytes: Uint8Ar
                                     rowsSkipped++;
                                     continue;
                                 }
-                                // Only readwrite columns changed — allowed
                             } else {
                                 errors.push({
                                     code: 'PERMISSION_UPDATE_DENIED',
@@ -864,7 +844,6 @@ export async function bulkImportEncryptedV2(dbName: string, headerBytes: Uint8Ar
                             }
                         }
 
-                        // Column-level enforcement for updates (when table-level update IS allowed)
                         if (!isInsert && !permissions.updateDenied && permissions.readonlyColumns.length > 0) {
                             const colViolations = checkColumnPermissions(
                                 db, tableName, pkColumn, converted[pkIdx],
@@ -881,18 +860,48 @@ export async function bulkImportEncryptedV2(dbName: string, headerBytes: Uint8Ar
                         }
                     }
 
-                    rowsToInsert.push(converted);
+                    approvedInserts.push({ sr, converted });
                 }
             }
 
-            if (idsToDelete.length > 0) {
+            // Write shadow rows ONLY for approved rows (denied rows get no shadow entry)
+            if (approvedInserts.length > 0 || approvedDeletes.length > 0) {
+                const shadowSql =
+                    `INSERT OR REPLACE INTO "${cryptoTableName}" ` +
+                    `(Id, SharingScope, SharingId, EncryptedRow, Nonce, KeyVersion, SenderPublicKey, EnvelopeSignature) ` +
+                    `VALUES (?, ?, ?, ?, ?, ?, ?, ?)`;
+
+                db.exec('BEGIN');
+                try {
+                    const shadowStmt = db.prepare(shadowSql);
+                    for (const { sr } of approvedInserts) {
+                        shadowStmt.bind([sr[0], sr[1], sr[2], sr[3], sr[4], sr[5], sr[6], sr[7]]);
+                        shadowStmt.step();
+                        shadowStmt.reset();
+                    }
+                    for (const { sr } of approvedDeletes) {
+                        shadowStmt.bind([sr[0], sr[1], sr[2], sr[3], sr[4], sr[5], sr[6], sr[7]]);
+                        shadowStmt.step();
+                        shadowStmt.reset();
+                    }
+                    shadowStmt.finalize();
+                    db.exec('COMMIT');
+                } catch (e) {
+                    try { db.exec('ROLLBACK'); } catch { /* ignore */ }
+                    logger.error(MODULE_NAME, `bulkImportEncryptedV2: shadow upsert failed:`, e);
+                    throw e;
+                }
+            }
+
+            // Delete tombstoned rows from both open + shadow
+            if (approvedDeletes.length > 0) {
                 const deleteSql = `DELETE FROM "${tableName}" WHERE Id = ?`;
                 const deleteShadowSql = `DELETE FROM "${cryptoTableName}" WHERE Id = ?`;
                 db.exec('BEGIN');
                 try {
                     const deleteStmt = db.prepare(deleteSql);
                     const deleteShadowStmt = db.prepare(deleteShadowSql);
-                    for (const id of idsToDelete) {
+                    for (const { id } of approvedDeletes) {
                         deleteStmt.bind([id]);
                         deleteStmt.step();
                         deleteStmt.reset();
@@ -910,8 +919,10 @@ export async function bulkImportEncryptedV2(dbName: string, headerBytes: Uint8Ar
                 }
             }
 
-            if (rowsToInsert.length > 0) {
-                const result = bulkInsertRows(db, v2ImportHeader, rowsToInsert,
+            // Insert/update approved rows into open table
+            if (approvedInserts.length > 0) {
+                const rows = approvedInserts.map(a => a.converted);
+                const result = bulkInsertRows(db, v2ImportHeader, rows,
                     3 /* DeltaWins = always overwrite; permission enforcement is the gatekeeper */,
                     'bulkImportEncryptedV2');
                 rowsImported = result.rowsAffected;
