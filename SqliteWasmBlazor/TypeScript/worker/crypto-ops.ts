@@ -392,9 +392,14 @@ function getChangedColumns(
         return []; // New row — no changes to check
     }
 
+    // Sync infrastructure columns always change with any update — exclude from
+    // permission checks. They're not subject to column-level permissions.
+    const syncColumns = new Set(['UpdatedAt', 'IsDeleted', 'DeletedAt', 'SharingScope', 'SharingId']);
+
     const changed: string[] = [];
     for (let i = 0; i < columnNames.length; i++) {
-        if (columnNames[i] === pkColumn) { continue; } // PK never changes
+        if (columnNames[i] === pkColumn) { continue; }
+        if (syncColumns.has(columnNames[i])) { continue; }
         if (String(existing[0][i]) !== String(incomingRow[i])) {
             changed.push(columnNames[i]);
         }
