@@ -11,6 +11,18 @@ namespace SqliteWasmBlazor.TestApp.TestInfrastructure.CryptoSync;
 
 public partial class CryptoTestContext
 {
+    /// <summary>Admin X25519 private key (Base64) — for test key derivation. DO NOT use in production.</summary>
+    public const string AdminX25519PrivateKey = "6CDgPqpdtg76hTQwx+NvW10UkPMrs8gSv0qIJUWc/Js=";
+
+    /// <summary>Admin Ed25519 private key (Base64) — for test signing. DO NOT use in production.</summary>
+    public const string AdminEd25519PrivateKey = "0AMxvmHQ2YmRRNe9TblNSeqX1Eo/O2jNu6bvMOu8SAQ=";
+
+    /// <summary>Admin X25519 public key (Base64).</summary>
+    public const string AdminX25519PublicKey = "hsX5Q3fWqD8zyCsMe5PksvoDKUCckQUgYK90hdfxHm4=";
+
+    /// <summary>Admin Ed25519 public key (Base64).</summary>
+    public const string AdminEd25519PublicKey = "OBZwE49/GjJM9BteHA/VohAr2v3ScBHgknhQ4F4lJFA=";
+
     /// <summary>
     /// Seeds the admin bootstrap data (TrustedContact, ShareGroup, ShareTarget, DeviceSettings).
     /// Call from <see cref="OnModelCreating"/> after <c>base.OnModelCreating</c> and <c>ConfigureCryptoTables</c>.
@@ -19,14 +31,14 @@ public partial class CryptoTestContext
     {
         modelBuilder.Entity<TrustedContact>().HasData(new
         {
-            Id = System.Guid.Parse("c1513386-8156-4e65-83cb-e1482037243c"),
+            Id = System.Guid.Parse("ba68902f-58a8-4c9a-b45e-d4123b50caf9"),
             Username = "TestAdmin",
             Email = "admin@test.local",
             X25519PublicKey = "hsX5Q3fWqD8zyCsMe5PksvoDKUCckQUgYK90hdfxHm4=",
             Ed25519PublicKey = "OBZwE49/GjJM9BteHA/VohAr2v3ScBHgknhQ4F4lJFA=",
             IsAdmin = true,
             IsTrusted = true,
-            UpdatedAt = new System.DateTime(639114132547428060L, System.DateTimeKind.Utc),
+            UpdatedAt = new System.DateTime(639114135398800440L, System.DateTimeKind.Utc),
             SharingScope = SharingScope.Public,
             SharingId = "system",
             IsDeleted = false
@@ -34,12 +46,12 @@ public partial class CryptoTestContext
 
         modelBuilder.Entity<ShareGroup>().HasData(new
         {
-            Id = System.Guid.Parse("d5bf0a22-4f49-466c-8120-93280025233a"),
+            Id = System.Guid.Parse("c2ed4793-f258-425a-bcf1-f9b24335982b"),
             GroupContext = "system:v1",
             KeyVersion = 1,
             AdminPublicKey = "hsX5Q3fWqD8zyCsMe5PksvoDKUCckQUgYK90hdfxHm4=",
-            CreatedAt = new System.DateTime(639114132547428060L, System.DateTimeKind.Utc),
-            UpdatedAt = new System.DateTime(639114132547428060L, System.DateTimeKind.Utc),
+            CreatedAt = new System.DateTime(639114135398800440L, System.DateTimeKind.Utc),
+            UpdatedAt = new System.DateTime(639114135398800440L, System.DateTimeKind.Utc),
             SharingScope = SharingScope.Public,
             SharingId = "system",
             IsDeleted = false
@@ -47,14 +59,14 @@ public partial class CryptoTestContext
 
         modelBuilder.Entity<ShareTarget>().HasData(new
         {
-            Id = System.Guid.Parse("b94a9ff7-c700-427a-9be4-a697a9892b06"),
-            ShareGroupId = System.Guid.Parse("d5bf0a22-4f49-466c-8120-93280025233a"),
+            Id = System.Guid.Parse("0f2cd939-b5d8-42f9-98b9-9d44305ad6dd"),
+            ShareGroupId = System.Guid.Parse("c2ed4793-f258-425a-bcf1-f9b24335982b"),
             KeyVersion = 1,
             MemberPublicKey = "hsX5Q3fWqD8zyCsMe5PksvoDKUCckQUgYK90hdfxHm4=",
-            WrappedContentKey = System.Convert.FromBase64String("Q3KZd8aADkJDjlHBU2vJck9NKmUTSJYtjpp9u68dlwZBA2bH0AFeHs3YwtMCZ85q+m1xYntElfkCdRXo"),
+            WrappedContentKey = System.Convert.FromBase64String("xal+GzH5VXqy+smlW0u3t7LaxGsRm9sOXSrJ6lC1Rglc2djNk/kj59qzLXdI1LP2t7k9skqnvkNtYJqg"),
             Role = SyncRole.Owner,
-            GrantedByContactId = System.Guid.Parse("c1513386-8156-4e65-83cb-e1482037243c"),
-            UpdatedAt = new System.DateTime(639114132547428060L, System.DateTimeKind.Utc),
+            GrantedByContactId = System.Guid.Parse("ba68902f-58a8-4c9a-b45e-d4123b50caf9"),
+            UpdatedAt = new System.DateTime(639114135398800440L, System.DateTimeKind.Utc),
             SharingScope = SharingScope.Public,
             SharingId = "system",
             IsDeleted = false
@@ -62,11 +74,11 @@ public partial class CryptoTestContext
 
         modelBuilder.Entity<DeviceSettings>().HasData(new
         {
-            Id = System.Guid.Parse("663bf559-cc9f-42da-aa14-cf0958f45753"),
-            ClientGuid = "b215dc1d-ce3b-43bb-8755-d7b8f68ec8d6",
+            Id = System.Guid.Parse("ac5489bb-628e-4eb5-a917-0fc511ecaabd"),
+            ClientGuid = "84b3f377-7ece-449e-b0cf-2eb279f3d3d3",
             DeviceName = "Seed Device",
             IsAdmin = true,
-            AdminContactId = System.Guid.Parse("c1513386-8156-4e65-83cb-e1482037243c")
+            AdminContactId = System.Guid.Parse("ba68902f-58a8-4c9a-b45e-d4123b50caf9")
         });
     }
 }

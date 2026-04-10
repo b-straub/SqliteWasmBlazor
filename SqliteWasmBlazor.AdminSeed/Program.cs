@@ -68,6 +68,18 @@ namespace {{ns}};
 
 public partial class {{contextName}}
 {
+    /// <summary>Admin X25519 private key (Base64) — for test key derivation. DO NOT use in production.</summary>
+    public const string AdminX25519PrivateKey = "{{adminKeys.X25519PrivateKey}}";
+
+    /// <summary>Admin Ed25519 private key (Base64) — for test signing. DO NOT use in production.</summary>
+    public const string AdminEd25519PrivateKey = "{{adminKeys.Ed25519PrivateKey}}";
+
+    /// <summary>Admin X25519 public key (Base64).</summary>
+    public const string AdminX25519PublicKey = "{{adminKeys.X25519PublicKey}}";
+
+    /// <summary>Admin Ed25519 public key (Base64).</summary>
+    public const string AdminEd25519PublicKey = "{{adminKeys.Ed25519PublicKey}}";
+
     /// <summary>
     /// Seeds the admin bootstrap data (TrustedContact, ShareGroup, ShareTarget, DeviceSettings).
     /// Call from <see cref="OnModelCreating"/> after <c>base.OnModelCreating</c> and <c>ConfigureCryptoTables</c>.

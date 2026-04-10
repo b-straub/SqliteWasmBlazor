@@ -1,6 +1,3 @@
-using BlazorPRF.Crypto.Abstractions;
-using BlazorPRF.Crypto.Abstractions.Services;
-using BlazorPRF.Crypto.Testing;
 using MessagePack;
 using Microsoft.EntityFrameworkCore;
 using SqliteWasmBlazor.Components.Interop;
@@ -28,13 +25,12 @@ internal class WorkerEncryptedRoundTripTest(
             throw new InvalidOperationException("ISqliteWasmDatabaseService not available");
         }
 
-        var crypto = new BouncyCastleCryptoProvider();
-        var groupEncryption = new GroupEncryptionService(crypto);
-
-        // Use the same deterministic seed as AdminSeed.g.cs (byte[32]{1..32})
-        var adminSeed = new byte[32];
-        for (var i = 0; i < 32; i++) { adminSeed[i] = (byte)(i + 1); }
-        var adminKeys = await crypto.DeriveDualKeyPairAsync(adminSeed);
+        // Admin keys from the generated seed constants (deterministic from byte[32]{1..32}).
+        // No BouncyCastle needed — all crypto happens in the worker via crypto-core.
+        var adminX25519PrivateKey = CryptoTestContext.AdminX25519PrivateKey;
+        var adminX25519PublicKey = CryptoTestContext.AdminX25519PublicKey;
+        var adminEd25519PrivateKey = CryptoTestContext.AdminEd25519PrivateKey;
+        var adminEd25519PublicKey = CryptoTestContext.AdminEd25519PublicKey;
 
         // ===== STEP 1: Verify admin seed is in open tables =====
         Console.WriteLine($"[{Name}] Step 1: Verify admin seed in open tables");
@@ -97,20 +93,20 @@ internal class WorkerEncryptedRoundTripTest(
             var group = await ctx.ShareGroups.SingleAsync(g =>
                 g.GroupContext == CryptoSyncBootstrap.SystemGroupContext);
             var target = await ctx.ShareTargets.SingleAsync(t =>
-                t.ShareGroupId == group.Id && t.MemberPublicKey == adminKeys.X25519PublicKey);
+                t.ShareGroupId == group.Id && t.MemberPublicKey == adminX25519PublicKey);
 
             v2Header = new V2CryptoHeader
             {
                 Version = 2,
                 SystemTables = ["Contacts", "ShareGroups", "ShareTargets", "Permissions"],
                 ClientContactId = (await ctx.Contacts.SingleAsync(c => c.IsAdmin)).Id,
-                ClientX25519PrivateKey = Convert.FromBase64String(adminKeys.X25519PrivateKey),
+                ClientX25519PrivateKey = Convert.FromBase64String(adminX25519PrivateKey),
                 AdminX25519PublicKey = Convert.FromBase64String(group.AdminPublicKey),
                 GroupContext = group.GroupContext,
                 KeyVersion = group.KeyVersion,
                 WrappedCek = target.WrappedContentKey,
-                ClientEd25519PrivateKey = Convert.FromBase64String(adminKeys.Ed25519PrivateKey),
-                ClientEd25519PublicKey = Convert.FromBase64String(adminKeys.Ed25519PublicKey)
+                ClientEd25519PrivateKey = Convert.FromBase64String(adminEd25519PrivateKey),
+                ClientEd25519PublicKey = Convert.FromBase64String(adminEd25519PublicKey)
             };
         }
 
@@ -145,20 +141,20 @@ internal class WorkerEncryptedRoundTripTest(
             var group = await ctx.ShareGroups.SingleAsync(g =>
                 g.GroupContext == CryptoSyncBootstrap.SystemGroupContext);
             var target = await ctx.ShareTargets.SingleAsync(t =>
-                t.ShareGroupId == group.Id && t.MemberPublicKey == adminKeys.X25519PublicKey);
+                t.ShareGroupId == group.Id && t.MemberPublicKey == adminX25519PublicKey);
 
             v2Header = new V2CryptoHeader
             {
                 Version = 2,
                 SystemTables = ["Contacts", "ShareGroups", "ShareTargets", "Permissions"],
                 ClientContactId = (await ctx.Contacts.SingleAsync(c => c.IsAdmin)).Id,
-                ClientX25519PrivateKey = Convert.FromBase64String(adminKeys.X25519PrivateKey),
+                ClientX25519PrivateKey = Convert.FromBase64String(adminX25519PrivateKey),
                 AdminX25519PublicKey = Convert.FromBase64String(group.AdminPublicKey),
                 GroupContext = group.GroupContext,
                 KeyVersion = group.KeyVersion,
                 WrappedCek = target.WrappedContentKey,
-                ClientEd25519PrivateKey = Convert.FromBase64String(adminKeys.Ed25519PrivateKey),
-                ClientEd25519PublicKey = Convert.FromBase64String(adminKeys.Ed25519PublicKey)
+                ClientEd25519PrivateKey = Convert.FromBase64String(adminEd25519PrivateKey),
+                ClientEd25519PublicKey = Convert.FromBase64String(adminEd25519PublicKey)
             };
         }
 
