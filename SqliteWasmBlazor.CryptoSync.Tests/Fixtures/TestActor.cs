@@ -50,7 +50,7 @@ public sealed class TestActor : IAsyncDisposable
 
         DeviceIdentity = new DeviceIdentityService(context);
         Contacts = new ContactService(context);
-        Bootstrap = new CryptoSyncBootstrap(context, new GroupEncryptionService(crypto));
+        Bootstrap = new CryptoSyncBootstrap(new GroupEncryptionService(crypto));
         Gate = new SyncGate(Contacts);
     }
 

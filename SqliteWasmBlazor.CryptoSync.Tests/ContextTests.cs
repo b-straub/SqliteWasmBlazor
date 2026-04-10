@@ -27,6 +27,7 @@ public partial class TestSyncContext : CryptoSyncContextBase
     {
         base.OnModelCreating(modelBuilder);
         ConfigureCryptoTables(modelBuilder);
+        SeedAdminBootstrap(modelBuilder);
     }
 }
 

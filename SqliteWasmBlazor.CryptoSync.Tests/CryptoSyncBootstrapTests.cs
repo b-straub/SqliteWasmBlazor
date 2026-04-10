@@ -1,5 +1,4 @@
 using BlazorPRF.Crypto.Abstractions;
-using BlazorPRF.Crypto.Abstractions.Models;
 using BlazorPRF.Crypto.Abstractions.Services;
 using BlazorPRF.Crypto.Testing;
 using Microsoft.Data.Sqlite;
@@ -9,164 +8,117 @@ using Xunit;
 namespace SqliteWasmBlazor.CryptoSync.Tests;
 
 /// <summary>
-/// Tests for <see cref="CryptoSyncBootstrap"/>: the first-launch admin
-/// scaffolding. Verifies post-bootstrap state: DeviceSettings flagged admin,
-/// admin's TrustedContact at Full trust in system scope, admin's self-ShareGroup +
-/// self-ShareTarget present and well-formed.
+/// Tests for <see cref="CryptoSyncBootstrap"/>: pure crypto seed generation.
+/// Verifies that <see cref="CryptoSyncBootstrap.CreateAdminSeedAsync"/> produces
+/// well-formed seed data with valid wrapped CEK, correct contact fields, and
+/// consistent cross-references.
 /// </summary>
-public class CryptoSyncBootstrapTests : IAsyncLifetime
+public class CryptoSyncBootstrapTests
 {
-    private SqliteConnection _connection = null!;
-    private TestSyncContext _context = null!;
-    private CryptoSyncBootstrap _bootstrap = null!;
-    private ICryptoProvider _crypto = null!;
-    private DualKeyPairFull _adminKeys = null!;
+    private readonly ICryptoProvider _crypto = new BouncyCastleCryptoProvider();
 
-    public async Task InitializeAsync()
+    private async Task<(AdminSeedData Seed, BlazorPRF.Crypto.Abstractions.Models.DualKeyPairFull Keys)> CreateSeedAsync()
     {
-        _connection = new SqliteConnection("DataSource=:memory:");
-        _connection.Open();
-
-        var options = new DbContextOptionsBuilder<TestSyncContext>()
-            .UseSqlite(_connection)
-            .Options;
-
-        _context = new TestSyncContext(options);
-        await _context.Database.EnsureCreatedAsync();
-
-        _crypto = new BouncyCastleCryptoProvider();
-        _bootstrap = new CryptoSyncBootstrap(_context, new GroupEncryptionService(_crypto));
+        var groupEncryption = new GroupEncryptionService(_crypto);
+        var bootstrap = new CryptoSyncBootstrap(groupEncryption);
 
         var adminSeed = new byte[32];
-        for (var i = 0; i < adminSeed.Length; i++) { adminSeed[i] = (byte)(i + 1); }
-        _adminKeys = await _crypto.DeriveDualKeyPairAsync(adminSeed);
-    }
+        for (var i = 0; i < 32; i++) { adminSeed[i] = (byte)(i + 1); }
+        var keys = await _crypto.DeriveDualKeyPairAsync(adminSeed);
 
-    public Task DisposeAsync()
-    {
-        _context.Dispose();
-        _connection.Dispose();
-        return Task.CompletedTask;
-    }
-
-    private async Task<TrustedContact> RunBootstrapAsync(string username = "Admin")
-    {
-        return await _bootstrap.InitializeAdminAsync(
-            _adminKeys, username, $"{username.ToLowerInvariant()}@test.com", "Test Device");
+        var seed = await bootstrap.CreateAdminSeedAsync(keys, "Admin", "admin@test.com", "Test Device");
+        return (seed, keys);
     }
 
     [Fact]
-    public async Task InitializeAdminAsync_CreatesAdminContact_WithIsAdminMarker()
+    public async Task CreateAdminSeedAsync_AdminContact_HasCorrectFields()
     {
-        var admin = await RunBootstrapAsync();
+        var (seed, keys) = await CreateSeedAsync();
 
-        Assert.NotEqual(Guid.Empty, admin.Id);
-        Assert.Equal("Admin", admin.Username);
-        Assert.Equal(_adminKeys.X25519PublicKey, admin.X25519PublicKey);
-        Assert.Equal(_adminKeys.Ed25519PublicKey, admin.Ed25519PublicKey);
-        Assert.True(admin.IsAdmin);
+        Assert.NotEqual(Guid.Empty, seed.AdminContact.Id);
+        Assert.Equal("Admin", seed.AdminContact.Username);
+        Assert.Equal("admin@test.com", seed.AdminContact.Email);
+        Assert.Equal(keys.X25519PublicKey, seed.AdminContact.X25519PublicKey);
+        Assert.Equal(keys.Ed25519PublicKey, seed.AdminContact.Ed25519PublicKey);
+        Assert.True(seed.AdminContact.IsAdmin);
+        Assert.True(seed.AdminContact.IsTrusted);
+        Assert.Equal(SharingScope.Public, seed.AdminContact.SharingScope);
+        Assert.Equal(CryptoSyncBootstrap.SystemSharingId, seed.AdminContact.SharingId);
     }
 
     [Fact]
-    public async Task InitializeAdminAsync_AdminContact_IsFullTrust()
+    public async Task CreateAdminSeedAsync_SystemGroup_HasCorrectFields()
     {
-        var admin = await RunBootstrapAsync();
-        Assert.True(admin.IsTrusted);
-        Assert.True(admin.IsAdmin);
+        var (seed, keys) = await CreateSeedAsync();
+
+        Assert.NotEqual(Guid.Empty, seed.SystemGroup.Id);
+        Assert.Equal(CryptoSyncBootstrap.SystemGroupContext, seed.SystemGroup.GroupContext);
+        Assert.Equal(1, seed.SystemGroup.KeyVersion);
+        Assert.Equal(keys.X25519PublicKey, seed.SystemGroup.AdminPublicKey);
     }
 
     [Fact]
-    public async Task InitializeAdminAsync_AdminContact_IsInPublicSystemScope()
+    public async Task CreateAdminSeedAsync_ShareTarget_ReferencesGroupAndContact()
     {
-        var admin = await RunBootstrapAsync();
-        Assert.Equal(SharingScope.Public, admin.SharingScope);
-        Assert.Equal(CryptoSyncBootstrap.SystemSharingId, admin.SharingId);
+        var (seed, _) = await CreateSeedAsync();
+
+        Assert.Equal(seed.SystemGroup.Id, seed.AdminShareTarget.ShareGroupId);
+        Assert.Equal(seed.AdminContact.Id, seed.AdminShareTarget.GrantedByContactId);
+        Assert.Equal(SyncRole.Owner, seed.AdminShareTarget.Role);
+        Assert.True(seed.AdminShareTarget.WrappedContentKey.Length > 12);
     }
 
     [Fact]
-    public async Task InitializeAdminAsync_CreatesDeviceSettings_WithIsAdminTrue()
+    public async Task CreateAdminSeedAsync_WrappedCek_CanBeUnwrapped()
     {
-        var admin = await RunBootstrapAsync();
+        var (seed, keys) = await CreateSeedAsync();
 
-        var device = await _context.DeviceSettings.SingleAsync();
-        Assert.True(device.IsAdmin);
-        Assert.Equal("Test Device", device.DeviceName);
-        Assert.Equal(admin.Id, device.AdminContactId);
-    }
-
-    [Fact]
-    public async Task InitializeAdminAsync_CreatesSystemShareGroup()
-    {
-        await RunBootstrapAsync();
-
-        var group = await _context.ShareGroups.SingleAsync();
-        Assert.Equal(CryptoSyncBootstrap.SystemGroupContext, group.GroupContext);
-        Assert.Equal(1, group.KeyVersion);
-        Assert.Equal(_adminKeys.X25519PublicKey, group.AdminPublicKey);
-        Assert.Equal(SharingScope.Public, group.SharingScope);
-        Assert.Equal(CryptoSyncBootstrap.SystemSharingId, group.SharingId);
-    }
-
-    [Fact]
-    public async Task InitializeAdminAsync_CreatesSelfShareTarget_ForSystemScope()
-    {
-        var admin = await RunBootstrapAsync();
-
-        var target = await _context.ShareTargets.SingleAsync();
-        Assert.Equal(_adminKeys.X25519PublicKey, target.MemberPublicKey);
-        Assert.Equal(1, target.KeyVersion);
-        Assert.Equal(SyncRole.Owner, target.Role);
-        Assert.Equal(admin.Id, target.GrantedByContactId);
-        Assert.NotNull(target.WrappedContentKey);
-        Assert.True(target.WrappedContentKey.Length > 12, "WrappedContentKey should be [nonce(12) | ciphertext]");
-    }
-
-    [Fact]
-    public async Task InitializeAdminAsync_SelfShareTarget_CanUnwrapCek()
-    {
-        // The wrapped CEK on the admin's self-ShareTarget, when unwrapped
-        // with the admin's wrapping key (ECDH + HKDF), must yield a valid
-        // 32-byte AES-256 key. This proves the roundtrip from
-        // CreateGroupKeysAsync → serialize → deserialize → unwrap works.
-        await RunBootstrapAsync();
-
-        var target = await _context.ShareTargets.SingleAsync();
-        var group = await _context.ShareGroups.SingleAsync();
-        var wrapped = CryptoSyncBootstrap.DeserializeWrappedCek(target.WrappedContentKey);
-
-        // Derive wrapping key (same ECDH + HKDF path the worker uses)
-        var adminPrivateKey = Convert.FromBase64String(_adminKeys.X25519PrivateKey);
+        var wrapped = CryptoSyncBootstrap.DeserializeWrappedCek(seed.AdminShareTarget.WrappedContentKey);
+        var adminPrivKey = Convert.FromBase64String(keys.X25519PrivateKey);
         var wrappingKeyResult = await _crypto.DeriveWrappingKeyAsync(
-            adminPrivateKey, _adminKeys.X25519PublicKey, group.GroupContext);
+            adminPrivKey, seed.SystemGroup.AdminPublicKey, seed.SystemGroup.GroupContext);
         Assert.True(wrappingKeyResult.Success);
 
-        var unwrapResult = await _crypto.UnwrapContentKeyAsync(
-            wrapped, wrappingKeyResult.Value!);
+        var unwrapResult = await _crypto.UnwrapContentKeyAsync(wrapped, wrappingKeyResult.Value!);
         Assert.True(unwrapResult.Success);
         Assert.Equal(32, unwrapResult.Value!.Length);
     }
 
     [Fact]
-    public async Task InitializeAdminAsync_Idempotent_DoesNotDuplicateRows()
+    public async Task CreateAdminSeedAsync_DeviceSettings_LinkedToContact()
     {
-        var first = await RunBootstrapAsync();
-        var second = await RunBootstrapAsync("Admin");
+        var (seed, _) = await CreateSeedAsync();
 
-        Assert.Equal(first.Id, second.Id);
-        Assert.Equal(1, await _context.Contacts.CountAsync());
-        Assert.Equal(1, await _context.DeviceSettings.CountAsync());
-        Assert.Equal(1, await _context.ShareGroups.CountAsync());
-        Assert.Equal(1, await _context.ShareTargets.CountAsync());
+        Assert.True(seed.Device.IsAdmin);
+        Assert.Equal(seed.AdminContact.Id, seed.Device.AdminContactId);
     }
 
     [Fact]
-    public async Task InitializeAdminAsync_GateAcceptsAdminAfterBootstrap()
+    public async Task HasData_Seed_IsAvailableInTestSyncContext()
     {
-        var admin = await RunBootstrapAsync();
-        var gate = new SyncGate(new ContactService(_context));
+        // The generated AdminSeed.g.cs provides SeedAdminBootstrap(ModelBuilder)
+        // which TestSyncContext calls in OnModelCreating. Verify it applied.
+        using var connection = new SqliteConnection("DataSource=:memory:");
+        connection.Open();
+        var options = new DbContextOptionsBuilder<TestSyncContext>()
+            .UseSqlite(connection)
+            .Options;
+        using var context = new TestSyncContext(options);
+        await context.Database.EnsureCreatedAsync();
 
-        var resolved = await gate.EnsureSenderTrustedAsync(_adminKeys.Ed25519PublicKey);
+        var admin = await context.Contacts.SingleAsync(c => c.IsAdmin);
+        Assert.Equal("TestAdmin", admin.Username);
+        Assert.True(admin.IsTrusted);
 
-        Assert.Equal(admin.Id, resolved.Id);
+        var group = await context.ShareGroups.SingleAsync();
+        Assert.Equal(CryptoSyncBootstrap.SystemGroupContext, group.GroupContext);
+
+        var target = await context.ShareTargets.SingleAsync();
+        Assert.Equal(group.Id, target.ShareGroupId);
+        Assert.True(target.WrappedContentKey.Length > 12);
+
+        var device = await context.DeviceSettings.SingleAsync();
+        Assert.True(device.IsAdmin);
+        Assert.Equal(admin.Id, device.AdminContactId);
     }
 }
