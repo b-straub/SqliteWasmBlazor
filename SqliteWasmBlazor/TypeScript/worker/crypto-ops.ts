@@ -228,22 +228,7 @@ function computeColumnRegistryHash(db: any, tableName: string): string {
  * Admin's Ed25519 public key is found via: Contacts WHERE IsAdmin = 1.
  * The sender's Ed25519 key (hex) is stored in the shadow table's SenderPublicKey column.
  */
-function verifySenderIsAdmin(db: any, tableName: string): boolean {
-    const cryptoTableName = `_crypto_${tableName}`;
-
-    // Get sender's Ed25519 hex from the just-upserted shadow
-    const senderRows = db.exec({
-        sql: `SELECT SenderPublicKey FROM "${cryptoTableName}" LIMIT 1`,
-        returnValue: 'resultRows',
-        rowMode: 'array'
-    }) as any[][];
-
-    if (!senderRows || senderRows.length === 0) {
-        return false;
-    }
-
-    const senderEd25519Hex = senderRows[0][0] as string;
-
+function verifySenderIsAdmin(db: any, senderEd25519Hex: string): boolean {
     // Get admin's Ed25519 public key (base64) from Contacts
     const adminRows = db.exec({
         sql: `SELECT Ed25519PublicKey FROM Contacts WHERE IsAdmin = 1 LIMIT 1`,
@@ -287,27 +272,10 @@ interface ParsedPermissions {
  */
 function resolveSenderPermissions(
     db: any, tableName: string,
+    senderEd25519Hex: string,
     header: { groupContext: string }
 ): ParsedPermissions | null {
-    // Step 1: find the sender's Ed25519 public key from the first shadow row
-    // All rows in a ShadowRowGroup come from the same sender
-    // The SenderPublicKey is stored as hex in the shadow row during Phase 1
-    // We need to look it up from the just-upserted shadow rows
-    const cryptoTableName = `_crypto_${tableName}`;
-    const senderRows = db.exec({
-        sql: `SELECT SenderPublicKey FROM "${cryptoTableName}" LIMIT 1`,
-        returnValue: 'resultRows',
-        rowMode: 'array'
-    }) as any[][];
-
-    if (!senderRows || senderRows.length === 0) {
-        logger.warn(MODULE_NAME, `resolveSenderPermissions: no shadow rows for ${tableName}`);
-        return null;
-    }
-
-    const senderEd25519Hex = senderRows[0][0] as string;
-
-    // Step 2: Ed25519 hex → Contact → X25519PublicKey
+    // Step 1: Ed25519 hex → Contact → X25519PublicKey
     // Convert hex back to base64 for Contact lookup
     const ed25519Bytes = hexToBytes(senderEd25519Hex);
     const ed25519Base64 = btoa(Array.from(ed25519Bytes).map(b => String.fromCharCode(b)).join(''));
@@ -743,15 +711,20 @@ export async function bulkImportEncryptedV2(dbName: string, headerBytes: Uint8Ar
                 9: pkColumn
             };
 
+            // Extract sender's Ed25519 public key from the first verified row.
+            // All rows in a ShadowRowGroup come from the same sender.
+            const senderEd25519Hex = verifiedRows[0].sr[6] as string;
+
             // System tables: verify sender IS the admin (only admin may modify
             // Contacts, ShareGroups, ShareTargets). Non-admin senders are rejected
             // entirely — no partial row-level checks.
             if (isSystemTable) {
-                const senderIsAdmin = verifySenderIsAdmin(db, tableName);
+                const senderIsAdmin = verifySenderIsAdmin(db, senderEd25519Hex);
                 if (!senderIsAdmin) {
-                    for (const arrived of verifiedRows) {
-                        const rowIdHex = arrived.id instanceof Uint8Array
-                            ? bytesToHex(arrived.id) : String(arrived.id);
+                    for (const verified of verifiedRows) {
+                        const rowId = verified.sr[0];
+                        const rowIdHex = rowId instanceof Uint8Array
+                            ? bytesToHex(rowId) : String(rowId);
                         errors.push({
                             code: 'PERMISSION_INSERT_DENIED',
                             table: tableName, rowId: rowIdHex, groupId: header.groupContext,
@@ -770,7 +743,7 @@ export async function bulkImportEncryptedV2(dbName: string, headerBytes: Uint8Ar
             // Domain tables: resolve sender's role and enforce CRUD permissions.
             const permissions = isSystemTable
                 ? null
-                : resolveSenderPermissions(db, tableName, header);
+                : resolveSenderPermissions(db, tableName, senderEd25519Hex, header);
 
             // Permission check each verified row. Collect approved rows
             // with their shadow data for atomic write.

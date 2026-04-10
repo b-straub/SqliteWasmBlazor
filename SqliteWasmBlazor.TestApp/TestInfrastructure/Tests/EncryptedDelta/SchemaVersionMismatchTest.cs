@@ -126,24 +126,22 @@ internal class SchemaVersionMismatchTest(
                 CryptoDatabaseName, headerBytes, shadowGroupBytes);
 
             // If we get here without error, the schema check didn't work
-            throw new InvalidOperationException("Expected schema mismatch error, but import succeeded");
+            throw new Exception("ASSERTION: Expected schema mismatch error, but import succeeded");
         }
-        catch (InvalidOperationException)
+        catch (Exception ex) when (ex.Message.StartsWith("ASSERTION:"))
         {
-            throw; // Re-throw our own assertion error
+            v2Header.Clear();
+            throw new InvalidOperationException(ex.Message);
         }
         catch (Exception ex)
         {
+            v2Header.Clear();
             if (!ex.Message.Contains("schema mismatch"))
             {
                 throw new InvalidOperationException(
                     $"Expected schema mismatch error, got: {ex.Message}");
             }
-            Console.WriteLine($"[{Name}] Step 3 OK: schema mismatch correctly rejected: {ex.Message.Substring(0, Math.Min(100, ex.Message.Length))}");
-        }
-        finally
-        {
-            v2Header.Clear();
+            Console.WriteLine($"[{Name}] Step 3 OK: schema mismatch correctly rejected");
         }
 
         return "OK";
