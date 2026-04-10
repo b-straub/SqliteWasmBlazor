@@ -918,7 +918,7 @@ export async function bulkImportEncryptedV2(dbName: string, headerBytes: Uint8Ar
 // Key rotation
 // ============================================================================
 
-export async function bulkRotateKey(dbName: string, keyPayload: Uint8Array, metadata: any) {
+async function bulkRotateKey(dbName: string, keyPayload: Uint8Array, metadata: any) {
     const db = openDatabases.get(dbName);
     if (!db) {
         throw new Error(`Database ${dbName} not open`);
@@ -1024,5 +1024,41 @@ export async function bulkRotateKey(dbName: string, keyPayload: Uint8Array, meta
     } finally {
         oldKeyBytes.fill(0);
         newKeyBytes.fill(0);
+    }
+}
+
+/**
+ * V2 key rotation: unwraps old + new CEKs from two V2CryptoHeaders, then
+ * re-encrypts all matching shadow rows. All key material stays in the worker.
+ *
+ * binaryPayload = MessagePack(oldV2CryptoHeader)
+ * binaryHeader  = MessagePack(newV2CryptoHeader)
+ * metadata: { tableName, sharingId?, newKeyVersion? }
+ */
+export async function bulkRotateKeyV2(
+    dbName: string,
+    oldHeaderBytes: Uint8Array,
+    newHeaderBytes: Uint8Array,
+    metadata: any
+) {
+    const oldHeader = parseV2CryptoHeader(oldHeaderBytes);
+    const newHeader = parseV2CryptoHeader(newHeaderBytes);
+
+    let oldCek: Uint8Array | null = null;
+    let newCek: Uint8Array | null = null;
+
+    try {
+        oldCek = await unwrapCekFromHeader(oldHeader);
+        newCek = await unwrapCekFromHeader(newHeader);
+
+        // Build the 64-byte key payload and delegate to bulkRotateKey
+        const keyPayload = new Uint8Array(64);
+        keyPayload.set(oldCek, 0);
+        keyPayload.set(newCek, 32);
+
+        return await bulkRotateKey(dbName, keyPayload, metadata);
+    } finally {
+        if (oldCek) { clearBytes(oldCek); }
+        if (newCek) { clearBytes(newCek); }
     }
 }

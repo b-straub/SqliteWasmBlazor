@@ -83,24 +83,20 @@ public interface ISqliteWasmDatabaseService
         byte[] groupBytes, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Bulk re-key rotation: re-encrypts every row in a crypto shadow table
-    /// (<c>_crypto_&lt;tableName&gt;</c>) under a new content key, in place, inside a single
-    /// SQLite transaction. Runs entirely inside the worker — plaintext and ciphertext never
-    /// leave the worker during the loop. This is the hot path for revoke and ownership-transfer
-    /// operations (CryptoSync plan decision §17 / Phase J benchmark).
+    /// Re-encrypt every row in a crypto shadow table under a new content key, in place,
+    /// inside a single SQLite transaction. Unwraps old + new CEKs from two V2CryptoHeaders
+    /// inside the worker — raw key material never leaves the worker.
     /// </summary>
     /// <param name="databaseName">Target database filename.</param>
-    /// <param name="tableName">Domain table name (not the crypto shadow table — the worker
-    /// resolves <c>_crypto_&lt;tableName&gt;</c> internally).</param>
-    /// <param name="oldKey">32-byte AES-GCM content key currently encrypting the shadow rows.
-    /// Caller MUST zero after this call returns.</param>
-    /// <param name="newKey">32-byte AES-GCM content key to re-encrypt under. Caller MUST zero
-    /// after this call returns.</param>
-    /// <param name="sharingId">Optional filter: when set, only shadow rows whose
-    /// <c>SharingId</c> equals this value are rotated (scopes the revoke to one ShareGroup).
-    /// When <c>null</c>, every row in the shadow table is rotated.</param>
+    /// <param name="tableName">Domain table name (worker resolves <c>_crypto_&lt;tableName&gt;</c>).</param>
+    /// <param name="oldHeaderBytes">MessagePack-serialized V2CryptoHeader for the old key version.</param>
+    /// <param name="newHeaderBytes">MessagePack-serialized V2CryptoHeader for the new key version.</param>
+    /// <param name="sharingId">Optional SharingId filter for scoped rotation.</param>
+    /// <param name="newKeyVersion">Optional new key version to stamp on rotated rows.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Number of shadow rows re-encrypted.</returns>
-    Task<int> BulkRotateKeyAsync(string databaseName, string tableName, byte[] oldKey, byte[] newKey,
-        string? sharingId = null, CancellationToken cancellationToken = default);
+    Task<int> BulkRotateKeyAsync(string databaseName, string tableName,
+        byte[] oldHeaderBytes, byte[] newHeaderBytes,
+        string? sharingId = null, int? newKeyVersion = null,
+        CancellationToken cancellationToken = default);
 }

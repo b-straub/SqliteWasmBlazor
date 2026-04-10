@@ -423,28 +423,16 @@ internal sealed partial class SqliteWasmWorkerBridge : ISqliteWasmDatabaseServic
     }
 
     public async Task<int> BulkRotateKeyAsync(
-        string databaseName, string tableName, byte[] oldKey, byte[] newKey,
-        string? sharingId = null, CancellationToken cancellationToken = default)
+        string databaseName, string tableName,
+        byte[] oldHeaderBytes, byte[] newHeaderBytes,
+        string? sharingId = null, int? newKeyVersion = null,
+        CancellationToken cancellationToken = default)
     {
         await EnsureInitializedAsync(cancellationToken);
-
-        if (oldKey.Length != 32)
-        {
-            throw new ArgumentException("oldKey must be 32 bytes (AES-256)", nameof(oldKey));
-        }
-        if (newKey.Length != 32)
-        {
-            throw new ArgumentException("newKey must be 32 bytes (AES-256)", nameof(newKey));
-        }
 
         var requestId = Interlocked.Increment(ref _nextRequestId);
         var tcs = new TaskCompletionSource<SqlQueryResult>();
         _pendingRequests[requestId] = tcs;
-
-        // Copy both keys into a single 64-byte buffer sent as the binary payload.
-        // Worker layout: oldKey[0..32] | newKey[32..64]. The worker zeroes its copy
-        // after use; we also zero this local buffer below.
-        var keyPayload = new byte[64];
 
         try
         {
@@ -454,22 +442,21 @@ internal sealed partial class SqliteWasmWorkerBridge : ISqliteWasmDatabaseServic
                 tcs.TrySetCanceled();
             });
 
-            oldKey.AsSpan().CopyTo(keyPayload.AsSpan(0, 32));
-            newKey.AsSpan().CopyTo(keyPayload.AsSpan(32, 32));
-
+            // binaryPayload = old V2CryptoHeader, binaryHeader = new V2CryptoHeader
             var metadataJson = JsonSerializer.Serialize(new
             {
                 id = requestId,
                 data = new
                 {
-                    type = "bulkRotateKey",
+                    type = "bulkRotateKeyV2",
                     database = databaseName,
                     tableName,
-                    sharingId
+                    sharingId,
+                    newKeyVersion
                 }
             });
 
-            SendBinaryToWorker(keyPayload.AsSpan(), metadataJson);
+            SendBinaryToWorkerWithHeader(oldHeaderBytes.AsSpan(), metadataJson, newHeaderBytes.AsSpan());
 
             using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             timeoutCts.CancelAfter(300_000);
@@ -483,8 +470,6 @@ internal sealed partial class SqliteWasmWorkerBridge : ISqliteWasmDatabaseServic
         }
         finally
         {
-            // Zero the key copy we built for this call. Worker zeroes its copy internally.
-            Array.Clear(keyPayload, 0, keyPayload.Length);
             _pendingRequests.TryRemove(requestId, out _);
         }
     }

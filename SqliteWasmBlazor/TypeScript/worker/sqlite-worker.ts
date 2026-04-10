@@ -12,7 +12,7 @@ import {
     setSqlite3, setPoolUtil, setBaseHref
 } from './worker-state';
 import { bulkInsertRows, type V2Header } from './bulk-ops';
-import { bulkExportEncryptedV2, bulkImportEncryptedV2, bulkRotateKey } from './crypto-ops';
+import { bulkExportEncryptedV2, bulkImportEncryptedV2, bulkRotateKeyV2 } from './crypto-ops';
 
 // Re-export mutable state references for local use
 let sqlite3: any;
@@ -266,11 +266,16 @@ async function handleRequest(data: WorkerRequest['data'], binaryPayload?: ArrayB
                 data as any
             );
 
-        case 'bulkRotateKey':
-            if (!binaryPayload) {
-                throw new Error('bulkRotateKey requires binaryPayload (oldKey+newKey = 64 bytes)');
+        case 'bulkRotateKeyV2':
+            if (!binaryPayload || !binaryHeader) {
+                throw new Error('bulkRotateKeyV2 requires binaryPayload (oldV2CryptoHeader) + binaryHeader (newV2CryptoHeader)');
             }
-            return await bulkRotateKey(database!, new Uint8Array(binaryPayload), data as any);
+            return await bulkRotateKeyV2(
+                database!,
+                new Uint8Array(binaryPayload),
+                new Uint8Array(binaryHeader),
+                data as any
+            );
 
         default:
             throw new Error(`Unknown request type: ${type}`);
