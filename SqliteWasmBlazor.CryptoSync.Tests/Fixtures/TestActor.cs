@@ -29,6 +29,7 @@ public sealed class TestActor : IAsyncDisposable
     public ContactService Contacts { get; }
     public DeviceIdentityService DeviceIdentity { get; }
     public CryptoSyncBootstrap Bootstrap { get; }
+    public GroupService Groups { get; }
     public SyncGate Gate { get; }
 
     private readonly SqliteConnection _connection;
@@ -51,6 +52,7 @@ public sealed class TestActor : IAsyncDisposable
         DeviceIdentity = new DeviceIdentityService(context);
         Contacts = new ContactService(context);
         Bootstrap = new CryptoSyncBootstrap(new GroupEncryptionService(crypto));
+        Groups = new GroupService(context, new GroupEncryptionService(crypto));
         Gate = new SyncGate(Contacts);
     }
 

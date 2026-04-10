@@ -1,0 +1,268 @@
+using Microsoft.EntityFrameworkCore;
+using SqliteWasmBlazor.CryptoSync.Tests.Fixtures;
+using Xunit;
+
+namespace SqliteWasmBlazor.CryptoSync.Tests;
+
+/// <summary>
+/// Tests for <see cref="GroupService"/> — ShareGroup + ShareTarget CRUD
+/// with real crypto (BouncyCastle). Each test starts from the two-actor
+/// bootstrap (admin + user with system scope already wired).
+/// </summary>
+public class GroupServiceTests : IAsyncLifetime
+{
+    private TwoActorBootstrap _scenario = null!;
+
+    public async Task InitializeAsync()
+    {
+        _scenario = await TwoActorBootstrap.CreateAsync();
+    }
+
+    public async Task DisposeAsync()
+    {
+        await _scenario.DisposeAsync();
+    }
+
+    private ReadOnlyMemory<byte> AdminPrivateKey =>
+        Convert.FromBase64String(_scenario.Admin.Keys.X25519PrivateKey);
+
+    // ----------------------------------------------------------------
+    // CREATE GROUP
+    // ----------------------------------------------------------------
+
+    [Fact]
+    public async Task CreateGroup_CreatesGroupWithMembers()
+    {
+        var adminContact = await _scenario.Admin.Contacts
+            .GetByEd25519PublicKeyAsync(_scenario.Admin.Keys.Ed25519PublicKey);
+
+        var group = await _scenario.Admin.Groups.CreateGroupAsync(
+            AdminPrivateKey,
+            _scenario.Admin.Keys.X25519PublicKey,
+            [
+                (_scenario.Admin.Keys.X25519PublicKey, SyncRole.Owner, adminContact!.Id),
+                (_scenario.User.Keys.X25519PublicKey, SyncRole.Editor, adminContact.Id)
+            ],
+            "shopping-list-1:v1");
+
+        Assert.Equal("shopping-list-1:v1", group.GroupContext);
+        Assert.Equal(1, group.KeyVersion);
+        Assert.Equal(_scenario.Admin.Keys.X25519PublicKey, group.AdminPublicKey);
+
+        var members = await _scenario.Admin.Groups.GetMembersAsync(group.Id);
+        Assert.Equal(2, members.Count);
+        Assert.Contains(members, m => m.MemberPublicKey == _scenario.Admin.Keys.X25519PublicKey
+                                      && m.Role == SyncRole.Owner);
+        Assert.Contains(members, m => m.MemberPublicKey == _scenario.User.Keys.X25519PublicKey
+                                      && m.Role == SyncRole.Editor);
+    }
+
+    [Fact]
+    public async Task CreateGroup_MembersCanUnwrapSameCek()
+    {
+        var adminContact = await _scenario.Admin.Contacts
+            .GetByEd25519PublicKeyAsync(_scenario.Admin.Keys.Ed25519PublicKey);
+
+        var group = await _scenario.Admin.Groups.CreateGroupAsync(
+            AdminPrivateKey,
+            _scenario.Admin.Keys.X25519PublicKey,
+            [
+                (_scenario.Admin.Keys.X25519PublicKey, SyncRole.Owner, adminContact!.Id),
+                (_scenario.User.Keys.X25519PublicKey, SyncRole.Editor, adminContact.Id)
+            ],
+            "cek-test:v1");
+
+        var targets = await _scenario.Admin.Groups.GetMembersAsync(group.Id);
+        var adminTarget = targets.Single(t => t.MemberPublicKey == _scenario.Admin.Keys.X25519PublicKey);
+        var userTarget = targets.Single(t => t.MemberPublicKey == _scenario.User.Keys.X25519PublicKey);
+
+        // Admin unwraps
+        var adminWrapped = CryptoSyncBootstrap.DeserializeWrappedCek(adminTarget.WrappedContentKey);
+        var adminWk = await _scenario.Crypto.DeriveWrappingKeyAsync(
+            AdminPrivateKey, group.AdminPublicKey, group.GroupContext);
+        Assert.True(adminWk.Success);
+        var adminCek = await _scenario.Crypto.UnwrapContentKeyAsync(adminWrapped, adminWk.Value!);
+        Assert.True(adminCek.Success);
+
+        // User unwraps
+        var userWrapped = CryptoSyncBootstrap.DeserializeWrappedCek(userTarget.WrappedContentKey);
+        var userPrivKey = Convert.FromBase64String(_scenario.User.Keys.X25519PrivateKey);
+        var userWk = await _scenario.Crypto.DeriveWrappingKeyAsync(
+            userPrivKey, group.AdminPublicKey, group.GroupContext);
+        Assert.True(userWk.Success);
+        var userCek = await _scenario.Crypto.UnwrapContentKeyAsync(userWrapped, userWk.Value!);
+        Assert.True(userCek.Success);
+
+        Assert.Equal(adminCek.Value!.ToArray(), userCek.Value!.ToArray());
+    }
+
+    // ----------------------------------------------------------------
+    // ADD MEMBERS
+    // ----------------------------------------------------------------
+
+    [Fact]
+    public async Task AddMembers_WrapsExistingCekForNewMember()
+    {
+        // System group already has admin + user from bootstrap
+        var systemGroup = await _scenario.Admin.Context.ShareGroups
+            .SingleAsync(g => g.GroupContext == CryptoSyncBootstrap.SystemGroupContext);
+
+        // Create a third actor
+        var crypto = _scenario.Crypto;
+        await using var thirdActor = await TestActor.CreateAsync("Charlie", false, 200, crypto);
+
+        // Add Charlie as contact
+        var charlieContact = await _scenario.Admin.Contacts.AddContactAsync(
+            new ContactUserData { Username = "Charlie", Email = "charlie@test.com" },
+            thirdActor.Keys.X25519PublicKey,
+            thirdActor.Keys.Ed25519PublicKey,
+            isTrusted: true);
+
+        var adminContact = await _scenario.Admin.Contacts
+            .GetByEd25519PublicKeyAsync(_scenario.Admin.Keys.Ed25519PublicKey);
+
+        await _scenario.Admin.Groups.AddMembersAsync(
+            systemGroup.Id,
+            AdminPrivateKey,
+            [(thirdActor.Keys.X25519PublicKey, SyncRole.Viewer, adminContact!.Id)]);
+
+        var members = await _scenario.Admin.Groups.GetMembersAsync(systemGroup.Id);
+        Assert.Equal(3, members.Count);
+        Assert.Contains(members, m => m.MemberPublicKey == thirdActor.Keys.X25519PublicKey
+                                      && m.Role == SyncRole.Viewer);
+    }
+
+    // ----------------------------------------------------------------
+    // REMOVE MEMBER (key rotation)
+    // ----------------------------------------------------------------
+
+    [Fact]
+    public async Task RemoveMember_RotatesKeyAndExcludesRemovedMember()
+    {
+        var adminContact = await _scenario.Admin.Contacts
+            .GetByEd25519PublicKeyAsync(_scenario.Admin.Keys.Ed25519PublicKey);
+
+        // Create a group with admin + user + third actor
+        var crypto = _scenario.Crypto;
+        await using var charlie = await TestActor.CreateAsync("Charlie", false, 200, crypto);
+
+        var group = await _scenario.Admin.Groups.CreateGroupAsync(
+            AdminPrivateKey,
+            _scenario.Admin.Keys.X25519PublicKey,
+            [
+                (_scenario.Admin.Keys.X25519PublicKey, SyncRole.Owner, adminContact!.Id),
+                (_scenario.User.Keys.X25519PublicKey, SyncRole.Editor, adminContact.Id),
+                (charlie.Keys.X25519PublicKey, SyncRole.Viewer, adminContact.Id)
+            ],
+            "rotate-test:v1");
+
+        Assert.Equal(1, group.KeyVersion);
+
+        // Remove Charlie
+        var newVersion = await _scenario.Admin.Groups.RemoveMemberAsync(
+            group.Id, AdminPrivateKey, charlie.Keys.X25519PublicKey);
+
+        Assert.Equal(2, newVersion);
+
+        // Reload group
+        await _scenario.Admin.Context.Entry(group).ReloadAsync();
+        Assert.Equal(2, group.KeyVersion);
+        Assert.Equal("rotate-test:v2", group.GroupContext);
+
+        // Current members: only admin + user at v2
+        var currentMembers = await _scenario.Admin.Groups.GetMembersAsync(group.Id);
+        Assert.Equal(2, currentMembers.Count);
+        Assert.DoesNotContain(currentMembers, m => m.MemberPublicKey == charlie.Keys.X25519PublicKey);
+
+        // Old v1 targets still exist (for historical decryption)
+        var allTargets = await _scenario.Admin.Context.ShareTargets
+            .Where(t => t.ShareGroupId == group.Id)
+            .ToListAsync();
+        Assert.Equal(5, allTargets.Count); // 3 at v1 + 2 at v2
+    }
+
+    [Fact]
+    public async Task RemoveMember_OldCekDiffersFromNewCek()
+    {
+        var adminContact = await _scenario.Admin.Contacts
+            .GetByEd25519PublicKeyAsync(_scenario.Admin.Keys.Ed25519PublicKey);
+
+        var group = await _scenario.Admin.Groups.CreateGroupAsync(
+            AdminPrivateKey,
+            _scenario.Admin.Keys.X25519PublicKey,
+            [
+                (_scenario.Admin.Keys.X25519PublicKey, SyncRole.Owner, adminContact!.Id),
+                (_scenario.User.Keys.X25519PublicKey, SyncRole.Editor, adminContact.Id)
+            ],
+            "cek-rotate:v1");
+
+        // Get v1 CEK
+        var v1Target = await _scenario.Admin.Context.ShareTargets
+            .SingleAsync(t => t.ShareGroupId == group.Id
+                && t.MemberPublicKey == _scenario.Admin.Keys.X25519PublicKey);
+        var v1Wrapped = CryptoSyncBootstrap.DeserializeWrappedCek(v1Target.WrappedContentKey);
+        var v1Wk = await _scenario.Crypto.DeriveWrappingKeyAsync(
+            AdminPrivateKey, group.AdminPublicKey, "cek-rotate:v1");
+        var v1Cek = await _scenario.Crypto.UnwrapContentKeyAsync(v1Wrapped, v1Wk.Value!);
+
+        // Remove user → rotate
+        await _scenario.Admin.Groups.RemoveMemberAsync(
+            group.Id, AdminPrivateKey, _scenario.User.Keys.X25519PublicKey);
+
+        // Get v2 CEK
+        await _scenario.Admin.Context.Entry(group).ReloadAsync();
+        var v2Target = await _scenario.Admin.Context.ShareTargets
+            .SingleAsync(t => t.ShareGroupId == group.Id
+                && t.MemberPublicKey == _scenario.Admin.Keys.X25519PublicKey
+                && t.KeyVersion == 2);
+        var v2Wrapped = CryptoSyncBootstrap.DeserializeWrappedCek(v2Target.WrappedContentKey);
+        var v2Wk = await _scenario.Crypto.DeriveWrappingKeyAsync(
+            AdminPrivateKey, group.AdminPublicKey, group.GroupContext);
+        var v2Cek = await _scenario.Crypto.UnwrapContentKeyAsync(v2Wrapped, v2Wk.Value!);
+
+        // CEKs must differ (rotation generated a new random key)
+        Assert.NotEqual(v1Cek.Value!.ToArray(), v2Cek.Value!.ToArray());
+    }
+
+    [Fact]
+    public async Task RemoveMember_NonExistentMember_Throws()
+    {
+        var systemGroup = await _scenario.Admin.Context.ShareGroups
+            .SingleAsync(g => g.GroupContext == CryptoSyncBootstrap.SystemGroupContext);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            _scenario.Admin.Groups.RemoveMemberAsync(
+                systemGroup.Id, AdminPrivateKey, "nonexistent-key").AsTask());
+    }
+
+    // ----------------------------------------------------------------
+    // UPDATE ROLE
+    // ----------------------------------------------------------------
+
+    [Fact]
+    public async Task UpdateMemberRole_ChangesRole()
+    {
+        var systemGroup = await _scenario.Admin.Context.ShareGroups
+            .SingleAsync(g => g.GroupContext == CryptoSyncBootstrap.SystemGroupContext);
+
+        await _scenario.Admin.Groups.UpdateMemberRoleAsync(
+            systemGroup.Id, _scenario.User.Keys.X25519PublicKey, SyncRole.Editor);
+
+        var members = await _scenario.Admin.Groups.GetMembersAsync(systemGroup.Id);
+        var userTarget = members.Single(m => m.MemberPublicKey == _scenario.User.Keys.X25519PublicKey);
+        Assert.Equal(SyncRole.Editor, userTarget.Role);
+    }
+
+    // ----------------------------------------------------------------
+    // HELPERS
+    // ----------------------------------------------------------------
+
+    [Theory]
+    [InlineData("system:v1", 2, "system:v2")]
+    [InlineData("shopping-list:v3", 4, "shopping-list:v4")]
+    [InlineData("no-version", 1, "no-version:v1")]
+    public void IncrementGroupContextVersion_WorksCorrectly(string input, int newVersion, string expected)
+    {
+        Assert.Equal(expected, GroupService.IncrementGroupContextVersion(input, newVersion));
+    }
+}
