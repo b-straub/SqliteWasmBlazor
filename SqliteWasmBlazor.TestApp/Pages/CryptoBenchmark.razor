@@ -521,8 +521,7 @@
             tableName: "CryptoTestItems",
             primaryKeyColumn: "Id",
             recordCount: 0,
-            mode: 1,
-            sqlTypeOverrides: new Dictionary<string, string> { ["Id"] = "BLOB" });
+            mode: 1);
 
         return new BulkExportMetadata
         {
@@ -641,7 +640,6 @@
     {
         const int batchSize = 10_000;
         var rng = new Random(42); // deterministic per run for reproducibility
-        var sqlTypeOverrides = new Dictionary<string, string> { ["Id"] = "BLOB" };
         var now = DateTime.UtcNow;
 
         for (var batchStart = 0; batchStart < count; batchStart += batchSize)
@@ -652,8 +650,7 @@
                 tableName: "CryptoTestItems",
                 primaryKeyColumn: "Id",
                 recordCount: thisBatch,
-                mode: 0, // seed mode = plain INSERT
-                sqlTypeOverrides: sqlTypeOverrides);
+                mode: 0); // seed mode = plain INSERT
 
             using var stream = new MemoryStream();
             MessagePackSerializer.Serialize(stream, header);

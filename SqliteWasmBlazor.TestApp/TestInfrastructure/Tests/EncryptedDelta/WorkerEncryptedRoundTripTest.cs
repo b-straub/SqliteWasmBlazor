@@ -227,8 +227,7 @@ internal class WorkerEncryptedRoundTripTest(
             tableName: tableName,
             primaryKeyColumn: "Id",
             recordCount: 0,
-            mode: 1,
-            sqlTypeOverrides: new Dictionary<string, string> { ["Id"] = "BLOB" });
+            mode: 1);
 
         return new BulkExportMetadata
         {
