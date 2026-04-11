@@ -918,7 +918,7 @@ export async function bulkImportEncryptedV2(dbName: string, headerBytes: Uint8Ar
 // Key rotation
 // ============================================================================
 
-async function bulkRotateKey(dbName: string, keyPayload: Uint8Array, metadata: any) {
+async function bulkRotateKey(dbName: string, keyPayload: Uint8Array, metadata: any, oldAad?: Uint8Array) {
     const db = openDatabases.get(dbName);
     if (!db) {
         throw new Error(`Database ${dbName} not open`);
@@ -952,10 +952,7 @@ async function bulkRotateKey(dbName: string, keyPayload: Uint8Array, metadata: a
             throw new Error(`bulkRotateKey: crypto shadow table not found: ${cryptoTable}`);
         }
 
-        const oldKey = await crypto.subtle.importKey(
-            'raw', oldKeyBytes.buffer, { name: 'AES-GCM' }, false, ['decrypt']);
-        const newKey = await crypto.subtle.importKey(
-            'raw', newKeyBytes.buffer, { name: 'AES-GCM' }, false, ['encrypt']);
+        // Keys stay as raw Uint8Arrays — crypto-core handles importKey internally
 
         const selectSql = sharingId != null
             ? `SELECT Id, EncryptedRow, Nonce FROM "${cryptoTable}" WHERE SharingId = ?`
@@ -988,24 +985,21 @@ async function bulkRotateKey(dbName: string, keyPayload: Uint8Array, metadata: a
                 const oldCipher = row[1] as Uint8Array;
                 const oldNonce = row[2] as Uint8Array;
 
-                const plaintext = await crypto.subtle.decrypt(
-                    { name: 'AES-GCM', iv: oldNonce.buffer as ArrayBuffer },
-                    oldKey,
-                    oldCipher.buffer as ArrayBuffer
+                // Decrypt with old key + AAD (must match what encryptAesGcm used during export)
+                const plaintext = await decryptAesGcm(
+                    { ciphertext: oldCipher, nonce: oldNonce },
+                    oldKeyBytes,
+                    oldAad
                 );
 
-                const newNonce = crypto.getRandomValues(new Uint8Array(12));
-                const newCipher = await crypto.subtle.encrypt(
-                    { name: 'AES-GCM', iv: newNonce.buffer as ArrayBuffer },
-                    newKey,
-                    plaintext
-                );
+                // Re-encrypt with new key (no AAD — will be set on next export with new group context)
+                const encrypted = await encryptAesGcm(plaintext, newKeyBytes);
 
                 const emptySignature = new Uint8Array(0);
                 if (newKeyVersion !== undefined) {
-                    stmt.bind([new Uint8Array(newCipher), newNonce, newKeyVersion, emptySignature, id]);
+                    stmt.bind([encrypted.ciphertext, encrypted.nonce, newKeyVersion, emptySignature, id]);
                 } else {
-                    stmt.bind([new Uint8Array(newCipher), newNonce, emptySignature, id]);
+                    stmt.bind([encrypted.ciphertext, encrypted.nonce, emptySignature, id]);
                 }
                 stmt.step();
                 stmt.reset();
@@ -1048,15 +1042,26 @@ export async function bulkRotateKeyV2(
     let newCek: Uint8Array | null = null;
 
     try {
-        oldCek = await unwrapCekFromHeader(oldHeader);
-        newCek = await unwrapCekFromHeader(newHeader);
+        try {
+            oldCek = await unwrapCekFromHeader(oldHeader);
+        } catch (e) {
+            throw new Error(`bulkRotateKeyV2: failed to unwrap old CEK: ${e instanceof Error ? e.message : String(e)}`);
+        }
+        try {
+            newCek = await unwrapCekFromHeader(newHeader);
+        } catch (e) {
+            throw new Error(`bulkRotateKeyV2: failed to unwrap new CEK: ${e instanceof Error ? e.message : String(e)}`);
+        }
 
         // Build the 64-byte key payload and delegate to bulkRotateKey
         const keyPayload = new Uint8Array(64);
         keyPayload.set(oldCek, 0);
         keyPayload.set(newCek, 32);
 
-        return await bulkRotateKey(dbName, keyPayload, metadata);
+        // Old AAD matches what export used: groupContext:keyVersion
+        const oldAad = buildAad(oldHeader.groupContext, oldHeader.keyVersion);
+
+        return await bulkRotateKey(dbName, keyPayload, metadata, oldAad);
     } finally {
         if (oldCek) { clearBytes(oldCek); }
         if (newCek) { clearBytes(newCek); }
