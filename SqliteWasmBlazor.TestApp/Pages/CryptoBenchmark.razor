@@ -5,7 +5,6 @@
 @using System.Text
 @using System.Text.Json
 @using Microsoft.EntityFrameworkCore
-@using System.Security.Cryptography
 @using BlazorPRF.Crypto.Abstractions
 @using BlazorPRF.Crypto.Abstractions.Services
 @using MessagePack
@@ -339,9 +338,9 @@
             StateHasChanged();
             await Task.Yield();
 
-            var sw4 = Stopwatch.StartNew();
             newHeader = await BuildHeaderAsync(TempADbName, newGroupContext);
             newHdrBytes = MessagePackSerializer.Serialize(newHeader);
+            var sw4 = Stopwatch.StartNew();
             var envelope2 = await DatabaseService.BulkExportEncryptedV2Async(
                 TempADbName, exportMetadata, newHdrBytes);
             sw4.Stop();
@@ -356,9 +355,9 @@
             // tempB also needs the v2 group/target for header lookup
             await PersistNewKeyVersionAsync(TempBDbName, newGroupContext, newKeysResult.Value!);
 
-            var sw5 = Stopwatch.StartNew();
             newHeader = await BuildHeaderAsync(TempBDbName, newGroupContext);
             newHdrBytes = MessagePackSerializer.Serialize(newHeader);
+            var sw5 = Stopwatch.StartNew();
             var report2Bytes = await DatabaseService.BulkImportEncryptedV2Async(
                 TempBDbName, newHdrBytes, envelope2);
             sw5.Stop();
@@ -556,7 +555,6 @@
         optionsBuilder.UseSqliteWasm(connection);
         await using var ctx = new CryptoTestContext(optionsBuilder.Options);
         await ctx.Database.EnsureCreatedAsync();
-        await DatabaseService.CloseDatabaseAsync(dbName);
     }
 
     /// <summary>
