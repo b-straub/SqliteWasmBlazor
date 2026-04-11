@@ -8,7 +8,6 @@
 @using Microsoft.EntityFrameworkCore
 @using BlazorPRF.Crypto.Abstractions
 @using BlazorPRF.Crypto.Abstractions.Services
-@using MessagePack
 @using SqliteWasmBlazor
 @using SqliteWasmBlazor.Components.Interop
 @using SqliteWasmBlazor.CryptoSync
@@ -379,6 +378,12 @@
                 "Benchmark Verify: rows source={Src} verify={Ver}, checksum source={CksSrc} verify={CksVer}, pass={Pass}",
                 _rowCount, import2Rows, sourceChecksum, verifyChecksum, verifyPassed);
 
+            if (!verifyPassed)
+            {
+                // Log first mismatching row for debugging
+                await LogFirstMismatchAsync(SourceDbName, TempBDbName);
+            }
+
             // ---- Record result ----
             var perRowMicros = rotatedRowCount > 0
                 ? rotateMs * 1000.0 / rotatedRowCount
@@ -528,6 +533,43 @@
             DataType = header.DataType,
             Mode = 1
         };
+    }
+
+    private async Task LogFirstMismatchAsync(string sourceDb, string verifyDb)
+    {
+        try
+        {
+            var srcConn = new SqliteWasmConnection($"Data Source={sourceDb}");
+            var srcOpts = new DbContextOptionsBuilder<CryptoTestContext>().UseSqliteWasm(srcConn).Options as DbContextOptions<CryptoTestContext>;
+            await using var srcCtx = new CryptoTestContext(srcOpts);
+
+            var verConn = new SqliteWasmConnection($"Data Source={verifyDb}");
+            var verOpts = new DbContextOptionsBuilder<CryptoTestContext>().UseSqliteWasm(verConn).Options as DbContextOptions<CryptoTestContext>;
+            await using var verCtx = new CryptoTestContext(verOpts);
+
+            var srcItems = await srcCtx.CryptoTestItems.OrderBy(i => i.Id).Take(3).ToListAsync();
+            var verItems = await verCtx.CryptoTestItems.OrderBy(i => i.Id).Take(3).ToListAsync();
+
+            for (var i = 0; i < Math.Min(srcItems.Count, verItems.Count); i++)
+            {
+                var s = srcItems[i];
+                var v = verItems[i];
+                if (s.Id != v.Id || s.Title != v.Title || s.Price != v.Price || s.IsBought != v.IsBought)
+                {
+                    Logger.LogError(
+                        "MISMATCH row {I}: src(Id={SId}, Title={ST}, Price={SP}, IsBought={SB}) vs ver(Id={VId}, Title={VT}, Price={VP}, IsBought={VB})",
+                        i, s.Id, s.Title, s.Price, s.IsBought, v.Id, v.Title, v.Price, v.IsBought);
+                    return;
+                }
+            }
+
+            Logger.LogError("No field-level mismatch in first 3 rows — checksum difference may be in row count ({Src} vs {Ver}) or ordering",
+                srcItems.Count, verItems.Count);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to log mismatch details");
+        }
     }
 
     // -------------------------------------------------------
