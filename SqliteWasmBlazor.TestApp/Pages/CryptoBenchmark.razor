@@ -2,6 +2,7 @@
 
 @using System.Diagnostics
 @using System.Security.Cryptography
+@using MessagePack
 @using System.Text
 @using System.Text.Json
 @using Microsoft.EntityFrameworkCore
@@ -592,44 +593,51 @@
     }
 
     // -------------------------------------------------------
-    // SEEDING — EF Core batched inserts
+    // SEEDING — V2 bulk import (worker prepared statements, ~10x faster than EF Core)
     // -------------------------------------------------------
     private async Task SeedItemsAsync(int count)
     {
-        const int batchSize = 1000;
+        const int batchSize = 10_000;
         var rng = new Random(42); // deterministic per run for reproducibility
+        var sqlTypeOverrides = new Dictionary<string, string> { ["Id"] = "BLOB" };
+        var now = DateTime.UtcNow;
 
         for (var batchStart = 0; batchStart < count; batchStart += batchSize)
         {
             var thisBatch = Math.Min(batchSize, count - batchStart);
 
-            await using var ctx = await CryptoFactory.CreateDbContextAsync();
-            ctx.ChangeTracker.AutoDetectChangesEnabled = false;
+            var header = MessagePackFileHeaderV2.Create<CryptoTestItemDto>(
+                tableName: "CryptoTestItems",
+                primaryKeyColumn: "Id",
+                recordCount: thisBatch,
+                mode: 0, // seed mode = plain INSERT
+                sqlTypeOverrides: sqlTypeOverrides);
+
+            using var stream = new MemoryStream();
+            MessagePackSerializer.Serialize(stream, header);
 
             for (var i = 0; i < thisBatch; i++)
             {
                 var idx = batchStart + i;
-                ctx.CryptoTestItems.Add(new CryptoTestItem
+                var dto = new CryptoTestItemDto
                 {
                     Id = Guid.NewGuid(),
                     Title = $"Benchmark item #{idx:D6}",
                     Description = $"Generated row for re-key rotation benchmark at scale {count:N0}",
                     Price = (decimal)(rng.NextDouble() * 100.0),
                     IsBought = idx % 3 == 0,
-                    SharingScope = SharingScope.Public,
-                    SharingId = "benchmark",
-                    UpdatedAt = DateTime.UtcNow
-                });
+                    SharingScope = (int)CryptoSync.SharingScope.Public,
+                    SharingId = CryptoSyncBootstrap.SystemSharingId,
+                    UpdatedAt = now
+                };
+                MessagePackSerializer.Serialize(stream, dto);
             }
 
-            await ctx.SaveChangesAsync();
+            await DatabaseService.BulkImportAsync(SourceDbName, stream.ToArray());
 
-            if ((batchStart / batchSize) % 10 == 0)
-            {
-                _statusText = $"Seeding... {batchStart + thisBatch:N0} / {count:N0}";
-                StateHasChanged();
-                await Task.Yield();
-            }
+            _statusText = $"Seeding... {batchStart + thisBatch:N0} / {count:N0}";
+            StateHasChanged();
+            await Task.Yield();
         }
     }
 

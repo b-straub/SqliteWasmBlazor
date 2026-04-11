@@ -61,6 +61,17 @@ public interface ISqliteWasmDatabaseService
     Task<byte[]> ExportDatabaseAsync(string databaseName, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Plain (non-encrypted) bulk import from V2 MessagePack payload.
+    /// Used for seeding, initial data load, admin baseline creation.
+    /// </summary>
+    /// <param name="databaseName">Target database filename.</param>
+    /// <param name="data">V2 MessagePack bytes: header + row arrays.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>Number of rows imported.</returns>
+    Task<int> BulkImportAsync(string databaseName, byte[] data,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// V2 encrypted bulk export — shadow rows as wire format. Worker derives CEK
     /// via crypto-core (ECDH + HKDF), encrypts per-row with AAD (Layer 1 tamper
     /// detection), signs per-row (Layer 2), upserts shadow, returns

@@ -327,6 +327,52 @@ internal sealed partial class SqliteWasmWorkerBridge : ISqliteWasmDatabaseServic
         }
     }
 
+    public async Task<int> BulkImportAsync(
+        string databaseName, byte[] data,
+        CancellationToken cancellationToken = default)
+    {
+        await EnsureInitializedAsync(cancellationToken);
+
+        var requestId = Interlocked.Increment(ref _nextRequestId);
+        var tcs = new TaskCompletionSource<SqlQueryResult>();
+        _pendingRequests[requestId] = tcs;
+
+        try
+        {
+            await using var registration = cancellationToken.Register(() =>
+            {
+                _pendingRequests.TryRemove(requestId, out _);
+                tcs.TrySetCanceled();
+            });
+
+            var metadataJson = JsonSerializer.Serialize(new
+            {
+                id = requestId,
+                data = new
+                {
+                    type = "bulkImport",
+                    database = databaseName
+                }
+            });
+
+            SendBinaryToWorker(data.AsSpan(), metadataJson);
+
+            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeoutCts.CancelAfter(300_000);
+
+            var result = await tcs.Task.WaitAsync(timeoutCts.Token);
+            return result.RowsAffected;
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new TimeoutException("Bulk import timed out.");
+        }
+        finally
+        {
+            _pendingRequests.TryRemove(requestId, out _);
+        }
+    }
+
     public async Task<byte[]> BulkExportEncryptedV2Async(
         string databaseName, BulkExportMetadata exportMetadata,
         byte[] headerBytes, CancellationToken cancellationToken = default)

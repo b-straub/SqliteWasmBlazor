@@ -249,6 +249,12 @@ async function handleRequest(data: WorkerRequest['data'], binaryPayload?: ArrayB
         case 'exportDb':
             return await exportDatabase(database!);
 
+        case 'bulkImport':
+            if (!binaryPayload) {
+                throw new Error('bulkImport requires binaryPayload (V2 MessagePack)');
+            }
+            return bulkImport(database!, new Uint8Array(binaryPayload), data as any);
+
         case 'bulkExportEncryptedV2':
             if (!binaryPayload) {
                 throw new Error('bulkExportEncryptedV2 requires binaryPayload (V2CryptoHeader)');
@@ -733,6 +739,30 @@ async function exportDatabase(dbName: string) {
         logger.error(MODULE_NAME, `Failed to export database ${dbName}:`, error);
         throw error;
     }
+}
+
+/**
+ * Plain (non-encrypted) bulk import from V2 MessagePack payload.
+ * Used for seeding, initial data load, admin baseline creation.
+ * The payload is the same format as BulkExport: header + row arrays.
+ */
+function bulkImport(dbName: string, payload: Uint8Array, metadata: any) {
+    const db = openDatabases.get(dbName);
+    if (!db) {
+        throw new Error(`Database ${dbName} not open`);
+    }
+
+    const objects = bigIntUnpackr.unpackMultiple(payload);
+    if (objects.length < 1) {
+        throw new Error('bulkImport: empty payload');
+    }
+
+    const header = objects[0] as V2Header;
+    const rows = objects.slice(1) as any[][];
+    const conflictStrategy = metadata.conflictStrategy ?? header[6] ?? 0;
+    const readonlyColumnsMap = metadata.readonlyColumnsMap as Record<string, string[]> | undefined;
+
+    return bulkInsertRows(db, header, rows, conflictStrategy, 'bulkImport', readonlyColumnsMap);
 }
 
 // Bulk import/export and crypto operations are in separate modules:
