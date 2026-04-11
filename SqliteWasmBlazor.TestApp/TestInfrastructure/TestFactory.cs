@@ -1,3 +1,4 @@
+using BlazorPRF.Crypto.Abstractions.Services;
 using Microsoft.EntityFrameworkCore;
 using SqliteWasmBlazor.Models;
 using SqliteWasmBlazor.TestApp.TestInfrastructure.Tests;
@@ -28,12 +29,13 @@ internal class TestFactory
     public TestFactory(
         IDbContextFactory<TodoDbContext> todoFactory,
         ISqliteWasmDatabaseService databaseService,
-        IDbContextFactory<CryptoTestContext>? cryptoFactory = null)
+        IDbContextFactory<CryptoTestContext>? cryptoFactory = null,
+        IGroupEncryption? groupEncryption = null)
     {
         PopulateTests(todoFactory, databaseService);
         if (cryptoFactory is not null)
         {
-            PopulateCryptoTests(cryptoFactory, databaseService);
+            PopulateCryptoTests(cryptoFactory, databaseService, groupEncryption);
         }
     }
 
@@ -58,7 +60,10 @@ internal class TestFactory
         _entries.Add(new TestEntry(category, test.Name, () => test.RunTestWithFreshDatabaseAsync()));
     }
 
-    private void PopulateCryptoTests(IDbContextFactory<CryptoTestContext> cryptoFactory, ISqliteWasmDatabaseService databaseService)
+    private void PopulateCryptoTests(
+        IDbContextFactory<CryptoTestContext> cryptoFactory,
+        ISqliteWasmDatabaseService databaseService,
+        IGroupEncryption? groupEncryption)
     {
         var test1 = new CryptoSyncRoundTripTest(cryptoFactory, databaseService);
         _entries.Add(new TestEntry("Encrypted Delta", test1.Name, () => test1.RunTestWithFreshDatabaseAsync()));
@@ -71,6 +76,17 @@ internal class TestFactory
 
         var test4 = new SchemaVersionMismatchTest(cryptoFactory, databaseService);
         _entries.Add(new TestEntry("Encrypted Delta", test4.Name, () => test4.RunTestWithFreshDatabaseAsync()));
+
+        var test5 = new MultiTableRoundTripTest(cryptoFactory, databaseService);
+        _entries.Add(new TestEntry("Encrypted Delta", test5.Name, () => test5.RunTestWithFreshDatabaseAsync()));
+
+        // SharingAndRotate requires IGroupEncryption — skip gracefully when
+        // the caller didn't wire it (older razor pages).
+        if (groupEncryption is not null)
+        {
+            var test6 = new SharingAndRotateTest(cryptoFactory, databaseService, groupEncryption);
+            _entries.Add(new TestEntry("Encrypted Delta", test6.Name, () => test6.RunTestWithFreshDatabaseAsync()));
+        }
     }
 
     private void PopulateTests(IDbContextFactory<TodoDbContext> factory, ISqliteWasmDatabaseService databaseService)

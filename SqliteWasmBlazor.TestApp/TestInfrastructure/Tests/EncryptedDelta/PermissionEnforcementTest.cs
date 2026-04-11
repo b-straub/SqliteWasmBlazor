@@ -1,6 +1,6 @@
+using System.Globalization;
 using MessagePack;
 using Microsoft.EntityFrameworkCore;
-using SqliteWasmBlazor.Components.Interop;
 using SqliteWasmBlazor.CryptoSync;
 using SqliteWasmBlazor.TestApp.TestInfrastructure.CryptoSync;
 
@@ -32,6 +32,14 @@ internal class PermissionEnforcementTest(
     : CryptoSyncTestBase(cryptoFactory, databaseService)
 {
     public override string Name => "CryptoSync_PermissionEnforcement";
+
+    /// <summary>
+    /// Monotonic delta cursor — captured by <see cref="SeedItems"/> right
+    /// before inserting fresh rows so the next <see cref="ExportDelta"/>
+    /// filters out everything older (seed + prior scenarios + sender-role
+    /// changes to ShareTargets).
+    /// </summary>
+    private DateTime _sinceCursor = DateTime.MinValue;
 
     public override async ValueTask<string?> RunTestAsync()
     {
@@ -276,6 +284,13 @@ internal class PermissionEnforcementTest(
 
     private async ValueTask SeedItems(params CryptoTestItem[] items)
     {
+        // Capture cursor strictly before the new rows so the next
+        // ExportDelta walks _column_registry with WHERE UpdatedAt > cursor
+        // and picks up ONLY these items (not system tables, not prior
+        // scenario items, not ShareTarget rows mutated by SetSenderRole).
+        _sinceCursor = DateTime.UtcNow;
+        await Task.Delay(20);
+
         await using var ctx = await CryptoFactory.CreateDbContextAsync();
         foreach (var item in items)
         {
@@ -296,8 +311,22 @@ internal class PermissionEnforcementTest(
         var headerBytes = MessagePackSerializer.Serialize(v2Header);
         try
         {
+            var metadata = new BulkExportMetadata
+            {
+                Mode = 1,
+                Tables =
+                [
+                    new TableExportSpec
+                    {
+                        TableName = "CryptoTestItems",
+                        IsSystemTable = false,
+                        Where = "\"UpdatedAt\" > ?",
+                        WhereParams = [_sinceCursor.ToString("O", CultureInfo.InvariantCulture)]
+                    }
+                ]
+            };
             return await DatabaseService!.BulkExportEncryptedV2Async(
-                CryptoDatabaseName, BuildExportMetadata("CryptoTestItems"), headerBytes);
+                CryptoDatabaseName, metadata, headerBytes);
         }
         finally
         {
@@ -305,7 +334,7 @@ internal class PermissionEnforcementTest(
         }
     }
 
-    private async ValueTask<(int Imported, int Skipped, object[] Errors)> ImportDelta(byte[] shadowGroupBytes)
+    private async ValueTask<(int Imported, int Skipped, ImportError[] Errors)> ImportDelta(byte[] envelopeBytes)
     {
         var v2Header = await BuildV2Header();
         var headerBytes = MessagePackSerializer.Serialize(v2Header);
@@ -313,19 +342,15 @@ internal class PermissionEnforcementTest(
         try
         {
             reportBytes = await DatabaseService!.BulkImportEncryptedV2Async(
-                CryptoDatabaseName, headerBytes, shadowGroupBytes);
+                CryptoDatabaseName, headerBytes, envelopeBytes);
         }
         finally
         {
             v2Header.Clear();
         }
 
-        var report = MessagePackSerializer.Deserialize<object[]>(reportBytes);
-        var imported = Convert.ToInt32(report[0]);
-        var skipped = Convert.ToInt32(report[1]);
-        var errors = report[2] as object[] ?? [];
-
-        return (imported, skipped, errors);
+        var report = MessagePackSerializer.Deserialize<ImportReport>(reportBytes);
+        return (report.RowsImported, report.RowsSkipped, report.Errors.ToArray());
     }
 
     private async ValueTask<V2CryptoHeader> BuildV2Header()
@@ -397,24 +422,5 @@ internal class PermissionEnforcementTest(
         {
             throw new InvalidOperationException($"{label}: expected {expected}, got {actual}");
         }
-    }
-
-    private static BulkExportMetadata BuildExportMetadata(string tableName)
-    {
-        var header = MessagePackFileHeaderV2.Create<CryptoTestItemDto>(
-            tableName: tableName,
-            primaryKeyColumn: "Id",
-            recordCount: 0,
-            mode: 1);
-
-        return new BulkExportMetadata
-        {
-            TableName = header.TableName,
-            Columns = header.Columns,
-            PrimaryKeyColumn = header.PrimaryKeyColumn,
-            SchemaHash = header.SchemaHash,
-            DataType = header.DataType,
-            Mode = 1
-        };
     }
 }

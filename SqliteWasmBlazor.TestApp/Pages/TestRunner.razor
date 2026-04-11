@@ -4,9 +4,11 @@
 @using SqliteWasmBlazor.TestApp.TestInfrastructure.CryptoSync
 @using Microsoft.EntityFrameworkCore
 @using SqliteWasmBlazor.Models
+@using BlazorPRF.Crypto.Abstractions.Services
 @inject IDbContextFactory<TodoDbContext> DbContextFactory
 @inject IDbContextFactory<CryptoTestContext> CryptoFactory
 @inject ISqliteWasmDatabaseService DatabaseService
+@inject IGroupEncryption GroupEncryption
 
 <PageTitle>Test Runner</PageTitle>
 
@@ -49,7 +51,7 @@
 
     private async Task RunAllTestsAsync()
     {
-        var testFactory = new TestFactory(DbContextFactory, DatabaseService, CryptoFactory);
+        var testFactory = new TestFactory(DbContextFactory, DatabaseService, CryptoFactory, GroupEncryption);
         var tests = testFactory.GetTests().ToList();
 
         _totalTests = tests.Count;

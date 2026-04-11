@@ -1,6 +1,6 @@
+using System.Globalization;
 using MessagePack;
 using Microsoft.EntityFrameworkCore;
-using SqliteWasmBlazor.Components.Interop;
 using SqliteWasmBlazor.CryptoSync;
 using SqliteWasmBlazor.TestApp.TestInfrastructure.CryptoSync;
 
@@ -31,6 +31,11 @@ internal class SchemaVersionMismatchTest(
 
         // Step 1: Seed + export
         Console.WriteLine($"[{Name}] Step 1: Seed + export");
+
+        // Capture cursor before seeding so the delta envelope excludes the
+        // system tables and carries only the CryptoTestItem we just wrote.
+        var sinceCursor = DateTime.UtcNow;
+        await Task.Delay(20);
 
         await using (var ctx = await CryptoFactory.CreateDbContextAsync())
         {
@@ -67,12 +72,25 @@ internal class SchemaVersionMismatchTest(
             };
         }
 
-        var exportMetadata = BuildExportMetadata("CryptoTestItems");
+        var exportMetadata = new BulkExportMetadata
+        {
+            Mode = 1,
+            Tables =
+            [
+                new TableExportSpec
+                {
+                    TableName = "CryptoTestItems",
+                    IsSystemTable = false,
+                    Where = "\"UpdatedAt\" > ?",
+                    WhereParams = [sinceCursor.ToString("O", CultureInfo.InvariantCulture)]
+                }
+            ]
+        };
         var headerBytes = MessagePackSerializer.Serialize(v2Header);
-        byte[] shadowGroupBytes;
+        byte[] envelopeBytes;
         try
         {
-            shadowGroupBytes = await DatabaseService.BulkExportEncryptedV2Async(
+            envelopeBytes = await DatabaseService.BulkExportEncryptedV2Async(
                 CryptoDatabaseName, exportMetadata, headerBytes);
         }
         finally
@@ -80,7 +98,7 @@ internal class SchemaVersionMismatchTest(
             v2Header.Clear();
         }
 
-        Console.WriteLine($"[{Name}] Step 1 OK: exported {shadowGroupBytes.Length} bytes");
+        Console.WriteLine($"[{Name}] Step 1 OK: exported {envelopeBytes.Length} bytes");
 
         // Step 2: Tamper with _column_registry to simulate schema migration
         Console.WriteLine($"[{Name}] Step 2: Add fake column to _column_registry");
@@ -123,7 +141,7 @@ internal class SchemaVersionMismatchTest(
         try
         {
             await DatabaseService.BulkImportEncryptedV2Async(
-                CryptoDatabaseName, headerBytes, shadowGroupBytes);
+                CryptoDatabaseName, headerBytes, envelopeBytes);
 
             // If we get here without error, the schema check didn't work
             throw new Exception("ASSERTION: Expected schema mismatch error, but import succeeded");
@@ -145,24 +163,5 @@ internal class SchemaVersionMismatchTest(
         }
 
         return "OK";
-    }
-
-    private static BulkExportMetadata BuildExportMetadata(string tableName)
-    {
-        var header = MessagePackFileHeaderV2.Create<CryptoTestItemDto>(
-            tableName: tableName,
-            primaryKeyColumn: "Id",
-            recordCount: 0,
-            mode: 1);
-
-        return new BulkExportMetadata
-        {
-            TableName = header.TableName,
-            Columns = header.Columns,
-            PrimaryKeyColumn = header.PrimaryKeyColumn,
-            SchemaHash = header.SchemaHash,
-            DataType = header.DataType,
-            Mode = 1
-        };
     }
 }

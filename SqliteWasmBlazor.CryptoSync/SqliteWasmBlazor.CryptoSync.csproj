@@ -21,14 +21,16 @@
   </ItemGroup>
 
   <!-- During development: use ProjectReference for latest renamed models -->
-  <ItemGroup Condition="'$(Configuration)' == 'Debug'">
+  <!-- ToDo use nuget for release -->
+  <ItemGroup>
     <ProjectReference Include="..\..\BlazorPRF\BlazorPRF.Crypto.Abstractions\BlazorPRF.Crypto.Abstractions.csproj" />
   </ItemGroup>
 
-  <!-- Release: use NuGet -->
+  <!-- ToDo use nuget for release
   <ItemGroup Condition="'$(Configuration)' == 'Release'">
     <PackageReference Include="BlazorPRF.Crypto.Abstractions" Version="$(BlazorPRFVersion)" />
   </ItemGroup>
+  -->
 
   <ItemGroup>
     <PackageReference Include="MessagePack" Version="$(MessagePackVersion)" />

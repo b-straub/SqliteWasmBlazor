@@ -74,7 +74,7 @@ internal sealed class CryptoSyncActor : IAsyncDisposable
 
         var deviceIdentity = new DeviceIdentityService(context);
         var contacts = new ContactService(context);
-        var sync = new SyncOrchestrator(databaseService, crypto, contacts);
+        var sync = new SyncOrchestrator(databaseService, context);
 
         return new CryptoSyncActor(
             name, databaseName, isAdmin, keys, context,

@@ -1,6 +1,5 @@
 using MessagePack;
 using Microsoft.EntityFrameworkCore;
-using SqliteWasmBlazor.Components.Interop;
 using SqliteWasmBlazor.CryptoSync;
 using SqliteWasmBlazor.TestApp.TestInfrastructure.CryptoSync;
 
@@ -67,6 +66,12 @@ internal class WorkerEncryptedRoundTripTest(
         // ===== STEP 2: Seed domain data + export as encrypted delta =====
         Console.WriteLine($"[{Name}] Step 2: Seed domain data + encrypted export");
 
+        // Capture the delta cursor BEFORE seeding so the export filters out
+        // the already-seeded system-table rows (bootstrap Contacts/ShareGroups/
+        // ShareTargets) and only carries the CryptoTestItems just written.
+        var sinceCursor = DateTime.UtcNow;
+        await Task.Delay(10); // ensure UpdatedAt timestamps are strictly > cursor
+
         var item1Id = Guid.NewGuid();
         var item2Id = Guid.NewGuid();
         await using (var ctx = await CryptoFactory.CreateDbContextAsync())
@@ -110,14 +115,29 @@ internal class WorkerEncryptedRoundTripTest(
             };
         }
 
-        // Export CryptoTestItems as encrypted delta
-        var exportMetadata = BuildExportMetadata("CryptoTestItems");
+        // Export the delta: C# provides a single per-table spec with
+        // UpdatedAt > sinceCursor, worker encrypts that one table and
+        // returns a packed DeltaEnvelope with a single group.
+        var exportMetadata = new BulkExportMetadata
+        {
+            Mode = 1,
+            Tables =
+            [
+                new TableExportSpec
+                {
+                    TableName = "CryptoTestItems",
+                    IsSystemTable = false,
+                    Where = "\"UpdatedAt\" > ?",
+                    WhereParams = [sinceCursor.ToString("O", System.Globalization.CultureInfo.InvariantCulture)]
+                }
+            ]
+        };
         var headerBytes = MessagePackSerializer.Serialize(v2Header);
-        byte[] shadowGroupBytes;
+        byte[] envelopeBytes;
 
         try
         {
-            shadowGroupBytes = await DatabaseService.BulkExportEncryptedV2Async(
+            envelopeBytes = await DatabaseService.BulkExportEncryptedV2Async(
                 CryptoDatabaseName, exportMetadata, headerBytes);
         }
         finally
@@ -125,12 +145,27 @@ internal class WorkerEncryptedRoundTripTest(
             v2Header.Clear();
         }
 
-        if (shadowGroupBytes.Length == 0)
+        if (envelopeBytes.Length == 0)
         {
             throw new InvalidOperationException("Encrypted export returned empty bytes");
         }
 
-        Console.WriteLine($"[{Name}] Step 2 OK: exported {shadowGroupBytes.Length} bytes (ShadowRowGroup)");
+        // Envelope sanity check: deserialize and assert the CryptoTestItems
+        // group is present. The delta filter should have kept it out of any
+        // other (system) tables.
+        var envelope = MessagePackSerializer.Deserialize<DeltaEnvelope>(envelopeBytes);
+        if (envelope.Groups.Count == 0)
+        {
+            throw new InvalidOperationException("Delta envelope has no groups — filter excluded CryptoTestItems?");
+        }
+        var itemsGroup = envelope.Groups.FirstOrDefault(g => g.TableName == "CryptoTestItems")
+            ?? throw new InvalidOperationException("Delta envelope missing CryptoTestItems group");
+        if (itemsGroup.Rows.Count != 2)
+        {
+            throw new InvalidOperationException($"Expected 2 rows in CryptoTestItems group, got {itemsGroup.Rows.Count}");
+        }
+
+        Console.WriteLine($"[{Name}] Step 2 OK: exported {envelopeBytes.Length} bytes (DeltaEnvelope, {envelope.Groups.Count} group(s))");
 
         // ===== STEP 3: Import encrypted delta into fresh DB =====
         Console.WriteLine($"[{Name}] Step 3: Import encrypted delta + verify open table");
@@ -170,23 +205,24 @@ internal class WorkerEncryptedRoundTripTest(
             }
         }
 
-        // Import the encrypted delta
+        // Import the delta envelope. Worker unpacks the envelope, verifies
+        // the outer signature, staggers groups system-first, and applies
+        // each per-group body.
         headerBytes = MessagePackSerializer.Serialize(v2Header);
         byte[] importReportBytes;
         try
         {
             importReportBytes = await DatabaseService.BulkImportEncryptedV2Async(
-                CryptoDatabaseName, headerBytes, shadowGroupBytes);
+                CryptoDatabaseName, headerBytes, envelopeBytes);
         }
         finally
         {
             v2Header.Clear();
         }
 
-        // Deserialize ImportReport: [rowsImported, rowsSkipped, errors[]]
-        var reportArray = MessagePackSerializer.Deserialize<object[]>(importReportBytes);
-        var rowsImported = Convert.ToInt32(reportArray[0]);
-        var rowsSkipped = Convert.ToInt32(reportArray[1]);
+        var report = MessagePackSerializer.Deserialize<ImportReport>(importReportBytes);
+        var rowsImported = report.RowsImported;
+        var rowsSkipped = report.RowsSkipped;
 
         Console.WriteLine($"[{Name}] Import: {rowsImported} imported, {rowsSkipped} skipped");
 
@@ -219,24 +255,5 @@ internal class WorkerEncryptedRoundTripTest(
 
         Console.WriteLine($"[{Name}] Step 3 OK: open table verified after import");
         return "OK";
-    }
-
-    private static BulkExportMetadata BuildExportMetadata(string tableName)
-    {
-        var header = MessagePackFileHeaderV2.Create<CryptoTestItemDto>(
-            tableName: tableName,
-            primaryKeyColumn: "Id",
-            recordCount: 0,
-            mode: 1);
-
-        return new BulkExportMetadata
-        {
-            TableName = header.TableName,
-            Columns = header.Columns,
-            PrimaryKeyColumn = header.PrimaryKeyColumn,
-            SchemaHash = header.SchemaHash,
-            DataType = header.DataType,
-            Mode = 1
-        };
     }
 }

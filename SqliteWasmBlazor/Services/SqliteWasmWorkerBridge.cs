@@ -422,7 +422,7 @@ internal sealed partial class SqliteWasmWorkerBridge : ISqliteWasmDatabaseServic
 
     public async Task<byte[]> BulkImportEncryptedV2Async(
         string databaseName, byte[] headerBytes,
-        byte[] groupBytes, CancellationToken cancellationToken = default)
+        byte[] envelopeBytes, CancellationToken cancellationToken = default)
     {
         await EnsureInitializedAsync(cancellationToken);
 
@@ -438,8 +438,9 @@ internal sealed partial class SqliteWasmWorkerBridge : ISqliteWasmDatabaseServic
                 tcs.TrySetCanceled();
             });
 
-            // Binary payload = V2CryptoHeader, binary header = ShadowRowGroup
-            // Worker dispatches as 'bulkImportEncryptedV2'
+            // Binary payload = V2CryptoHeader, binary header = DeltaEnvelope.
+            // Worker dispatches as 'bulkImportEncryptedV2' which now consumes
+            // a multi-group envelope and staggers system tables first.
             var metadataJson = JsonSerializer.Serialize(new
             {
                 id = requestId,
@@ -450,7 +451,7 @@ internal sealed partial class SqliteWasmWorkerBridge : ISqliteWasmDatabaseServic
                 }
             });
 
-            SendBinaryToWorkerWithHeader(headerBytes.AsSpan(), metadataJson, groupBytes.AsSpan());
+            SendBinaryToWorkerWithHeader(headerBytes.AsSpan(), metadataJson, envelopeBytes.AsSpan());
 
             using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             timeoutCts.CancelAfter(300_000);
@@ -469,11 +470,16 @@ internal sealed partial class SqliteWasmWorkerBridge : ISqliteWasmDatabaseServic
     }
 
     public async Task<int> BulkRotateKeyAsync(
-        string databaseName, string tableName,
+        string databaseName,
         byte[] oldHeaderBytes, byte[] newHeaderBytes,
-        string? sharingId = null, int? newKeyVersion = null,
+        string sharingId, int? newKeyVersion = null,
         CancellationToken cancellationToken = default)
     {
+        if (string.IsNullOrEmpty(sharingId))
+        {
+            throw new ArgumentException("sharingId is required — rotate now walks every shadow table for matching rows", nameof(sharingId));
+        }
+
         await EnsureInitializedAsync(cancellationToken);
 
         var requestId = Interlocked.Increment(ref _nextRequestId);
@@ -488,7 +494,10 @@ internal sealed partial class SqliteWasmWorkerBridge : ISqliteWasmDatabaseServic
                 tcs.TrySetCanceled();
             });
 
-            // binaryPayload = old V2CryptoHeader, binaryHeader = new V2CryptoHeader
+            // binaryPayload = old V2CryptoHeader, binaryHeader = new V2CryptoHeader.
+            // The worker walks every _crypto_* shadow table, rotating rows whose
+            // SharingId matches — so a parent-child group whose rows span tables
+            // (List + Items) rotates atomically.
             var metadataJson = JsonSerializer.Serialize(new
             {
                 id = requestId,
@@ -496,7 +505,6 @@ internal sealed partial class SqliteWasmWorkerBridge : ISqliteWasmDatabaseServic
                 {
                     type = "bulkRotateKeyV2",
                     database = databaseName,
-                    tableName,
                     sharingId,
                     newKeyVersion
                 }
@@ -866,6 +874,7 @@ internal sealed class WorkerResponse
 [JsonSerializable(typeof(WorkerResponse))]
 [JsonSerializable(typeof(SqlQueryResult))]
 [JsonSerializable(typeof(BulkExportMetadata))]
+[JsonSerializable(typeof(TableExportSpec))]
 internal partial class WorkerJsonContext : JsonSerializerContext
 {
 }

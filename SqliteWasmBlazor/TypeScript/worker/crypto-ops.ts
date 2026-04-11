@@ -437,155 +437,234 @@ function checkColumnPermissions(
 // Encrypted export
 // ============================================================================
 
+interface TableExportSpec {
+    tableName: string;
+    where?: string | null;
+    whereParams?: string[] | null;
+    isSystemTable?: boolean;
+}
+
+/**
+ * Encrypt every row of a single table into one ShadowRowGroup, using the
+ * caller-provided WHERE clause (e.g. `"UpdatedAt" > ?`) bound with the
+ * spec's whereParams. When `spec.where` is null/empty the full table is
+ * exported.
+ *
+ * Returns the packed ShadowRowGroup tuple:
+ *   [tableName, isSystemTable, rows, schemaHash, batchSignature, senderPublicKeyHex]
+ * or `null` when the filter selected no rows.
+ */
+async function encryptTableGroup(
+    db: any,
+    spec: TableExportSpec,
+    cryptoHeader: V2CryptoHeader,
+    cek: Uint8Array
+): Promise<unknown[] | null> {
+    const tableName = spec.tableName;
+    const cryptoTableName = `_crypto_${tableName}`;
+
+    const colRows = db.exec({
+        sql: `SELECT ColumnName, SqlType, CSharpType, IsPrimaryKey FROM _column_registry WHERE TableName = ? ORDER BY ColumnIndex`,
+        bind: [tableName],
+        returnValue: 'resultRows',
+        rowMode: 'array'
+    }) as any[][];
+
+    if (!colRows || colRows.length === 0) {
+        throw new Error(`bulkExportEncryptedV2: no _column_registry entries for table '${tableName}'`);
+    }
+
+    const columnNames = colRows.map((r: any[]) => r[0] as string);
+    const sqlTypes = colRows.map((r: any[]) => r[1] as string);
+    const csharpTypes = colRows.map((r: any[]) => r[2] as string);
+    const colCount = colRows.length;
+
+    const idIdx = columnNames.indexOf('Id');
+    const scopeIdx = columnNames.indexOf('SharingScope');
+    const sharingIdIdx = columnNames.indexOf('SharingId');
+    if (idIdx < 0 || scopeIdx < 0 || sharingIdIdx < 0) {
+        throw new Error(
+            `bulkExportEncryptedV2: ${tableName} is not a SyncableEntity (missing Id/SharingScope/SharingId)`);
+    }
+
+    const tableCheck = db.exec({
+        sql: `SELECT name FROM sqlite_master WHERE type='table' AND name=?`,
+        bind: [cryptoTableName],
+        returnValue: 'resultRows',
+        rowMode: 'array'
+    });
+    if (!tableCheck || tableCheck.length === 0) {
+        throw new Error(`bulkExportEncryptedV2: shadow table ${cryptoTableName} not found`);
+    }
+
+    const whereClause = (spec.where && spec.where.length > 0) ? ` WHERE ${spec.where}` : '';
+    const whereParams = spec.whereParams ?? null;
+
+    const selectCols = columnNames.map(c => `"${c}"`).join(', ');
+    const selectSql = `SELECT ${selectCols} FROM "${tableName}"${whereClause}`;
+    logger.info(MODULE_NAME, `bulkExportEncryptedV2: "${tableName}" — ${selectSql.substring(0, 120)}`);
+
+    const isInt64Col = csharpTypes.map(t => {
+        const base = t.endsWith('?') ? t.slice(0, -1) : t;
+        return base === 'Int64' || base === 'UInt64';
+    });
+    const SQLITE_TEXT = sqlite3!.capi.SQLITE_TEXT;
+
+    const rows: any[][] = [];
+    const readStmt = db.prepare(selectSql);
+    try {
+        if (whereParams && whereParams.length > 0) {
+            readStmt.bind(whereParams);
+        }
+        while (readStmt.step()) {
+            const row: any[] = [];
+            for (let i = 0; i < colCount; i++) {
+                if (isInt64Col[i]) {
+                    const textVal = readStmt.get(i, SQLITE_TEXT);
+                    row.push(textVal !== null ? BigInt(textVal as string) : null);
+                } else {
+                    row.push(readStmt.get(i));
+                }
+            }
+            rows.push(row);
+        }
+    } finally {
+        readStmt.finalize();
+    }
+
+    if (rows.length === 0) {
+        return null;
+    }
+
+    const convertedRows = rows.map(row =>
+        row.map((val, idx) => convertValueFromSqlite(val, csharpTypes[idx], sqlTypes[idx])));
+
+    const isSystemTable = !!spec.isSystemTable;
+    const aad = buildAad(cryptoHeader.groupContext, cryptoHeader.keyVersion);
+    const senderPubKeyHex = bytesToHex(cryptoHeader.clientEd25519PublicKey);
+
+    // Layer 1: encrypt each row with AES-GCM + AAD, upsert into shadow table
+    const shadowSql =
+        `INSERT OR REPLACE INTO "${cryptoTableName}" ` +
+        `(Id, SharingScope, SharingId, EncryptedRow, Nonce, KeyVersion, SenderPublicKey, EnvelopeSignature) ` +
+        `VALUES (?, ?, ?, ?, ?, ?, ?, ?)`;
+    const stmt = db.prepare(shadowSql);
+
+    const shadowRowArrays: unknown[][] = [];
+    const batchCiphertexts: Uint8Array[] = [];
+    const batchNonces: Uint8Array[] = [];
+
+    db.exec('BEGIN');
+    try {
+        for (let i = 0; i < convertedRows.length; i++) {
+            const row = convertedRows[i];
+            const rowScope = Number(row[scopeIdx]);
+            const rowSharingId = String(row[sharingIdIdx]);
+
+            const rowBytes = pack(row);
+            const encrypted = await encryptAesGcm(rowBytes, cek, aad);
+
+            batchCiphertexts.push(encrypted.ciphertext);
+            batchNonces.push(encrypted.nonce);
+
+            const emptySignature = new Uint8Array(0);
+            stmt.bind([
+                row[idIdx], rowScope, rowSharingId,
+                encrypted.ciphertext, encrypted.nonce,
+                cryptoHeader.keyVersion, senderPubKeyHex, emptySignature
+            ]);
+            stmt.step();
+            stmt.reset();
+
+            // Wire format: 6 elements per row (no per-row sig/sender)
+            shadowRowArrays.push([
+                row[idIdx], rowScope, rowSharingId,
+                encrypted.ciphertext, encrypted.nonce,
+                cryptoHeader.keyVersion
+            ]);
+        }
+        stmt.finalize();
+        db.exec('COMMIT');
+    } catch (e) {
+        try { stmt.finalize(); } catch { /* ignore */ }
+        try { db.exec('ROLLBACK'); } catch { /* ignore */ }
+        logger.error(MODULE_NAME, `bulkExportEncryptedV2: shadow upsert failed in ${cryptoTableName}:`, e);
+        throw e;
+    }
+
+    // Layer 2: batch signature — single Ed25519 sign over SHA-256 of all ciphertexts
+    const batchSignature = signBatch(batchCiphertexts, batchNonces, cryptoHeader.clientEd25519PrivateKey);
+    const schemaHash = computeColumnRegistryHash(db, tableName);
+
+    logger.info(MODULE_NAME,
+        `✓ bulkExportEncryptedV2: ${tableName} → ${shadowRowArrays.length} rows`);
+
+    // Wire format: [tableName, isSystemTable, rows, schemaHash, batchSignature, senderPublicKeyHex]
+    return [tableName, isSystemTable, shadowRowArrays, schemaHash, batchSignature, senderPubKeyHex];
+}
+
+/**
+ * Encrypted delta export. The caller (C#) provides a per-table spec list
+ * with WHERE clauses already constructed — for a delta this is
+ * <code>"UpdatedAt" &gt; ?</code>, for a full snapshot it's null. The worker
+ * iterates the specs in order (caller is expected to order system-first),
+ * encrypts rows per table, per-table batch-signs each group, and returns a
+ * single packed <c>DeltaEnvelope</c> for the whole export.
+ *
+ * Wire format — DeltaEnvelope:
+ *   [version=1, senderEd25519PubHex, outerSignature, groups[]]
+ * where each <c>groups[i]</c> is a ShadowRowGroup tuple produced by
+ * <see cref="encryptTableGroup"/>. <c>outerSignature</c> is an Ed25519
+ * <c>signBatch</c> over the packed bytes of the groups array (one batched
+ * element, zero-length nonce) — the identical bytes the importer recomputes
+ * and verifies.
+ *
+ * Current implementation assumes one CEK per call (resolved from the
+ * header's groupContext/keyVersion/wrappedCek, same as the single-table
+ * flow that shipped). Multi-group-per-envelope CEK resolution via per-row
+ * SharingId → ShareGroup lookup is a follow-up.
+ */
 export async function bulkExportEncryptedV2(dbName: string, headerBytes: Uint8Array, metadata: any) {
     const db = openDatabases.get(dbName);
     if (!db) {
         throw new Error(`Database ${dbName} not open`);
     }
 
-    const tableName = metadata.tableName as string;
-    const cryptoTableName = `_crypto_${tableName}`;
+    const tables: TableExportSpec[] = Array.isArray(metadata?.tables) ? metadata.tables : [];
+    if (tables.length === 0) {
+        throw new Error('bulkExportEncryptedV2: metadata.tables is empty — nothing to export');
+    }
+
     const cryptoHeader = parseV2CryptoHeader(headerBytes);
     let cek: Uint8Array | null = null;
 
     try {
         cek = await unwrapCekFromHeader(cryptoHeader);
 
-        const colRows = db.exec({
-            sql: `SELECT ColumnName, SqlType, CSharpType, IsPrimaryKey FROM _column_registry WHERE TableName = ? ORDER BY ColumnIndex`,
-            bind: [tableName],
-            returnValue: 'resultRows',
-            rowMode: 'array'
-        }) as any[][];
-
-        if (!colRows || colRows.length === 0) {
-            throw new Error(`bulkExportEncryptedV2: no _column_registry entries for table '${tableName}'`);
-        }
-
-        const columnNames = colRows.map((r: any[]) => r[0] as string);
-        const sqlTypes = colRows.map((r: any[]) => r[1] as string);
-        const csharpTypes = colRows.map((r: any[]) => r[2] as string);
-        const colCount = colRows.length;
-
-        const idIdx = columnNames.indexOf('Id');
-        const scopeIdx = columnNames.indexOf('SharingScope');
-        const sharingIdIdx = columnNames.indexOf('SharingId');
-        if (idIdx < 0 || scopeIdx < 0 || sharingIdIdx < 0) {
-            throw new Error(
-                `bulkExportEncryptedV2: ${tableName} is not a SyncableEntity (missing Id/SharingScope/SharingId)`);
-        }
-
-        const tableCheck = db.exec({
-            sql: `SELECT name FROM sqlite_master WHERE type='table' AND name=?`,
-            bind: [cryptoTableName],
-            returnValue: 'resultRows',
-            rowMode: 'array'
-        });
-        if (!tableCheck || tableCheck.length === 0) {
-            throw new Error(`bulkExportEncryptedV2: shadow table ${cryptoTableName} not found`);
-        }
-
-        const selectCols = columnNames.map(c => `"${c}"`).join(', ');
-        const selectSql = `SELECT ${selectCols} FROM "${tableName}"`;
-        logger.info(MODULE_NAME, `bulkExportEncryptedV2: "${tableName}" — ${selectSql.substring(0, 120)}`);
-
-        const isInt64Col = csharpTypes.map(t => {
-            const base = t.endsWith('?') ? t.slice(0, -1) : t;
-            return base === 'Int64' || base === 'UInt64';
-        });
-        const SQLITE_TEXT = sqlite3!.capi.SQLITE_TEXT;
-
-        const rows: any[][] = [];
-        const readStmt = db.prepare(selectSql);
-        try {
-            while (readStmt.step()) {
-                const row: any[] = [];
-                for (let i = 0; i < colCount; i++) {
-                    if (isInt64Col[i]) {
-                        const textVal = readStmt.get(i, SQLITE_TEXT);
-                        row.push(textVal !== null ? BigInt(textVal as string) : null);
-                    } else {
-                        row.push(readStmt.get(i));
-                    }
-                }
-                rows.push(row);
+        const groups: unknown[][] = [];
+        for (const spec of tables) {
+            const group = await encryptTableGroup(db, spec, cryptoHeader, cek);
+            if (group !== null) {
+                groups.push(group);
             }
-        } finally {
-            readStmt.finalize();
         }
 
-        const convertedRows = rows.map(row =>
-            row.map((val, idx) => convertValueFromSqlite(val, csharpTypes[idx], sqlTypes[idx])));
-
-        const isSystemTable = cryptoHeader.systemTables.indexOf(tableName) >= 0;
-        const aad = buildAad(cryptoHeader.groupContext, cryptoHeader.keyVersion);
+        // Outer envelope signature: Ed25519 signBatch over the packed groups.
+        // The byte layout signed is `pack(groups)` as a single-element batch
+        // with a zero-length nonce — the importer recomputes the same bytes.
         const senderPubKeyHex = bytesToHex(cryptoHeader.clientEd25519PublicKey);
+        const packedGroups = pack(groups);
+        const outerSignature = signBatch(
+            [packedGroups],
+            [new Uint8Array(0)],
+            cryptoHeader.clientEd25519PrivateKey);
 
-        // Layer 1: encrypt each row with AES-GCM + AAD
-        const shadowSql =
-            `INSERT OR REPLACE INTO "${cryptoTableName}" ` +
-            `(Id, SharingScope, SharingId, EncryptedRow, Nonce, KeyVersion, SenderPublicKey, EnvelopeSignature) ` +
-            `VALUES (?, ?, ?, ?, ?, ?, ?, ?)`;
-        const stmt = db.prepare(shadowSql);
-
-        const shadowRowArrays: unknown[][] = [];
-        const batchCiphertexts: Uint8Array[] = [];
-        const batchNonces: Uint8Array[] = [];
-
-        db.exec('BEGIN');
-        try {
-            for (let i = 0; i < convertedRows.length; i++) {
-                const row = convertedRows[i];
-                const rowScope = Number(row[scopeIdx]);
-                const rowSharingId = String(row[sharingIdIdx]);
-
-                const rowBytes = pack(row);
-                const encrypted = await encryptAesGcm(rowBytes, cek, aad);
-
-                // Collect for batch signature (Layer 2)
-                batchCiphertexts.push(encrypted.ciphertext);
-                batchNonces.push(encrypted.nonce);
-
-                const emptySignature = new Uint8Array(0);
-                stmt.bind([
-                    row[idIdx], rowScope, rowSharingId,
-                    encrypted.ciphertext, encrypted.nonce,
-                    cryptoHeader.keyVersion, senderPubKeyHex, emptySignature
-                ]);
-                stmt.step();
-                stmt.reset();
-
-                // Wire format: 6 elements per row (no per-row sig/sender)
-                shadowRowArrays.push([
-                    row[idIdx], rowScope, rowSharingId,
-                    encrypted.ciphertext, encrypted.nonce,
-                    cryptoHeader.keyVersion
-                ]);
-            }
-            stmt.finalize();
-            db.exec('COMMIT');
-        } catch (e) {
-            try { stmt.finalize(); } catch { /* ignore */ }
-            try { db.exec('ROLLBACK'); } catch { /* ignore */ }
-            logger.error(MODULE_NAME, `bulkExportEncryptedV2: shadow upsert failed in ${cryptoTableName}:`, e);
-            throw e;
-        }
-
-        // Layer 2: batch signature — single Ed25519 sign over SHA-256 of all ciphertexts
-        const batchSignature = signBatch(batchCiphertexts, batchNonces, cryptoHeader.clientEd25519PrivateKey);
-
-        const schemaHash = computeColumnRegistryHash(db, tableName);
-
-        // Wire format: [tableName, isSystemTable, rows, schemaHash, batchSignature, senderPublicKeyHex]
-        const groupArray: unknown[] = [
-            tableName, isSystemTable, shadowRowArrays, schemaHash,
-            batchSignature, senderPubKeyHex
-        ];
-        const packed = pack(groupArray);
+        // Wire format: [version, senderEd25519PubHex, outerSignature, groups]
+        const envelope = pack([1, senderPubKeyHex, outerSignature, groups]);
 
         logger.info(MODULE_NAME,
-            `✓ bulkExportEncryptedV2: ${tableName} → ${shadowRowArrays.length} rows, ${packed.length} bytes`);
-        return { rawBinary: true, data: packed };
+            `✓ bulkExportEncryptedV2: delta envelope → ${groups.length} group(s), ${envelope.length} bytes`);
+        return { rawBinary: true, data: envelope };
     } finally {
         if (cek) { clearBytes(cek); }
     }
@@ -595,40 +674,46 @@ export async function bulkExportEncryptedV2(dbName: string, headerBytes: Uint8Ar
 // Encrypted import
 // ============================================================================
 
-export async function bulkImportEncryptedV2(dbName: string, headerBytes: Uint8Array, groupBytes: Uint8Array, metadata: any) {
-    const db = openDatabases.get(dbName);
-    if (!db) {
-        throw new Error(`Database ${dbName} not open`);
-    }
+interface ImportErrorRow {
+    code: string;
+    table: string;
+    rowId: string;
+    groupId: string;
+    message: string;
+}
 
-    const header = parseV2CryptoHeader(headerBytes);
-    const errors: { code: string; table: string; rowId: string; groupId: string; message: string }[] = [];
+interface GroupApplyResult {
+    rowsImported: number;
+    rowsSkipped: number;
+    rowsDeleted: number;
+    errors: ImportErrorRow[];
+}
+
+/**
+ * Apply a single decoded ShadowRowGroup: verify per-group batch signature,
+ * decrypt rows, enforce permissions, upsert shadow + open tables.
+ * Returns partial counters + errors for aggregation by the caller.
+ *
+ * `group` is the unpacked wire tuple:
+ *   [tableName, isSystemTable, rows, schemaHash, batchSignature, senderPubKeyHex]
+ */
+async function applyShadowRowGroup(
+    db: any,
+    group: unknown[],
+    header: V2CryptoHeader,
+    cek: Uint8Array
+): Promise<GroupApplyResult> {
+    const errors: ImportErrorRow[] = [];
     let rowsImported = 0;
     let rowsSkipped = 0;
     let rowsDeleted = 0;
-    let cek: Uint8Array | null = null;
 
-    try {
-        try {
-            cek = await unwrapCekFromHeader(header);
-        } catch (e) {
-            errors.push({
-                code: 'TAMPER_CEK_UNWRAP_FAILED',
-                table: 'group', rowId: '', groupId: header.groupContext,
-                message: `CEK unwrap failed: ${e instanceof Error ? e.message : String(e)}`
-            });
-            return { rawBinary: true, data: pack([0, 0, errors.map(e => [
-                importErrorCodeToInt(e.code), e.table, e.rowId, e.groupId, e.message
-            ])]) };
-        }
-
-        const group = unpack(groupBytes) as unknown[];
-        if (!Array.isArray(group) || group.length < 3) {
-            throw new Error('bulkImportEncryptedV2: invalid ShadowRowGroup');
-        }
-        const tableName = group[0] as string;
-        const shadowRows = group[2] as unknown[][];
-        const cryptoTableName = `_crypto_${tableName}`;
+    if (!Array.isArray(group) || group.length < 3) {
+        throw new Error('bulkImportEncryptedV2: invalid ShadowRowGroup');
+    }
+    const tableName = group[0] as string;
+    const shadowRows = group[2] as unknown[][];
+    const cryptoTableName = `_crypto_${tableName}`;
 
         // Schema version check: compare sender's column registry hash against local.
         // Rejects deltas from clients running a different app version (different migrations).
@@ -664,10 +749,7 @@ export async function bulkImportEncryptedV2(dbName: string, headerBytes: Uint8Ar
                 table: tableName, rowId: '*', groupId: header.groupContext,
                 message: `Batch Ed25519 signature invalid — entire ShadowRowGroup rejected`
             });
-            const report = [0, shadowRows.length, errors.map(e => [
-                importErrorCodeToInt(e.code), e.table, e.rowId, e.groupId, e.message
-            ])];
-            return { rawBinary: true, data: pack(report) };
+            return { rowsImported: 0, rowsSkipped: shadowRows.length, rowsDeleted: 0, errors };
         }
 
         // Phase 1: Decrypt all rows (Layer 1 — AES-GCM with AAD).
@@ -748,11 +830,7 @@ export async function bulkImportEncryptedV2(dbName: string, headerBytes: Uint8Ar
                         });
                         rowsSkipped++;
                     }
-
-                    const report = [rowsImported, rowsSkipped, errors.map(e => [
-                        importErrorCodeToInt(e.code), e.table, e.rowId, e.groupId, e.message
-                    ])];
-                    return { rawBinary: true, data: pack(report) };
+                    return { rowsImported, rowsSkipped, rowsDeleted, errors };
                 }
             }
 
@@ -921,13 +999,114 @@ export async function bulkImportEncryptedV2(dbName: string, headerBytes: Uint8Ar
             }
         }
 
-        logger.info(MODULE_NAME,
-            `✓ bulkImportEncryptedV2: ${tableName} → ${rowsImported} imported, ${rowsDeleted} deleted, ${rowsSkipped} skipped, ${errors.length} errors`);
+    logger.info(MODULE_NAME,
+        `✓ applyShadowRowGroup: ${tableName} → ${rowsImported} imported, ${rowsDeleted} deleted, ${rowsSkipped} skipped, ${errors.length} errors`);
 
-        const report = [rowsImported, rowsSkipped, errors.map(e => [
+    return { rowsImported, rowsSkipped, rowsDeleted, errors };
+}
+
+/**
+ * Encrypted delta import. Consumes a packed `DeltaEnvelope` (multi-group,
+ * multi-table), verifies the outer signature, staggers groups so system
+ * tables land before domain tables (permission lookups on the receiver
+ * read Contacts/ShareGroups/ShareTargets that the system groups just
+ * wrote), then delegates each group to `applyShadowRowGroup`.
+ *
+ * Wire format consumed — DeltaEnvelope:
+ *   [version=1, senderEd25519PubHex, outerSignature, groups[]]
+ * Outer signature is verified via `verifyBatch([pack(groups)], [empty])`
+ * — the identical byte layout the exporter signs.
+ */
+export async function bulkImportEncryptedV2(
+    dbName: string, headerBytes: Uint8Array, envelopeBytes: Uint8Array, metadata: any
+) {
+    const db = openDatabases.get(dbName);
+    if (!db) {
+        throw new Error(`Database ${dbName} not open`);
+    }
+
+    const header = parseV2CryptoHeader(headerBytes);
+    const errors: ImportErrorRow[] = [];
+    let cek: Uint8Array | null = null;
+
+    const packReport = (imported: number, skipped: number) => ({
+        rawBinary: true,
+        data: pack([imported, skipped, errors.map(e => [
             importErrorCodeToInt(e.code), e.table, e.rowId, e.groupId, e.message
-        ])];
-        return { rawBinary: true, data: pack(report) };
+        ])])
+    });
+
+    try {
+        try {
+            cek = await unwrapCekFromHeader(header);
+        } catch (e) {
+            errors.push({
+                code: 'TAMPER_CEK_UNWRAP_FAILED',
+                table: 'envelope', rowId: '', groupId: header.groupContext,
+                message: `CEK unwrap failed: ${e instanceof Error ? e.message : String(e)}`
+            });
+            return packReport(0, 0);
+        }
+
+        // Unpack envelope: [version, senderEd25519PubHex, outerSignature, groups]
+        const envelope = unpack(envelopeBytes) as unknown[];
+        if (!Array.isArray(envelope) || envelope.length < 4) {
+            throw new Error('bulkImportEncryptedV2: invalid DeltaEnvelope (expected 4-element array)');
+        }
+        const version = envelope[0] as number;
+        if (version !== 1) {
+            throw new Error(`bulkImportEncryptedV2: unsupported envelope version ${version}`);
+        }
+        const senderPubHex = envelope[1] as string;
+        const outerSignature = envelope[2] as Uint8Array;
+        const groups = envelope[3] as unknown[][];
+
+        if (!Array.isArray(groups)) {
+            throw new Error('bulkImportEncryptedV2: DeltaEnvelope.groups is not an array');
+        }
+
+        // Verify outer signature using the identical byte layout the exporter
+        // signed: signBatch([pack(groups)], [zero-length nonce], privKey).
+        const senderPubBytes = hexToBytes(senderPubHex);
+        const packedGroups = pack(groups);
+        if (!verifyBatch([packedGroups], [new Uint8Array(0)], outerSignature, senderPubBytes)) {
+            errors.push({
+                code: 'TAMPER_SIGNATURE_INVALID',
+                table: 'envelope', rowId: '', groupId: '',
+                message: 'Outer envelope signature invalid — entire delta rejected'
+            });
+            return packReport(0, 0);
+        }
+
+        // Stagger: system tables first so permission-lookup chain resolves.
+        const indexedGroups = groups.map((g: any, i) => ({
+            g, idx: i,
+            isSystem: !!(Array.isArray(g) && g[1]),
+            tableName: (Array.isArray(g) ? (g[0] as string) : '')
+        })).sort((a, b) => {
+            const aSys = a.isSystem ? 0 : 1;
+            const bSys = b.isSystem ? 0 : 1;
+            return aSys !== bSys ? aSys - bSys : a.tableName.localeCompare(b.tableName);
+        });
+
+        let totalImported = 0;
+        let totalSkipped = 0;
+        let totalDeleted = 0;
+
+        for (const { g } of indexedGroups) {
+            const result = await applyShadowRowGroup(db, g as unknown[], header, cek);
+            totalImported += result.rowsImported;
+            totalSkipped += result.rowsSkipped;
+            totalDeleted += result.rowsDeleted;
+            if (result.errors.length > 0) {
+                errors.push(...result.errors);
+            }
+        }
+
+        logger.info(MODULE_NAME,
+            `✓ bulkImportEncryptedV2: envelope → ${indexedGroups.length} groups, ${totalImported} imported, ${totalDeleted} deleted, ${totalSkipped} skipped, ${errors.length} errors`);
+
+        return packReport(totalImported, totalSkipped);
     } finally {
         if (cek) { clearBytes(cek); }
     }
@@ -943,97 +1122,105 @@ async function bulkRotateKey(dbName: string, keyPayload: Uint8Array, metadata: a
         throw new Error(`Database ${dbName} not open`);
     }
 
-    const tableName = metadata.tableName as string | undefined;
-    if (!tableName) {
-        throw new Error('bulkRotateKey: metadata.tableName is required');
+    const sharingId = metadata.sharingId as string | undefined;
+    if (!sharingId) {
+        throw new Error('bulkRotateKey: metadata.sharingId is required');
     }
 
     if (keyPayload.length < 64) {
         throw new Error(`bulkRotateKey: keyPayload must be 64 bytes (oldKey+newKey), got ${keyPayload.length}`);
     }
 
-    const sharingId = metadata.sharingId as string | null | undefined;
-    const cryptoTable = `_crypto_${tableName}`;
-
     const oldKeyBytes = new Uint8Array(32);
     const newKeyBytes = new Uint8Array(32);
     oldKeyBytes.set(keyPayload.slice(0, 32));
     newKeyBytes.set(keyPayload.slice(32, 64));
 
+    const newKeyVersion = metadata.newKeyVersion as number | undefined;
+
     try {
-        const tableCheck = db.exec({
-            sql: `SELECT name FROM sqlite_master WHERE type='table' AND name=?`,
-            bind: [cryptoTable],
+        // Walk every crypto shadow table — a sharing group's rows may span
+        // multiple tables (e.g. a List plus its Items share the same SharingId
+        // via the SharingService FK walk), and a rotate must re-encrypt all
+        // of them atomically.
+        const tableRows = db.exec({
+            sql: `SELECT name FROM sqlite_master WHERE type='table' AND name LIKE '_crypto_%' ORDER BY name`,
             returnValue: 'resultRows',
             rowMode: 'array'
-        });
-        if (!tableCheck || tableCheck.length === 0) {
-            throw new Error(`bulkRotateKey: crypto shadow table not found: ${cryptoTable}`);
-        }
+        }) as any[][];
 
-        // Keys stay as raw Uint8Arrays — crypto-core handles importKey internally
-
-        const selectSql = sharingId != null
-            ? `SELECT Id, EncryptedRow, Nonce FROM "${cryptoTable}" WHERE SharingId = ?`
-            : `SELECT Id, EncryptedRow, Nonce FROM "${cryptoTable}"`;
-
-        const rows = db.exec({
-            sql: selectSql,
-            bind: sharingId != null ? [sharingId] : [],
-            returnValue: 'resultRows',
-            rowMode: 'array'
-        });
-
-        if (!rows || rows.length === 0) {
-            logger.info(MODULE_NAME, `bulkRotateKey: no rows match in ${cryptoTable}${sharingId != null ? ` for SharingId=${sharingId}` : ''}`);
+        if (!tableRows || tableRows.length === 0) {
+            logger.info(MODULE_NAME, `bulkRotateKey: no _crypto_* shadow tables found`);
             return { rowsAffected: 0 };
         }
 
-        const newKeyVersion = metadata.newKeyVersion as number | undefined;
-        const updateSql = newKeyVersion !== undefined
-            ? `UPDATE "${cryptoTable}" SET EncryptedRow = ?, Nonce = ?, KeyVersion = ?, EnvelopeSignature = ? WHERE Id = ?`
-            : `UPDATE "${cryptoTable}" SET EncryptedRow = ?, Nonce = ?, EnvelopeSignature = ? WHERE Id = ?`;
-        const stmt = db.prepare(updateSql);
+        let totalRowsAffected = 0;
 
-        let rowsAffected = 0;
         db.exec('BEGIN');
         try {
-            for (let i = 0; i < rows.length; i++) {
-                const row = rows[i] as any[];
-                const id = row[0];
-                const oldCipher = row[1] as Uint8Array;
-                const oldNonce = row[2] as Uint8Array;
+            for (const tableRow of tableRows) {
+                const cryptoTable = tableRow[0] as string;
 
-                // Decrypt with old key + AAD (must match what encryptAesGcm used during export)
-                const plaintext = await decryptAesGcm(
-                    { ciphertext: oldCipher, nonce: oldNonce },
-                    oldKeyBytes,
-                    oldAad
-                );
+                const rows = db.exec({
+                    sql: `SELECT Id, EncryptedRow, Nonce FROM "${cryptoTable}" WHERE SharingId = ?`,
+                    bind: [sharingId],
+                    returnValue: 'resultRows',
+                    rowMode: 'array'
+                }) as any[][];
 
-                // Re-encrypt with new key (no AAD — will be set on next export with new group context)
-                const encrypted = await encryptAesGcm(plaintext, newKeyBytes);
-
-                const emptySignature = new Uint8Array(0);
-                if (newKeyVersion !== undefined) {
-                    stmt.bind([encrypted.ciphertext, encrypted.nonce, newKeyVersion, emptySignature, id]);
-                } else {
-                    stmt.bind([encrypted.ciphertext, encrypted.nonce, emptySignature, id]);
+                if (!rows || rows.length === 0) {
+                    continue;
                 }
-                stmt.step();
-                stmt.reset();
-                rowsAffected++;
+
+                const updateSql = newKeyVersion !== undefined
+                    ? `UPDATE "${cryptoTable}" SET EncryptedRow = ?, Nonce = ?, KeyVersion = ?, EnvelopeSignature = ? WHERE Id = ?`
+                    : `UPDATE "${cryptoTable}" SET EncryptedRow = ?, Nonce = ?, EnvelopeSignature = ? WHERE Id = ?`;
+                const stmt = db.prepare(updateSql);
+
+                try {
+                    for (let i = 0; i < rows.length; i++) {
+                        const row = rows[i] as any[];
+                        const id = row[0];
+                        const oldCipher = row[1] as Uint8Array;
+                        const oldNonce = row[2] as Uint8Array;
+
+                        // Decrypt with old key + AAD (matches what encryptAesGcm used during export)
+                        const plaintext = await decryptAesGcm(
+                            { ciphertext: oldCipher, nonce: oldNonce },
+                            oldKeyBytes,
+                            oldAad
+                        );
+
+                        // Re-encrypt with new key (no AAD — next export re-encrypts
+                        // from the open table with the new group context's AAD)
+                        const encrypted = await encryptAesGcm(plaintext, newKeyBytes);
+
+                        const emptySignature = new Uint8Array(0);
+                        if (newKeyVersion !== undefined) {
+                            stmt.bind([encrypted.ciphertext, encrypted.nonce, newKeyVersion, emptySignature, id]);
+                        } else {
+                            stmt.bind([encrypted.ciphertext, encrypted.nonce, emptySignature, id]);
+                        }
+                        stmt.step();
+                        stmt.reset();
+                        totalRowsAffected++;
+                    }
+                } finally {
+                    stmt.finalize();
+                }
+
+                logger.info(MODULE_NAME,
+                    `bulkRotateKey: re-encrypted ${rows.length} rows in ${cryptoTable} (SharingId=${sharingId})`);
             }
-            stmt.finalize();
             db.exec('COMMIT');
         } catch (e) {
-            try { stmt.finalize(); } catch { /* ignore */ }
             try { db.exec('ROLLBACK'); } catch { /* ignore */ }
             throw e;
         }
 
-        logger.info(MODULE_NAME, `✓ bulkRotateKey: re-encrypted ${rowsAffected} rows in ${cryptoTable}${sharingId != null ? ` (SharingId=${sharingId})` : ''}`);
-        return { rowsAffected };
+        logger.info(MODULE_NAME,
+            `✓ bulkRotateKey: ${totalRowsAffected} rows rotated across ${tableRows.length} table(s) for SharingId=${sharingId}`);
+        return { rowsAffected: totalRowsAffected };
     } finally {
         oldKeyBytes.fill(0);
         newKeyBytes.fill(0);
@@ -1042,11 +1229,13 @@ async function bulkRotateKey(dbName: string, keyPayload: Uint8Array, metadata: a
 
 /**
  * V2 key rotation: unwraps old + new CEKs from two V2CryptoHeaders, then
- * re-encrypts all matching shadow rows. All key material stays in the worker.
+ * re-encrypts every shadow row across every `_crypto_*` table whose
+ * SharingId matches `metadata.sharingId`. All key material stays in the
+ * worker.
  *
  * binaryPayload = MessagePack(oldV2CryptoHeader)
  * binaryHeader  = MessagePack(newV2CryptoHeader)
- * metadata: { tableName, sharingId?, newKeyVersion? }
+ * metadata: { sharingId (required), newKeyVersion? }
  */
 export async function bulkRotateKeyV2(
     dbName: string,

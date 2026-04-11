@@ -4,9 +4,11 @@
 @using SqliteWasmBlazor.TestApp.TestInfrastructure.CryptoSync
 @using Microsoft.EntityFrameworkCore
 @using SqliteWasmBlazor.Models
+@using BlazorPRF.Crypto.Abstractions.Services
 @inject IDbContextFactory<TodoDbContext> DbContextFactory
 @inject IDbContextFactory<CryptoTestContext> CryptoFactory
 @inject ISqliteWasmDatabaseService DatabaseService
+@inject IGroupEncryption GroupEncryption
 
 <button type="reset" hidden="@(!_running)" @onclick="@Cancel">Cancel</button>
 
@@ -73,7 +75,7 @@
 
             try
             {
-                var testFactory = new TestFactory(_factory, DatabaseService, CryptoFactory);
+                var testFactory = new TestFactory(_factory, DatabaseService, CryptoFactory, GroupEncryption);
                 _tests.AddRange(testFactory.GetTests(TestName, CategoryFilter));
 
                 _running = true;

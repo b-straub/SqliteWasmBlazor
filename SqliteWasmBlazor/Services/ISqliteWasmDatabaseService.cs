@@ -81,33 +81,43 @@ public interface ISqliteWasmDatabaseService
         byte[] headerBytes, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// V2 encrypted bulk import with three-layer tamper detection. Worker verifies
-    /// signatures (Layer 2), unwraps CEK (Layer 3), decrypts with AAD (Layer 1),
-    /// applies to open table, returns MessagePack-packed ImportReport.
+    /// V2 encrypted bulk import with three-layer tamper detection. Consumes a
+    /// MessagePack-packed <c>DeltaEnvelope</c> (multi-group, multi-table).
+    /// Worker verifies outer Ed25519 envelope signature, staggers groups so
+    /// system tables (Contacts/ShareGroups/ShareTargets) land first, then for
+    /// each group: verifies the batch signature (Layer 2), unwraps CEK (Layer 3),
+    /// decrypts with AAD (Layer 1), enforces permissions, applies to shadow +
+    /// open tables. Returns MessagePack-packed aggregated ImportReport.
     /// </summary>
     /// <param name="databaseName">Target database filename.</param>
     /// <param name="headerBytes">MessagePack-serialized V2CryptoHeader.</param>
-    /// <param name="groupBytes">MessagePack-packed ShadowRowGroup to import.</param>
+    /// <param name="envelopeBytes">MessagePack-packed DeltaEnvelope.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>MessagePack-packed ImportReport bytes.</returns>
     Task<byte[]> BulkImportEncryptedV2Async(string databaseName, byte[] headerBytes,
-        byte[] groupBytes, CancellationToken cancellationToken = default);
+        byte[] envelopeBytes, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Re-encrypt every row in a crypto shadow table under a new content key, in place,
-    /// inside a single SQLite transaction. Unwraps old + new CEKs from two V2CryptoHeaders
-    /// inside the worker — raw key material never leaves the worker.
+    /// Re-encrypt every shadow row sharing the given <paramref name="sharingId"/>
+    /// under a new content key, in place, inside a single SQLite transaction.
+    /// The worker walks every <c>_crypto_*</c> shadow table and re-encrypts
+    /// matching rows across all of them — so a sharing group whose descendants
+    /// span multiple tables (e.g. List + Items) rotates atomically.
+    /// Unwraps old + new CEKs from two V2CryptoHeaders inside the worker —
+    /// raw key material never leaves the worker.
     /// </summary>
     /// <param name="databaseName">Target database filename.</param>
-    /// <param name="tableName">Domain table name (worker resolves <c>_crypto_&lt;tableName&gt;</c>).</param>
     /// <param name="oldHeaderBytes">MessagePack-serialized V2CryptoHeader for the old key version.</param>
     /// <param name="newHeaderBytes">MessagePack-serialized V2CryptoHeader for the new key version.</param>
-    /// <param name="sharingId">Optional SharingId filter for scoped rotation.</param>
+    /// <param name="sharingId">
+    /// SharingId of the rows to rotate — every shadow row matching this
+    /// value across every table gets re-encrypted with the new CEK.
+    /// </param>
     /// <param name="newKeyVersion">Optional new key version to stamp on rotated rows.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>Number of shadow rows re-encrypted.</returns>
-    Task<int> BulkRotateKeyAsync(string databaseName, string tableName,
+    /// <returns>Number of shadow rows re-encrypted (across all tables).</returns>
+    Task<int> BulkRotateKeyAsync(string databaseName,
         byte[] oldHeaderBytes, byte[] newHeaderBytes,
-        string? sharingId = null, int? newKeyVersion = null,
+        string sharingId, int? newKeyVersion = null,
         CancellationToken cancellationToken = default);
 }
