@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using MudBlazor.Services;
 using SqliteWasmBlazor;
 using SqliteWasmBlazor.Models;
+using BlazorPRF.Crypto.Extensions;
 using SqliteWasmBlazor.TestApp.TestInfrastructure.CryptoSync;
 
 var builder = WebAssemblyHostBuilder.CreateDefault(args);
@@ -57,6 +58,9 @@ builder.Services.AddDbContextFactory<CryptoTestContext>(options =>
 
 // Register SqliteWasm database management service
 builder.Services.AddSqliteWasm();
+
+// Register BlazorPRF crypto services (Noble.js + SubtleCrypto)
+builder.Services.AddBlazorPrf();
 
 var host = builder.Build();
 

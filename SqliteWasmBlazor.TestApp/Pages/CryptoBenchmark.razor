@@ -5,6 +5,10 @@
 @using System.Text
 @using System.Text.Json
 @using Microsoft.EntityFrameworkCore
+@using System.Security.Cryptography
+@using BlazorPRF.Crypto.Abstractions
+@using BlazorPRF.Crypto.Abstractions.Services
+@using MessagePack
 @using SqliteWasmBlazor
 @using SqliteWasmBlazor.Components.Interop
 @using SqliteWasmBlazor.CryptoSync
@@ -13,6 +17,8 @@
 @inject ISnackbar Snackbar
 @inject IDbContextFactory<CryptoTestContext> CryptoFactory
 @inject ISqliteWasmDatabaseService DatabaseService
+@inject ICryptoProvider CryptoProvider
+@inject IGroupEncryption GroupEncryption
 @inject ILogger<CryptoBenchmark> Logger
 @inject IJSRuntime JS
 
@@ -220,9 +226,6 @@
         StateHasChanged();
         await Task.Yield();
 
-        byte[]? keyOld = null;
-        byte[]? keyNew = null;
-
         try
         {
             // Clean slate
@@ -239,7 +242,7 @@
                 await resetCtx.Database.EnsureCreatedAsync();
             }
 
-            // ---- PHASE 0: Seed N CryptoTestItems in the source DB (not counted as revoke cost) ----
+            // ---- PHASE 0: Seed N CryptoTestItems (not counted as revoke cost) ----
             _statusText = $"Seeding {_rowCount:N0} rows...";
             StateHasChanged();
             await Task.Yield();
@@ -249,14 +252,11 @@
             sw0.Stop();
             var seedMs = sw0.ElapsedMilliseconds;
 
-            // Capture a checksum of the seeded data so we can verify round-trip integrity later.
             var sourceChecksum = await ComputeOpenTableChecksumAsync(SourceDbName);
-
-            Logger.LogInformation(
-                "Benchmark seed: {Ms} ms for {Rows} CryptoTestItems, checksum={Cks}",
+            Logger.LogInformation("Benchmark seed: {Ms} ms for {Rows} rows, checksum={Cks}",
                 seedMs, _rowCount, sourceChecksum);
 
-            // Create the two temp DBs with the same schema as CryptoTestDb.
+            // Create temp DBs
             _statusText = "Creating temp databases...";
             StateHasChanged();
             await Task.Yield();
@@ -264,63 +264,111 @@
             await CreateEmptyCryptoTestDbAsync(TempADbName);
             await CreateEmptyCryptoTestDbAsync(TempBDbName);
 
-            var exportMetadata = new BulkExportMetadata
+            // Build V2CryptoHeader from seed data (old key = v1)
+            var exportMetadata = BuildExportMetadata();
+            var oldHeader = await BuildHeaderFromSourceAsync();
+
+            // ---- PHASE 1: Export source → encrypted delta (v1 key) ----
+            _statusText = $"Phase 1/6 — Encrypted export ({_rowCount:N0} rows)...";
+            StateHasChanged();
+            await Task.Yield();
+
+            var sw1 = Stopwatch.StartNew();
+            var oldHeaderBytes = MessagePackSerializer.Serialize(oldHeader);
+            var envelope1 = await DatabaseService.BulkExportEncryptedV2Async(
+                SourceDbName, exportMetadata, oldHeaderBytes);
+            sw1.Stop();
+            oldHeader.Clear();
+            var export1Ms = sw1.ElapsedMilliseconds;
+
+            // ---- PHASE 2: Import into tempA ----
+            _statusText = $"Phase 2/6 — Import into tempA ({_rowCount:N0} rows)...";
+            StateHasChanged();
+            await Task.Yield();
+
+            var sw2 = Stopwatch.StartNew();
+            oldHeader = await BuildHeaderFromSourceAsync();
+            oldHeaderBytes = MessagePackSerializer.Serialize(oldHeader);
+            var report1Bytes = await DatabaseService.BulkImportEncryptedV2Async(
+                TempADbName, oldHeaderBytes, envelope1);
+            sw2.Stop();
+            oldHeader.Clear();
+            var import1Ms = sw2.ElapsedMilliseconds;
+            var import1Report = MessagePackSerializer.Deserialize<object[]>(report1Bytes);
+            var import1Rows = Convert.ToInt32(import1Report[0]);
+
+            // ---- PHASE 3: Rotate tempA's shadow (v1 → v2) — THE measurement ----
+            _statusText = $"Phase 3/6 — Rotate key ({_rowCount:N0} rows)...";
+            StateHasChanged();
+            await Task.Yield();
+
+            // Create a v2 key by generating new group keys for the admin
+            var newGroupContext = "system:v2";
+            var adminPrivKey = Convert.FromBase64String(CryptoTestContext.AdminX25519PrivateKey);
+            var adminPubKey = CryptoTestContext.AdminX25519PublicKey;
+            var newKeysResult = await GroupEncryption.CreateGroupKeysAsync(
+                adminPrivKey, adminPubKey, [adminPubKey], newGroupContext);
+            CryptographicOperations.ZeroMemory(adminPrivKey);
+
+            if (!newKeysResult.Success)
             {
-                TableName = "CryptoTestItems",
-                Columns = MessagePackFileHeaderV2.Create<CryptoTestItemDto>(
-                    tableName: "CryptoTestItems",
-                    primaryKeyColumn: "Id",
-                    recordCount: 0,
-                    mode: 1,
-                    sqlTypeOverrides: new Dictionary<string, string> { ["Id"] = "BLOB" }).Columns,
-                PrimaryKeyColumn = "Id",
-                SchemaHash = "benchmark",
-                DataType = typeof(CryptoTestItemDto).FullName ?? typeof(CryptoTestItemDto).Name,
-                AppIdentifier = "SqliteWasmBlazor.TestApp.Benchmark",
-                Mode = 1
-            };
+                throw new InvalidOperationException($"CreateGroupKeys failed: {newKeysResult.ErrorCode}");
+            }
 
-            // ---- PHASE 1 + 2: V2 export/import (pending orchestrator wiring) ----
-            // TODO: Wire V2CryptoHeader + BulkExportEncryptedV2Async + BulkImportEncryptedV2Async
-            // once ShareGroup/ShareTarget bootstrap is available in benchmark context.
-            keyOld = RandomNumberGenerator.GetBytes(32);
+            // Persist v2 ShareGroup + ShareTarget in tempA so the header can reference it
+            await PersistNewKeyVersionAsync(TempADbName, newGroupContext, newKeysResult.Value!);
 
-            _statusText = $"Phase 1-2/5 — PENDING V2 crypto-core wiring...";
-            StateHasChanged();
-            await Task.Yield();
-
-            long export1Ms = 0;
-            long import1Ms = 0;
-            var import1Rows = 0;
-            Logger.LogWarning("Benchmark Phase 1-2 skipped: V1 API removed, V2 wiring pending");
-
-            // ---- PHASE 3: Rotate tempA's shadow from keyOld → keyNew ----
-            // THE measurement.
-            keyNew = RandomNumberGenerator.GetBytes(32);
-
-            _statusText = $"Phase 3/5 — Rotate key in worker ({_rowCount:N0} rows)...";
-            StateHasChanged();
-            await Task.Yield();
+            var newHeader = await BuildHeaderAsync(TempADbName, newGroupContext);
+            oldHeader = await BuildHeaderFromSourceAsync();
+            var oldHdrBytes = MessagePackSerializer.Serialize(oldHeader);
+            var newHdrBytes = MessagePackSerializer.Serialize(newHeader);
 
             var sw3 = Stopwatch.StartNew();
             var rotatedRowCount = await DatabaseService.BulkRotateKeyAsync(
-                TempADbName, "CryptoTestItems", keyOld, keyNew);
+                TempADbName, "CryptoTestItems", oldHdrBytes, newHdrBytes,
+                newKeyVersion: 2);
             sw3.Stop();
+            oldHeader.Clear();
+            newHeader.Clear();
             var rotateMs = sw3.ElapsedMilliseconds;
-            Logger.LogInformation("Benchmark Rotate: {Ms} ms, {Rows} rows re-encrypted", rotateMs, rotatedRowCount);
+            Logger.LogInformation("Benchmark Rotate: {Ms} ms, {Rows} rows re-encrypted",
+                rotateMs, rotatedRowCount);
 
-            // ---- PHASE 4 + 5: V2 export/import (pending orchestrator wiring) ----
-            _statusText = $"Phase 4-5/5 — PENDING V2 crypto-core wiring...";
+            // ---- PHASE 4: Export tempA with v2 key ----
+            _statusText = $"Phase 4/6 — Re-export tempA with new key...";
             StateHasChanged();
             await Task.Yield();
 
-            long export2Ms = 0;
-            long import2Ms = 0;
-            var import2Rows = 0;
-            Logger.LogWarning("Benchmark Phase 4-5 skipped: V1 API removed, V2 wiring pending");
+            var sw4 = Stopwatch.StartNew();
+            newHeader = await BuildHeaderAsync(TempADbName, newGroupContext);
+            newHdrBytes = MessagePackSerializer.Serialize(newHeader);
+            var envelope2 = await DatabaseService.BulkExportEncryptedV2Async(
+                TempADbName, exportMetadata, newHdrBytes);
+            sw4.Stop();
+            newHeader.Clear();
+            var export2Ms = sw4.ElapsedMilliseconds;
 
-            // ---- VERIFY: compare source vs tempB ----
-            _statusText = "Verifying round-trip integrity...";
+            // ---- PHASE 5: Import into tempB with v2 key ----
+            _statusText = $"Phase 5/6 — Import into tempB...";
+            StateHasChanged();
+            await Task.Yield();
+
+            // tempB also needs the v2 group/target for header lookup
+            await PersistNewKeyVersionAsync(TempBDbName, newGroupContext, newKeysResult.Value!);
+
+            var sw5 = Stopwatch.StartNew();
+            newHeader = await BuildHeaderAsync(TempBDbName, newGroupContext);
+            newHdrBytes = MessagePackSerializer.Serialize(newHeader);
+            var report2Bytes = await DatabaseService.BulkImportEncryptedV2Async(
+                TempBDbName, newHdrBytes, envelope2);
+            sw5.Stop();
+            newHeader.Clear();
+            var import2Ms = sw5.ElapsedMilliseconds;
+            var import2Report = MessagePackSerializer.Deserialize<object[]>(report2Bytes);
+            var import2Rows = Convert.ToInt32(import2Report[0]);
+
+            // ---- PHASE 6: Verify source vs tempB ----
+            _statusText = "Phase 6/6 — Verifying round-trip integrity...";
             StateHasChanged();
             await Task.Yield();
 
@@ -375,15 +423,6 @@
         }
         finally
         {
-            if (keyOld is not null)
-            {
-                CryptographicOperations.ZeroMemory(keyOld);
-            }
-            if (keyNew is not null)
-            {
-                CryptographicOperations.ZeroMemory(keyNew);
-            }
-
             await DropIfExistsAsync(TempADbName);
             await DropIfExistsAsync(TempBDbName);
 
@@ -394,14 +433,106 @@
     }
 
     // -------------------------------------------------------
-    // HELPERS
+    // V2 CRYPTO HELPERS
     // -------------------------------------------------------
-    private static byte[] CopyKey(byte[] source)
+
+    private async Task<V2CryptoHeader> BuildHeaderFromSourceAsync()
     {
-        var copy = new byte[source.Length];
-        source.CopyTo(copy.AsSpan());
-        return copy;
+        return await BuildHeaderAsync(SourceDbName, CryptoSyncBootstrap.SystemGroupContext);
     }
+
+    private async Task<V2CryptoHeader> BuildHeaderAsync(string dbName, string groupContext)
+    {
+        var connection = new SqliteWasmConnection($"Data Source={dbName}");
+        var optionsBuilder = new DbContextOptionsBuilder<CryptoTestContext>();
+        optionsBuilder.UseSqliteWasm(connection);
+        await using var ctx = new CryptoTestContext(optionsBuilder.Options);
+
+        var group = await ctx.ShareGroups.SingleAsync(g => g.GroupContext == groupContext);
+        var target = await ctx.ShareTargets.SingleAsync(t =>
+            t.MemberPublicKey == CryptoTestContext.AdminX25519PublicKey
+            && t.KeyVersion == group.KeyVersion);
+
+        return new V2CryptoHeader
+        {
+            Version = 2,
+            SystemTables = ["Contacts", "ShareGroups", "ShareTargets"],
+            ClientContactId = (await ctx.Contacts.SingleAsync(c => c.IsAdmin)).Id,
+            ClientX25519PrivateKey = Convert.FromBase64String(CryptoTestContext.AdminX25519PrivateKey),
+            AdminX25519PublicKey = Convert.FromBase64String(group.AdminPublicKey),
+            GroupContext = group.GroupContext,
+            KeyVersion = group.KeyVersion,
+            WrappedCek = target.WrappedContentKey,
+            ClientEd25519PrivateKey = Convert.FromBase64String(CryptoTestContext.AdminEd25519PrivateKey),
+            ClientEd25519PublicKey = Convert.FromBase64String(CryptoTestContext.AdminEd25519PublicKey)
+        };
+    }
+
+    private async Task PersistNewKeyVersionAsync(
+        string dbName,
+        string newGroupContext,
+        BlazorPRF.Crypto.Abstractions.Models.GroupKeyBundle bundle)
+    {
+        var connection = new SqliteWasmConnection($"Data Source={dbName}");
+        var optionsBuilder = new DbContextOptionsBuilder<CryptoTestContext>();
+        optionsBuilder.UseSqliteWasm(connection);
+        await using var ctx = new CryptoTestContext(optionsBuilder.Options);
+
+        // Read the admin contact for FK reference
+        var adminContact = await ctx.Contacts.SingleAsync(c => c.IsAdmin);
+
+        ctx.ShareGroups.Add(new ShareGroup
+        {
+            Id = Guid.NewGuid(),
+            GroupContext = newGroupContext,
+            KeyVersion = 2,
+            AdminPublicKey = CryptoTestContext.AdminX25519PublicKey,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow,
+            SharingScope = SharingScope.Public,
+            SharingId = CryptoSyncBootstrap.SystemSharingId
+        });
+
+        ctx.ShareTargets.Add(new ShareTarget
+        {
+            Id = Guid.NewGuid(),
+            ShareGroupId = ctx.ShareGroups.Local.Single(g => g.GroupContext == newGroupContext).Id,
+            KeyVersion = 2,
+            MemberPublicKey = CryptoTestContext.AdminX25519PublicKey,
+            WrappedContentKey = CryptoSyncBootstrap.SerializeWrappedCek(bundle.MemberKeys[0].WrappedContentKey),
+            Role = SyncRole.Owner,
+            GrantedByContactId = adminContact.Id,
+            UpdatedAt = DateTime.UtcNow,
+            SharingScope = SharingScope.Public,
+            SharingId = CryptoSyncBootstrap.SystemSharingId
+        });
+
+        await ctx.SaveChangesAsync();
+    }
+
+    private static BulkExportMetadata BuildExportMetadata()
+    {
+        var header = MessagePackFileHeaderV2.Create<CryptoTestItemDto>(
+            tableName: "CryptoTestItems",
+            primaryKeyColumn: "Id",
+            recordCount: 0,
+            mode: 1,
+            sqlTypeOverrides: new Dictionary<string, string> { ["Id"] = "BLOB" });
+
+        return new BulkExportMetadata
+        {
+            TableName = header.TableName,
+            Columns = header.Columns,
+            PrimaryKeyColumn = header.PrimaryKeyColumn,
+            SchemaHash = header.SchemaHash,
+            DataType = header.DataType,
+            Mode = 1
+        };
+    }
+
+    // -------------------------------------------------------
+    // DB HELPERS
+    // -------------------------------------------------------
 
     private async Task DropIfExistsAsync(string dbName)
     {
