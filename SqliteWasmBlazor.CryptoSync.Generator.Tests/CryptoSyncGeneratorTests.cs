@@ -73,6 +73,7 @@ public class CryptoSyncGeneratorTests
             {
                 protected CryptoSyncContextBase(Microsoft.EntityFrameworkCore.DbContextOptions options) : base() { }
                 public virtual (string ChildTable, string FkColumn)[] GetChildFkRelations(string parentTable) => System.Array.Empty<(string, string)>();
+                public virtual SyncableEntity CloneForTransfer(SyncableEntity source, System.Collections.Generic.Dictionary<System.Guid, System.Guid> idMap) => throw new System.InvalidOperationException();
             }
             public enum SyncRole { Owner = 0, Editor = 1, Viewer = 2 }
             public sealed class SyncPermission : SyncableEntity

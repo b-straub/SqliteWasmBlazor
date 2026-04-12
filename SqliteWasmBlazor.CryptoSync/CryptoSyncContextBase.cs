@@ -34,6 +34,18 @@ public class CryptoSyncContextBase : DbContext
     /// </summary>
     public virtual (string ChildTable, string FkColumn)[] GetChildFkRelations(string parentTable) => [];
 
+    /// <summary>
+    /// Clone a <see cref="SyncableEntity"/> for transfer: copies all domain
+    /// properties, remaps FK columns via <paramref name="idMap"/>, leaves
+    /// sync metadata (Id, SharingId, SharingScope, UpdatedAt, IsDeleted,
+    /// DeletedAt) for the interceptor. Overridden by the generator-emitted
+    /// partial with a per-entity-type switch.
+    /// </summary>
+    public virtual SyncableEntity CloneForTransfer(SyncableEntity source, Dictionary<Guid, Guid> idMap)
+        => throw new InvalidOperationException(
+            "CloneForTransfer requires a generator-emitted override. " +
+            "Ensure the CryptoSync source generator has run for this context.");
+
     // Contacts
     public DbSet<TrustedContact> Contacts => Set<TrustedContact>();
 

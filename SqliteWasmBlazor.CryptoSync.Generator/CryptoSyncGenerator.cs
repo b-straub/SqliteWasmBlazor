@@ -527,6 +527,63 @@ public class CryptoSyncGenerator : IIncrementalGenerator
         sb.AppendLine("        }");
         sb.AppendLine("        return result;");
         sb.AppendLine("    }");
+        sb.AppendLine();
+
+        // CloneForTransfer — per-entity switch that copies domain props, remaps FKs.
+        var syncMetadataProps = new HashSet<string>
+            { "Id", "SharingScope", "SharingId", "UpdatedAt", "IsDeleted", "DeletedAt" };
+
+        // Build FK column set per entity (DbSetName → set of FK column names).
+        var fkColumnsByEntity = new Dictionary<string, HashSet<string>>();
+        foreach (var rel in fkRelations)
+        {
+            if (!fkColumnsByEntity.TryGetValue(rel.ChildTable, out var cols))
+            {
+                cols = new HashSet<string>();
+                fkColumnsByEntity[rel.ChildTable] = cols;
+            }
+            cols.Add(rel.FkColumn);
+        }
+
+        sb.AppendLine("    public override SqliteWasmBlazor.CryptoSync.SyncableEntity CloneForTransfer(");
+        sb.AppendLine("        SqliteWasmBlazor.CryptoSync.SyncableEntity source,");
+        sb.AppendLine("        System.Collections.Generic.Dictionary<System.Guid, System.Guid> idMap)");
+        sb.AppendLine("    {");
+        sb.AppendLine("        return source switch");
+        sb.AppendLine("        {");
+
+        foreach (var entity in entities)
+        {
+            fkColumnsByEntity.TryGetValue(entity.DbSetName, out var entityFks);
+            var fkSet = entityFks ?? new HashSet<string>();
+
+            var assignments = new List<string>();
+            foreach (var prop in entity.Properties)
+            {
+                if (syncMetadataProps.Contains(prop.Name))
+                {
+                    continue;
+                }
+
+                if (fkSet.Contains(prop.Name))
+                {
+                    // FK column — remap via idMap. Use TryGetValue fallback for
+                    // FKs that point outside the transferred subtree.
+                    assignments.Add($"{prop.Name} = idMap.TryGetValue(e.{prop.Name}, out var mapped_{prop.Name}) ? mapped_{prop.Name} : e.{prop.Name}");
+                }
+                else
+                {
+                    assignments.Add($"{prop.Name} = e.{prop.Name}");
+                }
+            }
+
+            var body = string.Join(", ", assignments);
+            sb.AppendLine($"            {entity.Namespace}.{entity.Name} e => new {entity.Namespace}.{entity.Name} {{ {body} }},");
+        }
+
+        sb.AppendLine("            _ => throw new System.InvalidOperationException($\"CloneForTransfer: unknown entity type {source.GetType().Name}\")");
+        sb.AppendLine("        };");
+        sb.AppendLine("    }");
 
         sb.AppendLine("}");
 
