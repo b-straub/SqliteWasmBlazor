@@ -53,6 +53,7 @@ public abstract class CryptoSyncContextBase : DbContext
 
     // Lifecycle declarations
     public DbSet<LeaveDeclaration> LeaveDeclarations => Set<LeaveDeclaration>();
+    public DbSet<TransferDeclaration> TransferDeclarations => Set<TransferDeclaration>();
 
     // Schema metadata (seeded by generator, queried by worker at import time)
     public DbSet<ColumnRegistryEntry> ColumnRegistry => Set<ColumnRegistryEntry>();
@@ -129,6 +130,13 @@ public abstract class CryptoSyncContextBase : DbContext
         {
             entity.HasKey(e => e.Id);
             entity.HasIndex(e => new { e.GroupContext, e.MemberEd25519PublicKey });
+            entity.HasQueryFilter(e => !e.IsDeleted);
+        });
+
+        modelBuilder.Entity<TransferDeclaration>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => e.GroupContext);
             entity.HasQueryFilter(e => !e.IsDeleted);
         });
 
