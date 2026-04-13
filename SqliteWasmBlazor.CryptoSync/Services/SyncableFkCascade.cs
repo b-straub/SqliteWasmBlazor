@@ -4,30 +4,11 @@ namespace SqliteWasmBlazor.CryptoSync;
 
 /// <summary>
 /// Shared FK-walk helper for soft-deleting an entire <see cref="SyncableEntity"/>
-/// subtree. Uses the generator-emitted <c>SyncableFkMap</c> for compile-time FK
-/// discovery — no runtime EF metadata walks, no <c>System.Reflection</c>,
-/// AOT/trim-safe.
-///
-/// <para>
-/// Used by both:
-/// </para>
-/// <list type="bullet">
-///   <item><see cref="SharingService.UnshareAsync"/> — application-level
-///     "soft-delete this list and everything under it".</item>
-///   <item><see cref="CryptoSyncSaveChangesInterceptor"/>'s <c>Deleted</c>
-///     branch — converts an EF <c>Remove()</c> on a parent row into a
-///     subtree soft-delete in one save batch.</item>
-/// </list>
+/// subtree. Uses <see cref="CryptoSyncContextBase.GetChildFkRelations"/>
+/// (generator-emitted) for compile-time FK discovery — AOT/trim-safe.
 /// </summary>
 public static class SyncableFkCascade
 {
-    /// <summary>
-    /// Soft-delete the row identified by (<paramref name="parentTableName"/>,
-    /// <paramref name="parentId"/>) and every descendant reachable via
-    /// foreign keys. Sets <c>IsDeleted = true</c>, <c>DeletedAt = now</c>,
-    /// <c>UpdatedAt = now</c> on each row. Returns the total number of rows
-    /// updated (parent + descendants).
-    /// </summary>
     public static async Task<int> SoftDeleteSubtreeAsync(
         CryptoSyncContextBase context,
         string parentTableName,

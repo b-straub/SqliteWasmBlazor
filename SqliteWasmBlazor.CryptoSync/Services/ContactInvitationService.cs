@@ -89,7 +89,7 @@ public class ContactInvitationService(
             {
                 selfTargetSig = await signer.SignShareTargetAsync(
                     contactEd25519PrivForCred, contactKeys.X25519PublicKey,
-                    SyncRole.Owner, selfGroupContext, bundle.KeyVersion);
+                    SyncRole.OWNER, selfGroupContext, bundle.KeyVersion);
             }
             finally
             {
@@ -155,7 +155,7 @@ public class ContactInvitationService(
     public async ValueTask<TrustedContact> AcceptInvitationResponseAsync(
         DualKeyPairFull adminKeys,
         ContactAcceptancePayload payload,
-        SyncRole systemRole = SyncRole.Editor,
+        SyncRole systemRole = SyncRole.EDITOR,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(payload);
@@ -181,7 +181,7 @@ public class ContactInvitationService(
             IsAdmin = false,
             IsTrusted = true,
             UpdatedAt = now,
-            SharingScope = SharingScope.Public,
+            SharingScope = SharingScope.PUBLIC,
             SharingId = CryptoSyncBootstrap.SystemSharingId
         };
         context.Contacts.Add(contactRow);
@@ -196,7 +196,7 @@ public class ContactInvitationService(
             GroupAdminPublicKey = payload.X25519PublicKey,
             CreatedAt = now,
             UpdatedAt = now,
-            SharingScope = SharingScope.Client,
+            SharingScope = SharingScope.CLIENT,
             SharingId = CryptoSyncBootstrap.SystemSharingId
         };
         context.ShareGroups.Add(contactSelfGroup);
@@ -215,12 +215,12 @@ public class ContactInvitationService(
             KeyVersion = payload.SelfKeyVersion,
             MemberPublicKey = payload.X25519PublicKey,
             WrappedContentKey = payload.SelfWrappedContentKey,
-            Role = SyncRole.Owner,
+            Role = SyncRole.OWNER,
             AdminSignature = payload.SelfShareTargetSignature,
             GroupAdminEd25519PublicKey = payload.Ed25519PublicKey,
             GrantedByContactId = payload.ContactId,
             UpdatedAt = now,
-            SharingScope = SharingScope.Client,
+            SharingScope = SharingScope.CLIENT,
             SharingId = CryptoSyncBootstrap.SystemSharingId
         };
         context.ShareTargets.Add(contactSelfTarget);
@@ -302,7 +302,7 @@ public class ContactInvitationService(
             GroupAdminEd25519PublicKey = adminContact.Ed25519PublicKey,
             GrantedByContactId = adminContact.Id,
             UpdatedAt = now,
-            SharingScope = SharingScope.Public,
+            SharingScope = SharingScope.PUBLIC,
             SharingId = CryptoSyncBootstrap.SystemSharingId
         };
         context.ShareTargets.Add(contactSystemTarget);

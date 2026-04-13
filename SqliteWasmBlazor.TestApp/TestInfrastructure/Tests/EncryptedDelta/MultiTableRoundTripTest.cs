@@ -45,7 +45,7 @@ internal class MultiTableRoundTripTest(
                 Id = listId,
                 Name = "Groceries",
                 Description = "Round-trip test list",
-                SharingScope = SharingScope.Public,
+                SharingScope = SharingScope.PUBLIC,
                 SharingId = CryptoSyncBootstrap.SystemSharingId,
                 UpdatedAt = DateTime.UtcNow
             });
@@ -61,7 +61,7 @@ internal class MultiTableRoundTripTest(
                     ItemName = $"Item-{i}",
                     UnitPrice = 1.00m + i,
                     Quantity = i + 1,
-                    SharingScope = SharingScope.Public,
+                    SharingScope = SharingScope.PUBLIC,
                     SharingId = CryptoSyncBootstrap.SystemSharingId,
                     UpdatedAt = DateTime.UtcNow
                 });

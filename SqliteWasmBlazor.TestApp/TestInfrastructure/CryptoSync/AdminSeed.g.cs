@@ -42,7 +42,7 @@ public partial class CryptoTestContext
             IsAdmin = true,
             IsTrusted = true,
             UpdatedAt = new System.DateTime(639116115084816750L, System.DateTimeKind.Utc),
-            SharingScope = SharingScope.Public,
+            SharingScope = SharingScope.PUBLIC,
             SharingId = "system",
             IsDeleted = false
         });
@@ -56,7 +56,7 @@ public partial class CryptoTestContext
                 GroupAdminPublicKey = "hsX5Q3fWqD8zyCsMe5PksvoDKUCckQUgYK90hdfxHm4=",
                 CreatedAt = new System.DateTime(639116115084816750L, System.DateTimeKind.Utc),
                 UpdatedAt = new System.DateTime(639116115084816750L, System.DateTimeKind.Utc),
-                SharingScope = SharingScope.Public,
+                SharingScope = SharingScope.PUBLIC,
                 SharingId = "system",
                 IsDeleted = false
             },
@@ -68,7 +68,7 @@ public partial class CryptoTestContext
                 GroupAdminPublicKey = "hsX5Q3fWqD8zyCsMe5PksvoDKUCckQUgYK90hdfxHm4=",
                 CreatedAt = new System.DateTime(639116115084816750L, System.DateTimeKind.Utc),
                 UpdatedAt = new System.DateTime(639116115084816750L, System.DateTimeKind.Utc),
-                SharingScope = SharingScope.Client,
+                SharingScope = SharingScope.CLIENT,
                 SharingId = "system",
                 IsDeleted = false
             });
@@ -81,12 +81,12 @@ public partial class CryptoTestContext
                 KeyVersion = 1,
                 MemberPublicKey = "hsX5Q3fWqD8zyCsMe5PksvoDKUCckQUgYK90hdfxHm4=",
                 WrappedContentKey = System.Convert.FromBase64String("5kBIsSpP5PZ1UolHWpwgYJJa0hFY+smTaYxI7Bkx6y2RoRy4FxmXchtJ4YR4nd0UAagrm/uu4ncpmInn"),
-                Role = SyncRole.Owner,
+                Role = SyncRole.OWNER,
                 AdminSignature = System.Convert.FromBase64String("ryoLwPSgB3y/47bNfJ3NlCAdxee9AohC51Bz8by52yKhZdVs8ORXhiK+plBd7jyhZjKfmkoapDr4Y+GcdHlYBg=="),
                 GroupAdminEd25519PublicKey = "OBZwE49/GjJM9BteHA/VohAr2v3ScBHgknhQ4F4lJFA=",
                 GrantedByContactId = System.Guid.Parse("218b07af-4923-4f23-afca-d4077ca8b95d"),
                 UpdatedAt = new System.DateTime(639116115084816750L, System.DateTimeKind.Utc),
-                SharingScope = SharingScope.Public,
+                SharingScope = SharingScope.PUBLIC,
                 SharingId = "system",
                 IsDeleted = false
             },
@@ -97,12 +97,12 @@ public partial class CryptoTestContext
                 KeyVersion = 1,
                 MemberPublicKey = "hsX5Q3fWqD8zyCsMe5PksvoDKUCckQUgYK90hdfxHm4=",
                 WrappedContentKey = System.Convert.FromBase64String("OTPzzBYnW3A0Ozvuz5ZGGk+rTrinzoErAKkxL6RJ9vbT7vuGcbUUMieOmpLdul5ny7vH19o2+sj+OoeV"),
-                Role = SyncRole.Owner,
+                Role = SyncRole.OWNER,
                 AdminSignature = System.Convert.FromBase64String("s1YNaqGpZ5Bx3Mwckx6I64SmNJ17qhzWaDr6wZaCLHQVhOdbxWDT0hyBsSnVuLeMZT6CJMZRva4pdFgrPbAXCw=="),
                 GroupAdminEd25519PublicKey = "OBZwE49/GjJM9BteHA/VohAr2v3ScBHgknhQ4F4lJFA=",
                 GrantedByContactId = System.Guid.Parse("218b07af-4923-4f23-afca-d4077ca8b95d"),
                 UpdatedAt = new System.DateTime(639116115084816750L, System.DateTimeKind.Utc),
-                SharingScope = SharingScope.Client,
+                SharingScope = SharingScope.CLIENT,
                 SharingId = "system",
                 IsDeleted = false
             });

@@ -262,7 +262,7 @@ public partial class FloatingWindow : IAsyncDisposable
 
             if (Draggable)
             {
-                var isSnapped = _state is not null && _state.SnapState != Services.SnapZone.None;
+                var isSnapped = _state is not null && _state.SnapState != Services.SnapZone.NONE;
                 await _jsModule.InvokeVoidAsync("initDrag", $"fw-{Id}", _dotNetRef, CanSnap, isSnapped, _state?.PreSnapWidth, _state?.PreSnapHeight);
             }
 
@@ -316,7 +316,7 @@ public partial class FloatingWindow : IAsyncDisposable
         OnFocus.InvokeAsync();
     }
 
-    private async Task Minimize()
+    private async Task MinimizeAsync()
     {
         if (_state is null)
         {
@@ -328,7 +328,7 @@ public partial class FloatingWindow : IAsyncDisposable
         await OnMinimize.InvokeAsync();
     }
 
-    private async Task ToggleMaximizeOrUnsnap()
+    private async Task ToggleMaximizeOrUnsnapAsync()
     {
         if (_state is null)
         {
@@ -336,17 +336,17 @@ public partial class FloatingWindow : IAsyncDisposable
         }
 
         // If snapped, unsnap first
-        if (_state.SnapState != Services.SnapZone.None)
+        if (_state.SnapState != Services.SnapZone.NONE)
         {
-            await UnsnapWindow();
+            await UnsnapWindowAsync();
             return;
         }
 
         // Otherwise toggle maximize
-        await ToggleMaximize();
+        await ToggleMaximizeAsync();
     }
 
-    private async Task ToggleMaximize()
+    private async Task ToggleMaximizeAsync()
     {
         if (_state is null)
         {
@@ -382,7 +382,7 @@ public partial class FloatingWindow : IAsyncDisposable
         WindowManager.NotifyStateChanged();
     }
 
-    private async Task UnsnapWindow()
+    private async Task UnsnapWindowAsync()
     {
         if (_state is null)
         {
@@ -399,7 +399,7 @@ public partial class FloatingWindow : IAsyncDisposable
         }
 
         // Clear snap state
-        _state.SnapState = Services.SnapZone.None;
+        _state.SnapState = Services.SnapZone.NONE;
         _state.PreSnapX = null;
         _state.PreSnapY = null;
         _state.PreSnapWidth = null;
@@ -419,7 +419,7 @@ public partial class FloatingWindow : IAsyncDisposable
         WindowManager.NotifyStateChanged();
     }
 
-    private async Task Close()
+    private async Task CloseAsync()
     {
         IsOpen = false;
         await IsOpenChanged.InvokeAsync(false);
@@ -488,20 +488,20 @@ public partial class FloatingWindow : IAsyncDisposable
         // Parse snap zone
         var snapZone = zone switch
         {
-            "left" => Services.SnapZone.Left,
-            "right" => Services.SnapZone.Right,
-            "top" => Services.SnapZone.Top,
-            "bottom" => Services.SnapZone.Bottom,
-            _ => Services.SnapZone.None
+            "left" => Services.SnapZone.LEFT,
+            "right" => Services.SnapZone.RIGHT,
+            "top" => Services.SnapZone.TOP,
+            "bottom" => Services.SnapZone.BOTTOM,
+            _ => Services.SnapZone.NONE
         };
 
-        if (snapZone == Services.SnapZone.None)
+        if (snapZone == Services.SnapZone.NONE)
         {
             return;
         }
 
         // Store pre-snap geometry (only if not already snapped)
-        if (_state.SnapState == Services.SnapZone.None)
+        if (_state.SnapState == Services.SnapZone.NONE)
         {
             _state.PreSnapX = _state.X;
             _state.PreSnapY = _state.Y;
@@ -538,7 +538,7 @@ public partial class FloatingWindow : IAsyncDisposable
         }
 
         // Clear snap state
-        _state.SnapState = Services.SnapZone.None;
+        _state.SnapState = Services.SnapZone.NONE;
         _state.PreSnapX = null;
         _state.PreSnapY = null;
         _state.PreSnapWidth = null;
@@ -576,10 +576,10 @@ public partial class FloatingWindow : IAsyncDisposable
 
         return _state.SnapState switch
         {
-            Services.SnapZone.Left => "fw-snapped-left",
-            Services.SnapZone.Right => "fw-snapped-right",
-            Services.SnapZone.Top => "fw-snapped-top",
-            Services.SnapZone.Bottom => "fw-snapped-bottom",
+            Services.SnapZone.LEFT => "fw-snapped-left",
+            Services.SnapZone.RIGHT => "fw-snapped-right",
+            Services.SnapZone.TOP => "fw-snapped-top",
+            Services.SnapZone.BOTTOM => "fw-snapped-bottom",
             _ => string.Empty
         };
     }

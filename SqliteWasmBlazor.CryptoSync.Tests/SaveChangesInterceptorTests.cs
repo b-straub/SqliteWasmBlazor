@@ -51,7 +51,7 @@ public class SaveChangesInterceptorTests : IDisposable
         await _context.SaveChangesAsync();
 
         Assert.NotEqual(Guid.Empty, list.Id);
-        Assert.Equal(SharingScope.Client, list.SharingScope);
+        Assert.Equal(SharingScope.CLIENT, list.SharingScope);
         Assert.Equal(CryptoSyncBootstrap.BuildSelfGroupContext(ownContactId), list.SharingId);
         Assert.NotEqual(default, list.UpdatedAt);
     }
@@ -59,18 +59,18 @@ public class SaveChangesInterceptorTests : IDisposable
     [Fact]
     public async Task Added_PublicScope_GetsSystemSharingId()
     {
-        var list = new TestList { Name = "Shared with everyone", SharingScope = SharingScope.Public };
+        var list = new TestList { Name = "Shared with everyone", SharingScope = SharingScope.PUBLIC };
         _context.TestLists.Add(list);
         await _context.SaveChangesAsync();
 
-        Assert.Equal(SharingScope.Public, list.SharingScope);
+        Assert.Equal(SharingScope.PUBLIC, list.SharingScope);
         Assert.Equal(CryptoSyncBootstrap.SystemSharingId, list.SharingId);
     }
 
     [Fact]
     public async Task Added_SharedScopeWithoutExplicitSharingId_Throws()
     {
-        var list = new TestList { Name = "Shared", SharingScope = SharingScope.Shared };
+        var list = new TestList { Name = "Shared", SharingScope = SharingScope.SHARED };
         _context.TestLists.Add(list);
 
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => _context.SaveChangesAsync());
@@ -84,14 +84,14 @@ public class SaveChangesInterceptorTests : IDisposable
         var list = new TestList
         {
             Name = "Custom",
-            SharingScope = SharingScope.Shared,
+            SharingScope = SharingScope.SHARED,
             SharingId = "custom-group:v1"
         };
         _context.TestLists.Add(list);
         await _context.SaveChangesAsync();
 
         Assert.Equal("custom-group:v1", list.SharingId);
-        Assert.Equal(SharingScope.Shared, list.SharingScope);
+        Assert.Equal(SharingScope.SHARED, list.SharingScope);
     }
 
     [Fact]
@@ -109,7 +109,7 @@ public class SaveChangesInterceptorTests : IDisposable
             CreatedAt = DateTime.UtcNow,
             // Deliberately Client + empty SharingId to confirm the
             // interceptor short-circuits both "leave alone" and "scope route".
-            SharingScope = SharingScope.Client,
+            SharingScope = SharingScope.CLIENT,
             SharingId = string.Empty
         };
         _context.ShareGroups.Add(group);
@@ -125,7 +125,7 @@ public class SaveChangesInterceptorTests : IDisposable
         var parent = new TestList
         {
             Name = "Inherit-parent",
-            SharingScope = SharingScope.Shared,
+            SharingScope = SharingScope.SHARED,
             SharingId = "parent-group:v1"
         };
         _context.TestLists.Add(parent);
@@ -137,7 +137,7 @@ public class SaveChangesInterceptorTests : IDisposable
 
         await _context.SaveChangesAsync();
 
-        Assert.Equal(SharingScope.Shared, child.SharingScope);
+        Assert.Equal(SharingScope.SHARED, child.SharingScope);
         Assert.Equal("parent-group:v1", child.SharingId);
     }
 
@@ -175,7 +175,7 @@ public class SaveChangesInterceptorTests : IDisposable
     [Fact]
     public async Task Modified_BumpsUpdatedAt()
     {
-        var list = new TestList { Name = "Bumped", SharingScope = SharingScope.Public };
+        var list = new TestList { Name = "Bumped", SharingScope = SharingScope.PUBLIC };
         _context.TestLists.Add(list);
         await _context.SaveChangesAsync();
         var initialUpdatedAt = list.UpdatedAt;
@@ -190,7 +190,7 @@ public class SaveChangesInterceptorTests : IDisposable
     [Fact]
     public async Task Modified_ChangingSharingId_Throws()
     {
-        var list = new TestList { Name = "Locked", SharingScope = SharingScope.Public };
+        var list = new TestList { Name = "Locked", SharingScope = SharingScope.PUBLIC };
         _context.TestLists.Add(list);
         await _context.SaveChangesAsync();
 
@@ -204,11 +204,11 @@ public class SaveChangesInterceptorTests : IDisposable
     [Fact]
     public async Task Modified_ChangingSharingScope_Throws()
     {
-        var list = new TestList { Name = "Scope-locked", SharingScope = SharingScope.Public };
+        var list = new TestList { Name = "Scope-locked", SharingScope = SharingScope.PUBLIC };
         _context.TestLists.Add(list);
         await _context.SaveChangesAsync();
 
-        list.SharingScope = SharingScope.Client;
+        list.SharingScope = SharingScope.CLIENT;
 
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => _context.SaveChangesAsync());
         Assert.Contains("SharingScope", ex.Message);
@@ -222,7 +222,7 @@ public class SaveChangesInterceptorTests : IDisposable
     [Fact]
     public async Task Deleted_ConvertsToTombstone_AndCascadesViaFkWalk()
     {
-        var parent = new TestList { Name = "To delete", SharingScope = SharingScope.Public };
+        var parent = new TestList { Name = "To delete", SharingScope = SharingScope.PUBLIC };
         _context.TestLists.Add(parent);
         await _context.SaveChangesAsync();
 
@@ -236,7 +236,7 @@ public class SaveChangesInterceptorTests : IDisposable
                 ListId = parent.Id,
                 ItemName = $"item-{i}",
                 Quantity = 1,
-                SharingScope = SharingScope.Public
+                SharingScope = SharingScope.PUBLIC
             });
         }
         for (var i = 0; i < 2; i++)
@@ -246,7 +246,7 @@ public class SaveChangesInterceptorTests : IDisposable
                 Id = Guid.NewGuid(),
                 ListId = parent.Id,
                 Text = $"note-{i}",
-                SharingScope = SharingScope.Public
+                SharingScope = SharingScope.PUBLIC
             });
         }
         await _context.SaveChangesAsync();

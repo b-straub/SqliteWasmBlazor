@@ -68,7 +68,7 @@ public sealed class TwoActorBootstrap : IAsyncDisposable
         var userContactOnAdmin = await adminInvitation.AcceptInvitationResponseAsync(
             admin.Keys,
             payload,
-            systemRole: SyncRole.Viewer);
+            systemRole: SyncRole.VIEWER);
 
         await admin.Context.Entry(userContactOnAdmin).ReloadAsync();
 

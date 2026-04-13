@@ -23,20 +23,20 @@
                 Database Import/Export
             </MudText>
             <MudButtonGroup Size="Size.Small" OverrideStyles="false">
-                <MudButton OnClick="@(() => SetExportMode(ExportMode.Full))"
-                          Color="@(_exportMode == ExportMode.Full ? Color.Primary : Color.Default)"
-                          Variant="@(_exportMode == ExportMode.Full ? Variant.Filled : Variant.Outlined)">
+                <MudButton OnClick="@(() => SetExportMode(ExportMode.FULL))"
+                          Color="@(_exportMode == ExportMode.FULL ? Color.Primary : Color.Default)"
+                          Variant="@(_exportMode == ExportMode.FULL ? Variant.Filled : Variant.Outlined)">
                     Full
                 </MudButton>
-                <MudButton OnClick="@(() => SetExportMode(ExportMode.Delta))"
-                          Color="@(_exportMode == ExportMode.Delta ? Color.Primary : Color.Default)"
-                          Variant="@(_exportMode == ExportMode.Delta ? Variant.Filled : Variant.Outlined)">
+                <MudButton OnClick="@(() => SetExportMode(ExportMode.DELTA))"
+                          Color="@(_exportMode == ExportMode.DELTA ? Color.Primary : Color.Default)"
+                          Variant="@(_exportMode == ExportMode.DELTA ? Variant.Filled : Variant.Outlined)">
                     Delta
                 </MudButton>
             </MudButtonGroup>
         </MudStack>
 
-        @if (_exportMode == ExportMode.Delta)
+        @if (_exportMode == ExportMode.DELTA)
         {
             <MudPaper Elevation="0" Class="pa-3 mb-3" Style="background-color: var(--mud-palette-info);">
                 <MudStack Spacing="2">
@@ -54,19 +54,19 @@
                         Choose how to handle conflicts when importing delta data with existing local changes
                     </MudText>
                     <MudRadioGroup @bind-Value="_conflictResolution">
-                        <MudRadio T="ConflictResolutionStrategy" Value="ConflictResolutionStrategy.LastWriteWins" Color="Color.Primary">
+                        <MudRadio T="ConflictResolutionStrategy" Value="ConflictResolutionStrategy.LAST_WRITE_WINS" Color="Color.Primary">
                             <MudStack Spacing="0">
                                 <MudText Typo="Typo.body2"><strong>Last Write Wins</strong></MudText>
                                 <MudText Typo="Typo.caption">Most recent timestamp wins (compares UpdatedAt)</MudText>
                             </MudStack>
                         </MudRadio>
-                        <MudRadio T="ConflictResolutionStrategy" Value="ConflictResolutionStrategy.LocalWins" Color="Color.Success">
+                        <MudRadio T="ConflictResolutionStrategy" Value="ConflictResolutionStrategy.LOCAL_WINS" Color="Color.Success">
                             <MudStack Spacing="0">
                                 <MudText Typo="Typo.body2"><strong>Local Wins</strong></MudText>
                                 <MudText Typo="Typo.caption">Keep local changes, only add new items from import</MudText>
                             </MudStack>
                         </MudRadio>
-                        <MudRadio T="ConflictResolutionStrategy" Value="ConflictResolutionStrategy.DeltaWins" Color="Color.Warning">
+                        <MudRadio T="ConflictResolutionStrategy" Value="ConflictResolutionStrategy.DELTA_WINS" Color="Color.Warning">
                             <MudStack Spacing="0">
                                 <MudText Typo="Typo.body2"><strong>Delta Wins</strong></MudText>
                                 <MudText Typo="Typo.caption">Accept all imported changes, overwrite local items</MudText>
@@ -245,8 +245,8 @@
     private readonly string _schemaHash = SqliteWasmBlazor.Components.Interop.SchemaHashGenerator.ComputeHash<TodoItemDto>();
 
     private TodoDbContext? _tempDbContext;
-    private ExportMode _exportMode = ExportMode.Full;
-    private ConflictResolutionStrategy _conflictResolution = ConflictResolutionStrategy.LastWriteWins;
+    private ExportMode _exportMode = ExportMode.FULL;
+    private ConflictResolutionStrategy _conflictResolution = ConflictResolutionStrategy.LAST_WRITE_WINS;
     private bool _showTombstoneCleanup;
     private int _tombstoneCount;
     private bool _isExporting;
@@ -276,26 +276,26 @@
 
     private string GetExportButtonText()
     {
-        return _exportMode == ExportMode.Full
+        return _exportMode == ExportMode.FULL
             ? "Export All TodoItems"
             : "Export Delta (Changed Items)";
     }
 
     private string GetImportButtonText()
     {
-        return _exportMode == ExportMode.Full
+        return _exportMode == ExportMode.FULL
             ? "Import TodoItems (Replace All)"
             : "Import Delta (Merge/Update)";
     }
 
     private Severity GetAlertSeverity()
     {
-        return _exportMode == ExportMode.Full ? Severity.Warning : Severity.Info;
+        return _exportMode == ExportMode.FULL ? Severity.Warning : Severity.Info;
     }
 
     private string GetModeDescription()
     {
-        if (_exportMode == ExportMode.Full)
+        if (_exportMode == ExportMode.FULL)
         {
             return "Full mode: Import will create a temporary database and swap it after validation. Your current data will be backed up as " + BackupDatabaseName;
         }
@@ -303,9 +303,9 @@
         {
             var strategyDesc = _conflictResolution switch
             {
-                ConflictResolutionStrategy.LastWriteWins => "Most recent changes win (compares timestamps)",
-                ConflictResolutionStrategy.LocalWins => "Local changes always win (only new items are added)",
-                ConflictResolutionStrategy.DeltaWins => "Imported changes always win (local items overwritten)",
+                ConflictResolutionStrategy.LAST_WRITE_WINS => "Most recent changes win (compares timestamps)",
+                ConflictResolutionStrategy.LOCAL_WINS => "Local changes always win (only new items are added)",
+                ConflictResolutionStrategy.DELTA_WINS => "Imported changes always win (local items overwritten)",
                 _ => ""
             };
             return $"Delta mode: Import will merge/update items. Conflict resolution: {strategyDesc}";
@@ -334,7 +334,7 @@
             string? where = null;
             string[]? whereParams = null;
 
-            if (_exportMode == ExportMode.Delta)
+            if (_exportMode == ExportMode.DELTA)
             {
                 await using var ctx = await DbContextFactory.CreateDbContextAsync(cancellationToken);
                 var latestCheckpoint = await ctx.SyncState
@@ -366,7 +366,7 @@
                 SchemaHash = _schemaHash,
                 DataType = typeof(TodoItemDto).FullName ?? typeof(TodoItemDto).Name,
                 AppIdentifier = AppIdentifier,
-                Mode = _exportMode == ExportMode.Full ? 0 : 1,
+                Mode = _exportMode == ExportMode.FULL ? 0 : 1,
                 Where = where,
                 WhereParams = whereParams,
                 OrderBy = "\"UpdatedAt\" DESC"
@@ -395,7 +395,7 @@
                 partSize = 1_000_000; // Fallback
             }
             var timestamp = DateTime.Now.ToString("yyyyMMdd-HHmmss");
-            var prefix = _exportMode == ExportMode.Full ? "todoitems-full" : "todoitems-delta";
+            var prefix = _exportMode == ExportMode.FULL ? "todoitems-full" : "todoitems-delta";
 
             _exportStatus = "Counting records...";
             _exportProgress = 0;
@@ -406,7 +406,7 @@
             int totalItemCount;
             await using (var countCtx = await DbContextFactory.CreateDbContextAsync(cancellationToken))
             {
-                if (_exportMode == ExportMode.Delta)
+                if (_exportMode == ExportMode.DELTA)
                 {
                     var latestCp = await countCtx.SyncState
                         .OrderByDescending(s => s.Id)
@@ -488,7 +488,7 @@
                     appIdentifier = AppIdentifier,
                     exportedAt = DateTime.UtcNow.ToString("O"),
                     totalRecordCount = totalExported,
-                    mode = _exportMode == ExportMode.Full ? 0 : 1,
+                    mode = _exportMode == ExportMode.FULL ? 0 : 1,
                     parts = parts.Select(p => new { fileName = p.fileName, recordCount = p.recordCount }).ToArray()
                 };
 
@@ -508,7 +508,7 @@
                 count, sw.ElapsedMilliseconds, Math.Max(parts.Count, 1));
 
             // Create checkpoint after delta export
-            if (_exportMode == ExportMode.Delta && count > 0)
+            if (_exportMode == ExportMode.DELTA && count > 0)
             {
                 try
                 {
@@ -558,7 +558,7 @@
     private string GetExportFileName()
     {
         var timestamp = DateTime.Now.ToString("yyyyMMdd-HHmmss");
-        var prefix = _exportMode == ExportMode.Full ? "todoitems-full" : "todoitems-delta";
+        var prefix = _exportMode == ExportMode.FULL ? "todoitems-full" : "todoitems-delta";
         return $"{prefix}-{timestamp}.msgpack";
     }
 
@@ -620,14 +620,14 @@
             const int batchSize = 10000;
             const long maxFileSize = 1024L * 1024L * 500L;
 
-            var conflictStrategy = _exportMode == ExportMode.Delta
+            var conflictStrategy = _exportMode == ExportMode.DELTA
                 ? _conflictResolution
-                : ConflictResolutionStrategy.None;
+                : ConflictResolutionStrategy.NONE;
 
-            var dbName = _exportMode == ExportMode.Full ? ImportDatabaseName : DatabaseName;
+            var dbName = _exportMode == ExportMode.FULL ? ImportDatabaseName : DatabaseName;
 
             // Full mode: create temp database with migrations first
-            if (_exportMode == ExportMode.Full)
+            if (_exportMode == ExportMode.FULL)
             {
                 if (await DatabaseService.ExistsDatabaseAsync(ImportDatabaseName, cancellationToken))
                 {
@@ -710,7 +710,7 @@
             }
 
             // Post-import: finalize based on mode
-            if (_exportMode == ExportMode.Delta)
+            if (_exportMode == ExportMode.DELTA)
             {
                 await using var ctx = await DbContextFactory.CreateDbContextAsync(cancellationToken);
                 _tombstoneCount = await ctx.TodoItems.CountAsync(t => t.IsDeleted, cancellationToken);
@@ -827,7 +827,7 @@
             var totalParts = _requiredParts.Count;
 
             // Full mode: create temp database
-            if (_exportMode == ExportMode.Full)
+            if (_exportMode == ExportMode.FULL)
             {
                 if (await DatabaseService.ExistsDatabaseAsync(ImportDatabaseName, cancellationToken))
                 {
@@ -842,10 +842,10 @@
                 await _tempDbContext.Database.MigrateAsync(cancellationToken);
             }
 
-            var dbName = _exportMode == ExportMode.Full ? ImportDatabaseName : DatabaseName;
-            var conflictStrategy = _exportMode == ExportMode.Delta
+            var dbName = _exportMode == ExportMode.FULL ? ImportDatabaseName : DatabaseName;
+            var conflictStrategy = _exportMode == ExportMode.DELTA
                 ? _conflictResolution
-                : ConflictResolutionStrategy.None;
+                : ConflictResolutionStrategy.NONE;
 
             // Import each part sequentially using existing raw byte streaming
             for (var i = 0; i < _requiredParts.Count; i++)
@@ -917,7 +917,7 @@
             }
 
             // Post-import finalize (same as single file)
-            if (_exportMode == ExportMode.Delta)
+            if (_exportMode == ExportMode.DELTA)
             {
                 await using var ctx = await DbContextFactory.CreateDbContextAsync(cancellationToken);
                 _tombstoneCount = await ctx.TodoItems.CountAsync(t => t.IsDeleted, cancellationToken);

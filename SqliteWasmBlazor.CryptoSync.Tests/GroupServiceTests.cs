@@ -40,8 +40,8 @@ public class GroupServiceTests : IAsyncLifetime
             AdminPrivateKey,
             _scenario.Admin.Keys.X25519PublicKey,
             [
-                (_scenario.Admin.Keys.X25519PublicKey, SyncRole.Owner, adminContact!.Id),
-                (_scenario.User.Keys.X25519PublicKey, SyncRole.Editor, adminContact.Id)
+                (_scenario.Admin.Keys.X25519PublicKey, SyncRole.OWNER, adminContact!.Id),
+                (_scenario.User.Keys.X25519PublicKey, SyncRole.EDITOR, adminContact.Id)
             ],
             "shopping-list-1:v1");
 
@@ -52,9 +52,9 @@ public class GroupServiceTests : IAsyncLifetime
         var members = await _scenario.Admin.Groups.GetMembersAsync(group.Id);
         Assert.Equal(2, members.Count);
         Assert.Contains(members, m => m.MemberPublicKey == _scenario.Admin.Keys.X25519PublicKey
-                                      && m.Role == SyncRole.Owner);
+                                      && m.Role == SyncRole.OWNER);
         Assert.Contains(members, m => m.MemberPublicKey == _scenario.User.Keys.X25519PublicKey
-                                      && m.Role == SyncRole.Editor);
+                                      && m.Role == SyncRole.EDITOR);
     }
 
     [Fact]
@@ -67,8 +67,8 @@ public class GroupServiceTests : IAsyncLifetime
             AdminPrivateKey,
             _scenario.Admin.Keys.X25519PublicKey,
             [
-                (_scenario.Admin.Keys.X25519PublicKey, SyncRole.Owner, adminContact!.Id),
-                (_scenario.User.Keys.X25519PublicKey, SyncRole.Editor, adminContact.Id)
+                (_scenario.Admin.Keys.X25519PublicKey, SyncRole.OWNER, adminContact!.Id),
+                (_scenario.User.Keys.X25519PublicKey, SyncRole.EDITOR, adminContact.Id)
             ],
             "cek-test:v1");
 
@@ -123,7 +123,7 @@ public class GroupServiceTests : IAsyncLifetime
             IsAdmin = false,
             IsTrusted = true,
             UpdatedAt = DateTime.UtcNow,
-            SharingScope = SharingScope.Public,
+            SharingScope = SharingScope.PUBLIC,
             SharingId = CryptoSyncBootstrap.SystemSharingId
         };
         _scenario.Admin.Context.Contacts.Add(charlieContact);
@@ -135,12 +135,12 @@ public class GroupServiceTests : IAsyncLifetime
         await _scenario.Admin.Groups.AddMembersAsync(
             systemGroup.Id,
             AdminPrivateKey,
-            [(thirdActor.Keys.X25519PublicKey, SyncRole.Viewer, adminContact!.Id)]);
+            [(thirdActor.Keys.X25519PublicKey, SyncRole.VIEWER, adminContact!.Id)]);
 
         var members = await _scenario.Admin.Groups.GetMembersAsync(systemGroup.Id);
         Assert.Equal(3, members.Count);
         Assert.Contains(members, m => m.MemberPublicKey == thirdActor.Keys.X25519PublicKey
-                                      && m.Role == SyncRole.Viewer);
+                                      && m.Role == SyncRole.VIEWER);
     }
 
     // ----------------------------------------------------------------
@@ -161,9 +161,9 @@ public class GroupServiceTests : IAsyncLifetime
             AdminPrivateKey,
             _scenario.Admin.Keys.X25519PublicKey,
             [
-                (_scenario.Admin.Keys.X25519PublicKey, SyncRole.Owner, adminContact!.Id),
-                (_scenario.User.Keys.X25519PublicKey, SyncRole.Editor, adminContact.Id),
-                (charlie.Keys.X25519PublicKey, SyncRole.Viewer, adminContact.Id)
+                (_scenario.Admin.Keys.X25519PublicKey, SyncRole.OWNER, adminContact!.Id),
+                (_scenario.User.Keys.X25519PublicKey, SyncRole.EDITOR, adminContact.Id),
+                (charlie.Keys.X25519PublicKey, SyncRole.VIEWER, adminContact.Id)
             ],
             "rotate-test:v1");
 
@@ -202,8 +202,8 @@ public class GroupServiceTests : IAsyncLifetime
             AdminPrivateKey,
             _scenario.Admin.Keys.X25519PublicKey,
             [
-                (_scenario.Admin.Keys.X25519PublicKey, SyncRole.Owner, adminContact!.Id),
-                (_scenario.User.Keys.X25519PublicKey, SyncRole.Editor, adminContact.Id)
+                (_scenario.Admin.Keys.X25519PublicKey, SyncRole.OWNER, adminContact!.Id),
+                (_scenario.User.Keys.X25519PublicKey, SyncRole.EDITOR, adminContact.Id)
             ],
             "cek-rotate:v1");
 
@@ -257,11 +257,11 @@ public class GroupServiceTests : IAsyncLifetime
             .SingleAsync(g => g.GroupContext == CryptoSyncBootstrap.SystemGroupContext);
 
         await _scenario.Admin.Groups.UpdateMemberRoleAsync(
-            systemGroup.Id, _scenario.User.Keys.X25519PublicKey, SyncRole.Editor);
+            systemGroup.Id, _scenario.User.Keys.X25519PublicKey, SyncRole.EDITOR);
 
         var members = await _scenario.Admin.Groups.GetMembersAsync(systemGroup.Id);
         var userTarget = members.Single(m => m.MemberPublicKey == _scenario.User.Keys.X25519PublicKey);
-        Assert.Equal(SyncRole.Editor, userTarget.Role);
+        Assert.Equal(SyncRole.EDITOR, userTarget.Role);
     }
 
     // ----------------------------------------------------------------

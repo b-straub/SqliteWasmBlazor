@@ -43,7 +43,7 @@ internal class SchemaVersionMismatchTest(
             {
                 Id = Guid.NewGuid(), Title = "SchemaTest", Description = "test",
                 Price = 1.00m, IsBought = false,
-                SharingScope = SharingScope.Public,
+                SharingScope = SharingScope.PUBLIC,
                 SharingId = CryptoSyncBootstrap.SystemSharingId, UpdatedAt = DateTime.UtcNow
             });
             await ctx.SaveChangesAsync();

@@ -42,7 +42,7 @@ public partial class TestSyncContext
             IsAdmin = true,
             IsTrusted = true,
             UpdatedAt = new System.DateTime(639116115066396130L, System.DateTimeKind.Utc),
-            SharingScope = SharingScope.Public,
+            SharingScope = SharingScope.PUBLIC,
             SharingId = "system",
             IsDeleted = false
         });
@@ -56,7 +56,7 @@ public partial class TestSyncContext
                 GroupAdminPublicKey = "hsX5Q3fWqD8zyCsMe5PksvoDKUCckQUgYK90hdfxHm4=",
                 CreatedAt = new System.DateTime(639116115066396130L, System.DateTimeKind.Utc),
                 UpdatedAt = new System.DateTime(639116115066396130L, System.DateTimeKind.Utc),
-                SharingScope = SharingScope.Public,
+                SharingScope = SharingScope.PUBLIC,
                 SharingId = "system",
                 IsDeleted = false
             },
@@ -68,7 +68,7 @@ public partial class TestSyncContext
                 GroupAdminPublicKey = "hsX5Q3fWqD8zyCsMe5PksvoDKUCckQUgYK90hdfxHm4=",
                 CreatedAt = new System.DateTime(639116115066396130L, System.DateTimeKind.Utc),
                 UpdatedAt = new System.DateTime(639116115066396130L, System.DateTimeKind.Utc),
-                SharingScope = SharingScope.Client,
+                SharingScope = SharingScope.CLIENT,
                 SharingId = "system",
                 IsDeleted = false
             });
@@ -81,12 +81,12 @@ public partial class TestSyncContext
                 KeyVersion = 1,
                 MemberPublicKey = "hsX5Q3fWqD8zyCsMe5PksvoDKUCckQUgYK90hdfxHm4=",
                 WrappedContentKey = System.Convert.FromBase64String("gQHONhYugkiEXIQer/i/pU2fWPwfQ+cOb23VnHqfKaYHES7R9xF/+UWvKWclSY9/lUSa78gF/LTIpndx"),
-                Role = SyncRole.Owner,
+                Role = SyncRole.OWNER,
                 AdminSignature = System.Convert.FromBase64String("ryoLwPSgB3y/47bNfJ3NlCAdxee9AohC51Bz8by52yKhZdVs8ORXhiK+plBd7jyhZjKfmkoapDr4Y+GcdHlYBg=="),
                 GroupAdminEd25519PublicKey = "OBZwE49/GjJM9BteHA/VohAr2v3ScBHgknhQ4F4lJFA=",
                 GrantedByContactId = System.Guid.Parse("965df86d-4d39-4fef-9f47-9b8a29b6bd95"),
                 UpdatedAt = new System.DateTime(639116115066396130L, System.DateTimeKind.Utc),
-                SharingScope = SharingScope.Public,
+                SharingScope = SharingScope.PUBLIC,
                 SharingId = "system",
                 IsDeleted = false
             },
@@ -97,12 +97,12 @@ public partial class TestSyncContext
                 KeyVersion = 1,
                 MemberPublicKey = "hsX5Q3fWqD8zyCsMe5PksvoDKUCckQUgYK90hdfxHm4=",
                 WrappedContentKey = System.Convert.FromBase64String("KtXdjdSOEE9a/Qq+3CXw5OC7edgXrLSWFKx5PEktpC2jEn+1Q9gJ6r6oOgmbBuTPIUdT20wTexuaKA6r"),
-                Role = SyncRole.Owner,
+                Role = SyncRole.OWNER,
                 AdminSignature = System.Convert.FromBase64String("Zz/J7Sx4TXKEkUbpy2XV77tJcMOcrhHBJtnv43cDCHTZVb/45vh4lt+kItjz5Os0mzJf3krnNP9/v/AyRouNBA=="),
                 GroupAdminEd25519PublicKey = "OBZwE49/GjJM9BteHA/VohAr2v3ScBHgknhQ4F4lJFA=",
                 GrantedByContactId = System.Guid.Parse("965df86d-4d39-4fef-9f47-9b8a29b6bd95"),
                 UpdatedAt = new System.DateTime(639116115066396130L, System.DateTimeKind.Utc),
-                SharingScope = SharingScope.Client,
+                SharingScope = SharingScope.CLIENT,
                 SharingId = "system",
                 IsDeleted = false
             });

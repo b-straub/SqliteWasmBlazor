@@ -39,7 +39,7 @@ public class TransferServiceTests : IDisposable
         var list = new TestList
         {
             Name = "Shopping",
-            SharingScope = SharingScope.Shared,
+            SharingScope = SharingScope.SHARED,
             SharingId = "group-a:v1"
         };
         _context.TestLists.Add(list);
@@ -47,7 +47,7 @@ public class TransferServiceTests : IDisposable
         var originalId = list.Id;
 
         var idMap = await _transfer.TransferSubtreeAsync(
-            "TestLists", originalId, "group-b:v1", SharingScope.Shared);
+            "TestLists", originalId, "group-b:v1", SharingScope.SHARED);
 
         // Source row: tombstoned, original SharingId preserved.
         var source = await _context.TestLists
@@ -63,7 +63,7 @@ public class TransferServiceTests : IDisposable
             .SingleAsync(l => l.Id == newId);
         Assert.False(clone.IsDeleted);
         Assert.Equal("group-b:v1", clone.SharingId);
-        Assert.Equal(SharingScope.Shared, clone.SharingScope);
+        Assert.Equal(SharingScope.SHARED, clone.SharingScope);
         Assert.Equal("Shopping", clone.Name);
     }
 
@@ -77,7 +77,7 @@ public class TransferServiceTests : IDisposable
         var parent = new TestList
         {
             Name = "Groceries",
-            SharingScope = SharingScope.Shared,
+            SharingScope = SharingScope.SHARED,
             SharingId = "group-a:v1"
         };
         _context.TestLists.Add(parent);
@@ -86,17 +86,17 @@ public class TransferServiceTests : IDisposable
         var item1 = new TestListItem
         {
             ListId = parent.Id, ItemName = "Milk", Quantity = 2,
-            SharingScope = SharingScope.Shared, SharingId = "group-a:v1"
+            SharingScope = SharingScope.SHARED, SharingId = "group-a:v1"
         };
         var item2 = new TestListItem
         {
             ListId = parent.Id, ItemName = "Bread", Quantity = 1,
-            SharingScope = SharingScope.Shared, SharingId = "group-a:v1"
+            SharingScope = SharingScope.SHARED, SharingId = "group-a:v1"
         };
         var note = new TestListNote
         {
             ListId = parent.Id, Text = "Don't forget coupons",
-            SharingScope = SharingScope.Shared, SharingId = "group-a:v1"
+            SharingScope = SharingScope.SHARED, SharingId = "group-a:v1"
         };
         _context.TestListItems.Add(item1);
         _context.TestListItems.Add(item2);
@@ -104,7 +104,7 @@ public class TransferServiceTests : IDisposable
         await _context.SaveChangesAsync();
 
         var idMap = await _transfer.TransferSubtreeAsync(
-            "TestLists", parent.Id, "group-b:v1", SharingScope.Shared);
+            "TestLists", parent.Id, "group-b:v1", SharingScope.SHARED);
 
         // 4 entities transferred: parent + 2 items + 1 note.
         Assert.Equal(4, idMap.Count);
@@ -159,7 +159,7 @@ public class TransferServiceTests : IDisposable
         var list = new TestList
         {
             Name = "Immutable check",
-            SharingScope = SharingScope.Shared,
+            SharingScope = SharingScope.SHARED,
             SharingId = "source-group:v1"
         };
         _context.TestLists.Add(list);
@@ -187,7 +187,7 @@ public class TransferServiceTests : IDisposable
     [Fact]
     public async Task TransferSubtree_EmptyTargetSharingId_Throws()
     {
-        var list = new TestList { Name = "Bad target", SharingScope = SharingScope.Public };
+        var list = new TestList { Name = "Bad target", SharingScope = SharingScope.PUBLIC };
         _context.TestLists.Add(list);
         await _context.SaveChangesAsync();
 
@@ -201,7 +201,7 @@ public class TransferServiceTests : IDisposable
         var list = new TestList
         {
             Name = "Already gone",
-            SharingScope = SharingScope.Shared,
+            SharingScope = SharingScope.SHARED,
             SharingId = "group-a:v1"
         };
         _context.TestLists.Add(list);

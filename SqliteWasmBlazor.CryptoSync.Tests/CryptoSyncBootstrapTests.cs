@@ -42,7 +42,7 @@ public class CryptoSyncBootstrapTests
         Assert.Equal(keys.Ed25519PublicKey, seed.AdminContact.Ed25519PublicKey);
         Assert.True(seed.AdminContact.IsAdmin);
         Assert.True(seed.AdminContact.IsTrusted);
-        Assert.Equal(SharingScope.Public, seed.AdminContact.SharingScope);
+        Assert.Equal(SharingScope.PUBLIC, seed.AdminContact.SharingScope);
         Assert.Equal(CryptoSyncBootstrap.SystemSharingId, seed.AdminContact.SharingId);
     }
 
@@ -64,7 +64,7 @@ public class CryptoSyncBootstrapTests
 
         Assert.Equal(seed.SystemGroup.Id, seed.AdminShareTarget.ShareGroupId);
         Assert.Equal(seed.AdminContact.Id, seed.AdminShareTarget.GrantedByContactId);
-        Assert.Equal(SyncRole.Owner, seed.AdminShareTarget.Role);
+        Assert.Equal(SyncRole.OWNER, seed.AdminShareTarget.Role);
         Assert.True(seed.AdminShareTarget.WrappedContentKey.Length > 12);
     }
 
@@ -115,8 +115,8 @@ public class CryptoSyncBootstrapTests
         Assert.Equal(2, groups.Count);
         var systemGroup = groups.Single(g => g.GroupContext == CryptoSyncBootstrap.SystemGroupContext);
         var selfGroup = groups.Single(g => g.GroupContext == CryptoSyncBootstrap.BuildSelfGroupContext(admin.Id));
-        Assert.Equal(SharingScope.Public, systemGroup.SharingScope);
-        Assert.Equal(SharingScope.Client, selfGroup.SharingScope);
+        Assert.Equal(SharingScope.PUBLIC, systemGroup.SharingScope);
+        Assert.Equal(SharingScope.CLIENT, selfGroup.SharingScope);
         // Both ShareGroup rows route via the system CEK on the wire.
         Assert.Equal(CryptoSyncBootstrap.SystemSharingId, systemGroup.SharingId);
         Assert.Equal(CryptoSyncBootstrap.SystemSharingId, selfGroup.SharingId);
@@ -127,8 +127,8 @@ public class CryptoSyncBootstrapTests
         var selfTarget = targets.Single(t => t.ShareGroupId == selfGroup.Id);
         Assert.True(systemTarget.WrappedContentKey.Length > 12);
         Assert.True(selfTarget.WrappedContentKey.Length > 12);
-        Assert.Equal(SyncRole.Owner, systemTarget.Role);
-        Assert.Equal(SyncRole.Owner, selfTarget.Role);
+        Assert.Equal(SyncRole.OWNER, systemTarget.Role);
+        Assert.Equal(SyncRole.OWNER, selfTarget.Role);
         Assert.Equal(admin.X25519PublicKey, systemTarget.MemberPublicKey);
         Assert.Equal(admin.X25519PublicKey, selfTarget.MemberPublicKey);
 

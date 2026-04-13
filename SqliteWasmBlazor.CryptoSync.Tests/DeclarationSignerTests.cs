@@ -33,9 +33,9 @@ public class DeclarationSignerTests
     {
         var (pub, _, priv) = await GenerateKeysAsync(1);
 
-        var sig = await _signer.SignShareTargetAsync(priv, "memberKey123", SyncRole.Editor, "shopping:v1", 1);
+        var sig = await _signer.SignShareTargetAsync(priv, "memberKey123", SyncRole.EDITOR, "shopping:v1", 1);
 
-        var ok = await _signer.VerifyShareTargetAsync(pub, "memberKey123", SyncRole.Editor, "shopping:v1", 1, sig);
+        var ok = await _signer.VerifyShareTargetAsync(pub, "memberKey123", SyncRole.EDITOR, "shopping:v1", 1, sig);
         Assert.True(ok);
     }
 
@@ -44,9 +44,9 @@ public class DeclarationSignerTests
     {
         var (pub, _, priv) = await GenerateKeysAsync(2);
 
-        var sig = await _signer.SignShareTargetAsync(priv, "memberKey", SyncRole.Editor, "group:v1", 1);
+        var sig = await _signer.SignShareTargetAsync(priv, "memberKey", SyncRole.EDITOR, "group:v1", 1);
 
-        var ok = await _signer.VerifyShareTargetAsync(pub, "memberKey", SyncRole.Owner, "group:v1", 1, sig);
+        var ok = await _signer.VerifyShareTargetAsync(pub, "memberKey", SyncRole.OWNER, "group:v1", 1, sig);
         Assert.False(ok);
     }
 
@@ -55,9 +55,9 @@ public class DeclarationSignerTests
     {
         var (pub, _, priv) = await GenerateKeysAsync(3);
 
-        var sig = await _signer.SignShareTargetAsync(priv, "originalKey", SyncRole.Viewer, "group:v1", 1);
+        var sig = await _signer.SignShareTargetAsync(priv, "originalKey", SyncRole.VIEWER, "group:v1", 1);
 
-        var ok = await _signer.VerifyShareTargetAsync(pub, "elevatedKey", SyncRole.Viewer, "group:v1", 1, sig);
+        var ok = await _signer.VerifyShareTargetAsync(pub, "elevatedKey", SyncRole.VIEWER, "group:v1", 1, sig);
         Assert.False(ok);
     }
 
@@ -67,9 +67,9 @@ public class DeclarationSignerTests
         var (_, _, privA) = await GenerateKeysAsync(4);
         var (pubB, _, _) = await GenerateKeysAsync(5);
 
-        var sig = await _signer.SignShareTargetAsync(privA, "member", SyncRole.Editor, "group:v1", 1);
+        var sig = await _signer.SignShareTargetAsync(privA, "member", SyncRole.EDITOR, "group:v1", 1);
 
-        var ok = await _signer.VerifyShareTargetAsync(pubB, "member", SyncRole.Editor, "group:v1", 1, sig);
+        var ok = await _signer.VerifyShareTargetAsync(pubB, "member", SyncRole.EDITOR, "group:v1", 1, sig);
         Assert.False(ok);
     }
 

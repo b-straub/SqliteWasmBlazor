@@ -16,7 +16,7 @@ public sealed class AdminSeedData
     public required ShareTarget AdminShareTarget { get; init; }
 
     /// <summary>
-    /// Admin's private self-group (<see cref="SharingScope.Client"/>). Holds
+    /// Admin's private self-group (<see cref="SharingScope.CLIENT"/>). Holds
     /// the CEK for any <c>Client</c>-scoped row the admin device creates. Wrapped
     /// via <c>HKDF(ECDH(adminPriv, adminPub), info=BuildSelfGroupContext(adminContactId))</c>
     /// — a key only the admin can re-derive. The row itself is routed
@@ -27,7 +27,7 @@ public sealed class AdminSeedData
 
     /// <summary>
     /// Admin's wrapped self-CEK for the self-group above. Sole member of the
-    /// self-group; <see cref="ShareTarget.Role"/> = <see cref="SyncRole.Owner"/>.
+    /// self-group; <see cref="ShareTarget.Role"/> = <see cref="SyncRole.OWNER"/>.
     /// </summary>
     public required ShareTarget AdminSelfTarget { get; init; }
 
@@ -102,10 +102,10 @@ public class CryptoSyncBootstrap(IGroupEncryption groupEncryption, DeclarationSi
             try
             {
                 systemTargetSig = await signer.SignShareTargetAsync(
-                    adminEd25519Priv, adminKeys.X25519PublicKey, SyncRole.Owner,
+                    adminEd25519Priv, adminKeys.X25519PublicKey, SyncRole.OWNER,
                     SystemGroupContext, systemBundle.KeyVersion);
                 selfTargetSig = await signer.SignShareTargetAsync(
-                    adminEd25519Priv, adminKeys.X25519PublicKey, SyncRole.Owner,
+                    adminEd25519Priv, adminKeys.X25519PublicKey, SyncRole.OWNER,
                     adminSelfGroupContext, selfBundle.KeyVersion);
             }
             finally
@@ -125,7 +125,7 @@ public class CryptoSyncBootstrap(IGroupEncryption groupEncryption, DeclarationSi
                     IsAdmin = true,
                     IsTrusted = true,
                     UpdatedAt = now,
-                    SharingScope = SharingScope.Public,
+                    SharingScope = SharingScope.PUBLIC,
                     SharingId = SystemSharingId
                 },
                 SystemGroup = new ShareGroup
@@ -136,7 +136,7 @@ public class CryptoSyncBootstrap(IGroupEncryption groupEncryption, DeclarationSi
                     GroupAdminPublicKey = adminKeys.X25519PublicKey,
                     CreatedAt = now,
                     UpdatedAt = now,
-                    SharingScope = SharingScope.Public,
+                    SharingScope = SharingScope.PUBLIC,
                     SharingId = SystemSharingId
                 },
                 AdminShareTarget = new ShareTarget
@@ -146,12 +146,12 @@ public class CryptoSyncBootstrap(IGroupEncryption groupEncryption, DeclarationSi
                     KeyVersion = systemBundle.KeyVersion,
                     MemberPublicKey = adminKeys.X25519PublicKey,
                     WrappedContentKey = SerializeWrappedCek(adminSystemWrappedKey.WrappedContentKey),
-                    Role = SyncRole.Owner,
+                    Role = SyncRole.OWNER,
                     AdminSignature = systemTargetSig,
                     GroupAdminEd25519PublicKey = adminKeys.Ed25519PublicKey,
                     GrantedByContactId = adminContactId,
                     UpdatedAt = now,
-                    SharingScope = SharingScope.Public,
+                    SharingScope = SharingScope.PUBLIC,
                     SharingId = SystemSharingId
                 },
                 AdminSelfGroup = new ShareGroup
@@ -162,7 +162,7 @@ public class CryptoSyncBootstrap(IGroupEncryption groupEncryption, DeclarationSi
                     GroupAdminPublicKey = adminKeys.X25519PublicKey,
                     CreatedAt = now,
                     UpdatedAt = now,
-                    SharingScope = SharingScope.Client,
+                    SharingScope = SharingScope.CLIENT,
                     SharingId = SystemSharingId
                 },
                 AdminSelfTarget = new ShareTarget
@@ -172,12 +172,12 @@ public class CryptoSyncBootstrap(IGroupEncryption groupEncryption, DeclarationSi
                     KeyVersion = selfBundle.KeyVersion,
                     MemberPublicKey = adminKeys.X25519PublicKey,
                     WrappedContentKey = SerializeWrappedCek(adminSelfWrappedKey.WrappedContentKey),
-                    Role = SyncRole.Owner,
+                    Role = SyncRole.OWNER,
                     AdminSignature = selfTargetSig,
                     GroupAdminEd25519PublicKey = adminKeys.Ed25519PublicKey,
                     GrantedByContactId = adminContactId,
                     UpdatedAt = now,
-                    SharingScope = SharingScope.Client,
+                    SharingScope = SharingScope.CLIENT,
                     SharingId = SystemSharingId
                 },
                 Device = new DeviceSettings

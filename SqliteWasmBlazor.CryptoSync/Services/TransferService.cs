@@ -32,7 +32,7 @@ public class TransferService(CryptoSyncContextBase context)
         string parentTableName,
         Guid parentId,
         string targetSharingId,
-        SharingScope targetSharingScope = SharingScope.Shared,
+        SharingScope targetSharingScope = SharingScope.SHARED,
         CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrEmpty(targetSharingId))

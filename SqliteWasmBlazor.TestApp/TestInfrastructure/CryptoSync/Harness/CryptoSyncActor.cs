@@ -1,7 +1,6 @@
 using BlazorPRF.Crypto.Abstractions;
 using BlazorPRF.Crypto.Abstractions.Models;
 using Microsoft.EntityFrameworkCore;
-using SqliteWasmBlazor.Components.Interop;
 using SqliteWasmBlazor.CryptoSync;
 
 namespace SqliteWasmBlazor.TestApp.TestInfrastructure.CryptoSync.Harness;

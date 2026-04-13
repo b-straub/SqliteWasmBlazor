@@ -8,13 +8,13 @@ namespace SqliteWasmBlazor.CryptoSync;
 public enum SyncRole
 {
     /// <summary>Full control over the shared scope. Automatically assigned to creator.</summary>
-    Owner = 0,
+    OWNER = 0,
 
     /// <summary>Read + write by default; concrete CRUD comes from <c>[Permissions]</c> attribute slots on the entity.</summary>
-    Editor = 1,
+    EDITOR = 1,
 
     /// <summary>Default read access; concrete CRUD comes from <c>[Permissions]</c> attribute slots on the entity. Column overrides via <c>[AllowUpdate]</c>/<c>[DenyUpdate]</c>.</summary>
-    Viewer = 2
+    VIEWER = 2
 }
 
 /// <summary>
@@ -24,7 +24,7 @@ public enum SyncRole
 /// </summary>
 public enum SyncOperation
 {
-    Insert = 0,
-    Update = 1,
-    Delete = 2
+    INSERT = 0,
+    UPDATE = 1,
+    DELETE = 2
 }

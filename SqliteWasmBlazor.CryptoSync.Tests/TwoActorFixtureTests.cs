@@ -62,7 +62,7 @@ public class TwoActorFixtureTests : IAsyncLifetime
             .GetByEd25519PublicKeyAsync(_scenario.User.Keys.Ed25519PublicKey);
         Assert.NotNull(userContact);
         Assert.True(userContact.IsTrusted);
-        Assert.Equal(SharingScope.Public, userContact.SharingScope);
+        Assert.Equal(SharingScope.PUBLIC, userContact.SharingScope);
         Assert.Equal(CryptoSyncBootstrap.SystemSharingId, userContact.SharingId);
     }
 
@@ -79,9 +79,9 @@ public class TwoActorFixtureTests : IAsyncLifetime
 
         Assert.Equal(2, targets.Count);
         Assert.Contains(targets, t => t.MemberPublicKey == _scenario.Admin.Keys.X25519PublicKey
-                                      && t.Role == SyncRole.Owner);
+                                      && t.Role == SyncRole.OWNER);
         Assert.Contains(targets, t => t.MemberPublicKey == _scenario.User.Keys.X25519PublicKey
-                                      && t.Role == SyncRole.Viewer);
+                                      && t.Role == SyncRole.VIEWER);
     }
 
     [Fact]
@@ -168,7 +168,7 @@ public class TwoActorFixtureTests : IAsyncLifetime
                 t.MemberPublicKey == _scenario.User.Keys.X25519PublicKey
                 && t.ShareGroupId == systemGroup.Id);
 
-        Assert.Equal(SyncRole.Viewer, systemTarget.Role);
+        Assert.Equal(SyncRole.VIEWER, systemTarget.Role);
         Assert.NotEmpty(systemTarget.WrappedContentKey);
         Assert.True(systemTarget.WrappedContentKey.Length > 12);
     }

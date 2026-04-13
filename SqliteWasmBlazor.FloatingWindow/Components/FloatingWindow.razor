@@ -25,17 +25,17 @@
                         <MudIconButton Icon="@Icons.Material.Filled.Minimize"
                                        Size="Size.Small"
                                        Ripple="false"
-                                       OnClick="Minimize" />
+                                       OnClick="MinimizeAsync" />
                     </MudTooltip>
                 }
                 @if (CanMaximize)
                 {
-                    var isSnapped = _state.SnapState != SnapZone.None;
+                    var isSnapped = _state.SnapState != SnapZone.NONE;
                     <MudTooltip Text="@(_state.IsMaximized ? "Restore" : (isSnapped ? "Unsnap" : "Maximize"))">
                         <MudIconButton Icon="@(_state.IsMaximized ? Icons.Material.Filled.FilterNone : (isSnapped ? Icons.Material.Filled.Fullscreen : Icons.Material.Filled.CropSquare))"
                                        Size="Size.Small"
                                        Ripple="false"
-                                       OnClick="ToggleMaximizeOrUnsnap" />
+                                       OnClick="ToggleMaximizeOrUnsnapAsync" />
                     </MudTooltip>
                 }
                 @if (CanClose)
@@ -44,7 +44,7 @@
                         <MudIconButton Icon="@Icons.Material.Filled.Close"
                                        Size="Size.Small"
                                        Ripple="false"
-                                       OnClick="Close" />
+                                       OnClick="CloseAsync" />
                     </MudTooltip>
                 }
             </div>
@@ -54,7 +54,7 @@
             @ChildContent
         </div>
 
-        @if (Resizable && !_state.IsMaximized && _state.SnapState == SnapZone.None)
+        @if (Resizable && !_state.IsMaximized && _state.SnapState == SnapZone.NONE)
         {
             <div class="fw-resize fw-resize-n"></div>
             <div class="fw-resize fw-resize-e"></div>

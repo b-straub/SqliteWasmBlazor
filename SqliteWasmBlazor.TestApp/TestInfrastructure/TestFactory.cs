@@ -1,4 +1,3 @@
-using BlazorPRF.Crypto.Abstractions.Services;
 using Microsoft.EntityFrameworkCore;
 using SqliteWasmBlazor.Models;
 using SqliteWasmBlazor.TestApp.TestInfrastructure.Tests;
@@ -29,12 +28,13 @@ internal class TestFactory
     public TestFactory(
         IDbContextFactory<TodoDbContext> todoFactory,
         ISqliteWasmDatabaseService databaseService,
-        IDbContextFactory<CryptoTestContext>? cryptoFactory = null)
+        IDbContextFactory<CryptoTestContext>? cryptoFactory = null,
+        BlazorPRF.Crypto.Abstractions.ICryptoProvider? cryptoProvider = null)
     {
         PopulateTests(todoFactory, databaseService);
         if (cryptoFactory is not null)
         {
-            PopulateCryptoTests(cryptoFactory, databaseService);
+            PopulateCryptoTests(cryptoFactory, databaseService, cryptoProvider);
         }
     }
 
@@ -61,7 +61,8 @@ internal class TestFactory
 
     private void PopulateCryptoTests(
         IDbContextFactory<CryptoTestContext> cryptoFactory,
-        ISqliteWasmDatabaseService databaseService)
+        ISqliteWasmDatabaseService databaseService,
+        BlazorPRF.Crypto.Abstractions.ICryptoProvider? cryptoProvider)
     {
         var test1 = new CryptoSyncRoundTripTest(cryptoFactory, databaseService);
         _entries.Add(new TestEntry("Encrypted Delta", test1.Name, () => test1.RunTestWithFreshDatabaseAsync()));
@@ -69,7 +70,8 @@ internal class TestFactory
         var test2 = new WorkerEncryptedRoundTripTest(cryptoFactory, databaseService);
         _entries.Add(new TestEntry("Encrypted Delta", test2.Name, () => test2.RunTestWithFreshDatabaseAsync()));
 
-        var test3 = new PermissionEnforcementTest(cryptoFactory, databaseService);
+        ArgumentNullException.ThrowIfNull(cryptoProvider);
+        var test3 = new PermissionEnforcementTest(cryptoFactory, databaseService, cryptoProvider);
         _entries.Add(new TestEntry("Encrypted Delta", test3.Name, () => test3.RunTestWithFreshDatabaseAsync()));
 
         var test4 = new SchemaVersionMismatchTest(cryptoFactory, databaseService);

@@ -79,13 +79,13 @@ internal class WorkerEncryptedRoundTripTest(
             ctx.CryptoTestItems.Add(new CryptoTestItem
             {
                 Id = item1Id, Title = "Milk", Description = "2L", Price = 1.99m,
-                IsBought = false, SharingScope = SharingScope.Public,
+                IsBought = false, SharingScope = SharingScope.PUBLIC,
                 SharingId = CryptoSyncBootstrap.SystemSharingId, UpdatedAt = DateTime.UtcNow
             });
             ctx.CryptoTestItems.Add(new CryptoTestItem
             {
                 Id = item2Id, Title = "Eggs", Description = "12pk", Price = 3.49m,
-                IsBought = true, SharingScope = SharingScope.Public,
+                IsBought = true, SharingScope = SharingScope.PUBLIC,
                 SharingId = CryptoSyncBootstrap.SystemSharingId, UpdatedAt = DateTime.UtcNow
             });
             await ctx.SaveChangesAsync();

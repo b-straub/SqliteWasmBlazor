@@ -1,4 +1,3 @@
-using BlazorPRF.Crypto.Abstractions.Models;
 using BlazorPRF.Crypto.Abstractions.Services;
 using Microsoft.EntityFrameworkCore;
 
@@ -44,7 +43,7 @@ public class GroupService(CryptoSyncContextBase context, IGroupEncryption groupE
             GroupAdminPublicKey = adminPublicKey,
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow,
-            SharingScope = SharingScope.Public,
+            SharingScope = SharingScope.PUBLIC,
             SharingId = CryptoSyncBootstrap.SystemSharingId
         };
 
@@ -65,7 +64,7 @@ public class GroupService(CryptoSyncContextBase context, IGroupEncryption groupE
                 Role = member.Role,
                 GrantedByContactId = member.ContactId,
                 UpdatedAt = DateTime.UtcNow,
-                SharingScope = SharingScope.Public,
+                SharingScope = SharingScope.PUBLIC,
                 SharingId = CryptoSyncBootstrap.SystemSharingId
             });
         }
@@ -116,7 +115,7 @@ public class GroupService(CryptoSyncContextBase context, IGroupEncryption groupE
                 Role = member.Role,
                 GrantedByContactId = member.ContactId,
                 UpdatedAt = DateTime.UtcNow,
-                SharingScope = SharingScope.Public,
+                SharingScope = SharingScope.PUBLIC,
                 SharingId = CryptoSyncBootstrap.SystemSharingId
             });
         }
@@ -185,7 +184,7 @@ public class GroupService(CryptoSyncContextBase context, IGroupEncryption groupE
                 Role = oldTarget.Role,
                 GrantedByContactId = oldTarget.GrantedByContactId,
                 UpdatedAt = DateTime.UtcNow,
-                SharingScope = SharingScope.Public,
+                SharingScope = SharingScope.PUBLIC,
                 SharingId = CryptoSyncBootstrap.SystemSharingId
             });
         }

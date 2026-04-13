@@ -27,13 +27,13 @@
                            T="SearchDisplayMode">
                 <MudGrid Spacing="1">
                     <MudItem xs="4">
-                        <MudRadio Value="SearchDisplayMode.Normal" Color="Color.Default" Dense="true">Normal</MudRadio>
+                        <MudRadio Value="SearchDisplayMode.NORMAL" Color="Color.Default" Dense="true">Normal</MudRadio>
                     </MudItem>
                     <MudItem xs="4">
-                        <MudRadio Value="SearchDisplayMode.Highlight" Color="Color.Primary" Dense="true">Highlight</MudRadio>
+                        <MudRadio Value="SearchDisplayMode.HIGHLIGHT" Color="Color.Primary" Dense="true">Highlight</MudRadio>
                     </MudItem>
                     <MudItem xs="4">
-                        <MudRadio Value="SearchDisplayMode.Snippet" Color="Color.Secondary" Dense="true">Snippets</MudRadio>
+                        <MudRadio Value="SearchDisplayMode.SNIPPET" Color="Color.Secondary" Dense="true">Snippets</MudRadio>
                     </MudItem>
                 </MudGrid>
             </MudRadioGroup>
@@ -44,9 +44,9 @@
 @code {
     public enum SearchDisplayMode
     {
-        Normal,
-        Highlight,
-        Snippet
+        NORMAL,
+        HIGHLIGHT,
+        SNIPPET
     }
 
     [Parameter]
@@ -56,41 +56,41 @@
     public EventCallback<string> SearchStringChanged { get; set; }
 
     [Parameter]
-    public SearchDisplayMode SearchMode { get; set; } = SearchDisplayMode.Normal;
+    public SearchDisplayMode SearchMode { get; set; } = SearchDisplayMode.NORMAL;
 
     [Parameter]
     public EventCallback<SearchDisplayMode> SearchModeChanged { get; set; }
 
     [Parameter]
-    public Fts5QueryMode QueryMode { get; set; } = Fts5QueryMode.Processed;
+    public Fts5QueryMode QueryMode { get; set; } = Fts5QueryMode.PROCESSED;
 
     [Parameter]
     public EventCallback<Fts5QueryMode> QueryModeChanged { get; set; }
 
     private bool IsRawMode
     {
-        get => QueryMode == Fts5QueryMode.Raw;
-        set => QueryMode = value ? Fts5QueryMode.Raw : Fts5QueryMode.Processed;
+        get => QueryMode == Fts5QueryMode.RAW;
+        set => QueryMode = value ? Fts5QueryMode.RAW : Fts5QueryMode.PROCESSED;
     }
 
     private string CurrentPlaceholder => QueryMode switch
     {
-        Fts5QueryMode.Raw => "FTS5 syntax (e.g., 'task*', 'title:urgent', 'NEAR(task urgent, 5)', 'quarterly OR report')",
-        Fts5QueryMode.Processed => "Search as you type (e.g., 'urg tas', 'quar repo')",
+        Fts5QueryMode.RAW => "FTS5 syntax (e.g., 'task*', 'title:urgent', 'NEAR(task urgent, 5)', 'quarterly OR report')",
+        Fts5QueryMode.PROCESSED => "Search as you type (e.g., 'urg tas', 'quar repo')",
         _ => "Search..."
     };
 
     private string CurrentHelperText => QueryMode switch
     {
-        Fts5QueryMode.Raw => "Raw mode: FTS5 syntax. Column: 'title:term'. Proximity: 'NEAR(term1 term2, distance)'. Space = AND. Operators: *, AND, OR, NOT.",
-        Fts5QueryMode.Processed => "Processed mode (default): Strips special chars & reserved words (AND/OR/NOT), tokenizes by space, adds wildcards (e.g., 'rout OR #title' → 'rout* AND title*').",
+        Fts5QueryMode.RAW => "Raw mode: FTS5 syntax. Column: 'title:term'. Proximity: 'NEAR(term1 term2, distance)'. Space = AND. Operators: *, AND, OR, NOT.",
+        Fts5QueryMode.PROCESSED => "Processed mode (default): Strips special chars & reserved words (AND/OR/NOT), tokenizes by space, adds wildcards (e.g., 'rout OR #title' → 'rout* AND title*').",
         _ => "Search title and description"
     };
 
     private string CurrentModeLabel => QueryMode switch
     {
-        Fts5QueryMode.Raw => "Raw FTS5 Mode",
-        Fts5QueryMode.Processed => "Smart Search Mode",
+        Fts5QueryMode.RAW => "Raw FTS5 Mode",
+        Fts5QueryMode.PROCESSED => "Smart Search Mode",
         _ => "Search Mode"
     };
 
@@ -108,7 +108,7 @@
 
     private async Task OnQueryModeChanged(bool isRaw)
     {
-        QueryMode = isRaw ? Fts5QueryMode.Raw : Fts5QueryMode.Processed;
+        QueryMode = isRaw ? Fts5QueryMode.RAW : Fts5QueryMode.PROCESSED;
         await QueryModeChanged.InvokeAsync(QueryMode);
     }
 }

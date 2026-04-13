@@ -51,7 +51,7 @@ public class SyncGateTests : IDisposable
             IsAdmin = false,
             IsTrusted = isTrusted,
             UpdatedAt = DateTime.UtcNow,
-            SharingScope = SharingScope.Public,
+            SharingScope = SharingScope.PUBLIC,
             SharingId = CryptoSyncBootstrap.SystemSharingId
         };
         _context.Contacts.Add(contact);

@@ -7,11 +7,25 @@ namespace SqliteWasmBlazor.CryptoSync;
 /// Provides system tables for contacts, group encryption, permissions, and sync tracking.
 /// Domain apps inherit this and add their own DbSets.
 /// </summary>
-public class CryptoSyncContextBase : DbContext
+public abstract class CryptoSyncContextBase : DbContext
 {
     protected CryptoSyncContextBase(DbContextOptions options) : base(options)
     {
     }
+
+    /// <summary>
+    /// Returns FK child relations for the given parent table. Implemented by
+    /// the generator-emitted partial via <c>SyncableFkMap</c>.
+    /// </summary>
+    public abstract (string ChildTable, string FkColumn)[] GetChildFkRelations(string parentTable);
+
+    /// <summary>
+    /// Clone a <see cref="SyncableEntity"/> for transfer: copies all domain
+    /// properties, remaps FK columns via <paramref name="idMap"/>, leaves
+    /// sync metadata for the interceptor. Implemented by the generator-emitted
+    /// partial with a per-entity-type switch.
+    /// </summary>
+    public abstract SyncableEntity CloneForTransfer(SyncableEntity source, Dictionary<Guid, Guid> idMap);
 
     /// <summary>
     /// Registers the <see cref="CryptoSyncSaveChangesInterceptor"/> on every
@@ -25,26 +39,6 @@ public class CryptoSyncContextBase : DbContext
         base.OnConfiguring(optionsBuilder);
         optionsBuilder.AddInterceptors(new CryptoSyncSaveChangesInterceptor());
     }
-
-    /// <summary>
-    /// Returns FK child relations for the given parent table. Overridden by the
-    /// generator-emitted partial to provide compile-time FK metadata via
-    /// <c>SyncableFkMap</c>. Base implementation returns empty — no FK cascade
-    /// if the generator hasn't run.
-    /// </summary>
-    public virtual (string ChildTable, string FkColumn)[] GetChildFkRelations(string parentTable) => [];
-
-    /// <summary>
-    /// Clone a <see cref="SyncableEntity"/> for transfer: copies all domain
-    /// properties, remaps FK columns via <paramref name="idMap"/>, leaves
-    /// sync metadata (Id, SharingId, SharingScope, UpdatedAt, IsDeleted,
-    /// DeletedAt) for the interceptor. Overridden by the generator-emitted
-    /// partial with a per-entity-type switch.
-    /// </summary>
-    public virtual SyncableEntity CloneForTransfer(SyncableEntity source, Dictionary<Guid, Guid> idMap)
-        => throw new InvalidOperationException(
-            "CloneForTransfer requires a generator-emitted override. " +
-            "Ensure the CryptoSync source generator has run for this context.");
 
     // Contacts
     public DbSet<TrustedContact> Contacts => Set<TrustedContact>();
@@ -134,12 +128,12 @@ public class CryptoSyncContextBase : DbContext
         foreach (var table in systemTables)
         {
             // Owner: full CRUD on system tables
-            seeds.Add(CreateSystemPermission(table, SyncRole.Owner,
+            seeds.Add(CreateSystemPermission(table, SyncRole.OWNER,
                 canInsert: true, canRead: true, canUpdate: true, canDelete: true));
             // Editor/Viewer: read-only on system tables
-            seeds.Add(CreateSystemPermission(table, SyncRole.Editor,
+            seeds.Add(CreateSystemPermission(table, SyncRole.EDITOR,
                 canInsert: false, canRead: true, canUpdate: false, canDelete: false));
-            seeds.Add(CreateSystemPermission(table, SyncRole.Viewer,
+            seeds.Add(CreateSystemPermission(table, SyncRole.VIEWER,
                 canInsert: false, canRead: true, canUpdate: false, canDelete: false));
         }
 
@@ -159,7 +153,7 @@ public class CryptoSyncContextBase : DbContext
             CanRead = canRead,
             CanUpdate = canUpdate,
             CanDelete = canDelete,
-            SharingScope = SharingScope.Public,
+            SharingScope = SharingScope.PUBLIC,
             SharingId = "system",
             UpdatedAt = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc)
         };

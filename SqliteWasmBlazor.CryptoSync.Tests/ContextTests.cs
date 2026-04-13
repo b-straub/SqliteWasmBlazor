@@ -137,7 +137,7 @@ public class ContextTests : IDisposable
             IsAdmin = true,
             IsTrusted = true,
             UpdatedAt = DateTime.UtcNow,
-            SharingScope = SharingScope.Public,
+            SharingScope = SharingScope.PUBLIC,
             SharingId = "system"
         };
 

@@ -111,7 +111,7 @@ public class ContactInvitationServiceTests : IAsyncLifetime
             .SingleAsync(c => c.X25519PublicKey == _scenario.User.Keys.X25519PublicKey);
         Assert.True(userContact.IsTrusted);
         Assert.False(userContact.IsAdmin);
-        Assert.Equal(SharingScope.Public, userContact.SharingScope);
+        Assert.Equal(SharingScope.PUBLIC, userContact.SharingScope);
         Assert.Equal(CryptoSyncBootstrap.SystemSharingId, userContact.SharingId);
 
         var systemGroup = await _scenario.Admin.Context.ShareGroups
@@ -119,7 +119,7 @@ public class ContactInvitationServiceTests : IAsyncLifetime
         var userSystemTarget = await _scenario.Admin.Context.ShareTargets
             .SingleAsync(t => t.ShareGroupId == systemGroup.Id
                 && t.MemberPublicKey == _scenario.User.Keys.X25519PublicKey);
-        Assert.Equal(SyncRole.Viewer, userSystemTarget.Role);
+        Assert.Equal(SyncRole.VIEWER, userSystemTarget.Role);
         Assert.NotEmpty(userSystemTarget.WrappedContentKey);
 
         var userSelfGroup = await _scenario.Admin.Context.ShareGroups
@@ -127,7 +127,7 @@ public class ContactInvitationServiceTests : IAsyncLifetime
                 && g.GroupAdminPublicKey == _scenario.User.Keys.X25519PublicKey);
         var userSelfTarget = await _scenario.Admin.Context.ShareTargets
             .SingleAsync(t => t.ShareGroupId == userSelfGroup.Id);
-        Assert.Equal(SyncRole.Owner, userSelfTarget.Role);
+        Assert.Equal(SyncRole.OWNER, userSelfTarget.Role);
         Assert.Equal(userContact.Id, userSelfTarget.GrantedByContactId);
     }
 
@@ -141,12 +141,12 @@ public class ContactInvitationServiceTests : IAsyncLifetime
             .SingleAsync(g => g.GroupContext.StartsWith("self-")
                 && g.GroupAdminPublicKey == _scenario.User.Keys.X25519PublicKey);
         Assert.Equal(CryptoSyncBootstrap.SystemSharingId, userSelfGroup.SharingId);
-        Assert.Equal(SharingScope.Client, userSelfGroup.SharingScope);
+        Assert.Equal(SharingScope.CLIENT, userSelfGroup.SharingScope);
 
         var userSelfTarget = await _scenario.Admin.Context.ShareTargets
             .SingleAsync(t => t.ShareGroupId == userSelfGroup.Id);
         Assert.Equal(CryptoSyncBootstrap.SystemSharingId, userSelfTarget.SharingId);
-        Assert.Equal(SharingScope.Client, userSelfTarget.SharingScope);
+        Assert.Equal(SharingScope.CLIENT, userSelfTarget.SharingScope);
     }
 
     // ----------------------------------------------------------------

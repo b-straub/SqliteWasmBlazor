@@ -81,36 +81,36 @@ public enum ImportErrorCode
     // --- Tamper Detection ---
 
     /// <summary>Layer 2 — Ed25519 envelope signature invalid. Fatal: entire delta rejected.</summary>
-    TamperSignatureInvalid = 1,
+    TAMPER_SIGNATURE_INVALID = 1,
 
     /// <summary>Layer 3 — AES-GCM auth tag failed on CEK unwrap. Fatal for the group.</summary>
-    TamperCekUnwrapFailed = 2,
+    TAMPER_CEK_UNWRAP_FAILED = 2,
 
     /// <summary>Layer 1 — AES-GCM AAD mismatch (groupContext or keyVersion tampered). Per-row skip.</summary>
-    TamperAadMismatch = 3,
+    TAMPER_AAD_MISMATCH = 3,
 
     /// <summary>General AES-GCM decryption failure (corrupt ciphertext). Per-row skip.</summary>
-    TamperDecryptFailed = 4,
+    TAMPER_DECRYPT_FAILED = 4,
 
     // --- Permission Violations ---
 
     /// <summary>Sender's role does not permit insert on this table.</summary>
-    PermissionInsertDenied = 10,
+    PERMISSION_INSERT_DENIED = 10,
 
     /// <summary>Sender's role does not permit update on this table.</summary>
-    PermissionUpdateDenied = 11,
+    PERMISSION_UPDATE_DENIED = 11,
 
     /// <summary>Sender's role does not permit delete on this table.</summary>
-    PermissionDeleteDenied = 12,
+    PERMISSION_DELETE_DENIED = 12,
 
     /// <summary>Sender's role cannot update a readonly column.</summary>
-    PermissionColumnReadonly = 13,
+    PERMISSION_COLUMN_READONLY = 13,
 
     // --- Routing ---
 
     /// <summary>No ShareTarget found for this group — cannot derive CEK.</summary>
-    UnknownGroup = 20,
+    UNKNOWN_GROUP = 20,
 
     /// <summary>Catch-all for unexpected failures.</summary>
-    UnknownError = 99
+    UNKNOWN_ERROR = 99
 }

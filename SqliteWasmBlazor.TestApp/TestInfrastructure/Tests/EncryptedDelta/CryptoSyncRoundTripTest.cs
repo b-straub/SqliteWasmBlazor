@@ -9,7 +9,7 @@ namespace SqliteWasmBlazor.TestApp.TestInfrastructure.Tests.EncryptedDelta;
 /// Full encrypted delta round-trip via <see cref="SyncOrchestrator"/>:
 /// seed → ExportAsync → clear → ImportAsync → verify. Plus a tamper-negative
 /// pass that mutates one byte of the envelope and asserts the importer
-/// reports <see cref="ImportErrorCode.TamperSignatureInvalid"/>.
+/// reports <see cref="ImportErrorCode.TAMPER_SIGNATURE_INVALID"/>.
 /// </summary>
 internal class CryptoSyncRoundTripTest(
     IDbContextFactory<CryptoTestContext> cryptoFactory,
@@ -44,7 +44,7 @@ internal class CryptoSyncRoundTripTest(
                     Description = $"Round-trip test item #{i}",
                     Price = 0.99m + i,
                     IsBought = (i % 2) == 0,
-                    SharingScope = SharingScope.Public,
+                    SharingScope = SharingScope.PUBLIC,
                     SharingId = CryptoSyncBootstrap.SystemSharingId,
                     UpdatedAt = DateTime.UtcNow
                 });
@@ -157,7 +157,7 @@ internal class CryptoSyncRoundTripTest(
                 $"Tampered import should have imported 0 rows, got {tamperReport.RowsImported}");
         }
         if (tamperReport.Errors.Count == 0
-            || tamperReport.Errors[0].Code != ImportErrorCode.TamperSignatureInvalid)
+            || tamperReport.Errors[0].Code != ImportErrorCode.TAMPER_SIGNATURE_INVALID)
         {
             var code = tamperReport.Errors.Count > 0 ? tamperReport.Errors[0].Code.ToString() : "<none>";
             throw new InvalidOperationException(

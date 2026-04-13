@@ -10,12 +10,12 @@ public abstract class SyncableEntity
 
     /// <summary>
     /// Visibility scope — determines who gets the decryption key. Defaults
-    /// to <see cref="SharingScope.Client"/> (privacy-by-default): a brand-new
+    /// to <see cref="CryptoSync.SharingScope.CLIENT"/> (privacy-by-default): a brand-new
     /// row is private to the creator's self-group until the caller
-    /// explicitly widens scope to <see cref="SharingScope.Public"/> or
-    /// hands the row to a named <see cref="SharingScope.Shared"/> group.
+    /// explicitly widens scope to <see cref="CryptoSync.SharingScope.PUBLIC"/> or
+    /// hands the row to a named <see cref="CryptoSync.SharingScope.SHARED"/> group.
     /// </summary>
-    public SharingScope SharingScope { get; set; } = SharingScope.Client;
+    public SharingScope SharingScope { get; set; } = SharingScope.CLIENT;
 
     /// <summary>Scope identifier for key lookup (e.g. "list-{guid}" for a shared shopping list).</summary>
     public string SharingId { get; set; } = "";
@@ -31,11 +31,11 @@ public abstract class SyncableEntity
 public enum SharingScope
 {
     /// <summary>Encrypted, ALL verified contacts get the scope key.</summary>
-    Public = 0,
+    PUBLIC = 0,
 
     /// <summary>Encrypted, only selected contacts get the scope key.</summary>
-    Shared = 1,
+    SHARED = 1,
 
     /// <summary>Encrypted, only this client's key.</summary>
-    Client = 2
+    CLIENT = 2
 }

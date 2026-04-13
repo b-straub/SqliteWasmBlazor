@@ -138,7 +138,7 @@ internal class FTS5SearchTest(IDbContextFactory<TodoDbContext> factory)
 
         // Test 6: Search with AND operator (FTS5 syntax) using Raw mode
         var andResults = await context
-            .SearchTodoItems("quarterly AND report", Fts5QueryMode.Raw)
+            .SearchTodoItems("quarterly AND report", Fts5QueryMode.RAW)
             .ToListAsync();
 
         if (andResults.Count != 1)
@@ -184,7 +184,7 @@ internal class FTS5SearchTest(IDbContextFactory<TodoDbContext> factory)
 
         // Test 10: Raw mode with exact term (no wildcards)
         var rawExact = await context
-            .SearchTodoItems("groceries", Fts5QueryMode.Raw)
+            .SearchTodoItems("groceries", Fts5QueryMode.RAW)
             .ToListAsync();
 
         if (rawExact.Count != 1)

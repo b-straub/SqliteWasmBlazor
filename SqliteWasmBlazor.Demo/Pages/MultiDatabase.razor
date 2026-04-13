@@ -23,7 +23,7 @@
             <MudStack Row AlignItems="AlignItems.End" Class="mb-4">
                 <MudTextField @bind-Value="_todoTitle" Label="Title" Variant="Variant.Outlined"
                               Immediate OnKeyDown="@OnTodoKeyDown" />
-                <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="AddTodo"
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="AddTodoAsync"
                            Disabled="@string.IsNullOrWhiteSpace(_todoTitle)">Add</MudButton>
             </MudStack>
 
@@ -41,7 +41,7 @@
                             <MudStack Row AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
                                 <MudStack Row AlignItems="AlignItems.Center">
                                     <MudCheckBox T="bool" Value="@todo.Completed"
-                                                 ValueChanged="@(_ => ToggleTodo(todo))" Color="Color.Primary" />
+                                                 ValueChanged="@(_ => ToggleTodoAsync(todo))" Color="Color.Primary" />
                                     <MudText Style="@(todo.Completed ? "text-decoration: line-through" : "")">
                                         @todo.Title
                                     </MudText>
@@ -55,7 +55,7 @@
                                 </MudStack>
                                 <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small"
                                                Color="Color.Error"
-                                               OnClick="@(() => DeleteTodo(todo))" />
+                                               OnClick="@(() => DeleteTodoAsync(todo))" />
                             </MudStack>
                         </MudListItem>
                     }
@@ -92,7 +92,7 @@
                         }
                     </MudSelect>
                 </MudStack>
-                <MudButton Variant="Variant.Filled" Color="Color.Secondary" OnClick="AddNote"
+                <MudButton Variant="Variant.Filled" Color="Color.Secondary" OnClick="AddNoteAsync"
                            Disabled="@(string.IsNullOrWhiteSpace(_noteTitle) || string.IsNullOrWhiteSpace(_noteContent))">
                     Add Note
                 </MudButton>
@@ -134,7 +134,7 @@
                                 </MudStack>
                                 <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small"
                                                Color="Color.Error"
-                                               OnClick="@(() => DeleteNote(note))" />
+                                               OnClick="@(() => DeleteNoteAsync(note))" />
                             </MudStack>
                         </MudCardContent>
                     </MudCard>
@@ -174,10 +174,10 @@
         }
         _defaultListId = list.Id;
 
-        await LoadData();
+        await LoadDataAsync();
     }
 
-    private async Task LoadData()
+    private async Task LoadDataAsync()
     {
         await using var todoContext = await TodoFactory.CreateDbContextAsync();
         _todos = await todoContext.Todos.OrderByDescending(t => t.Priority).ToListAsync();
@@ -186,7 +186,7 @@
         _notes = await noteContext.Notes.OrderByDescending(n => n.CreatedAt).ToListAsync();
     }
 
-    private async Task AddTodo()
+    private async Task AddTodoAsync()
     {
         if (string.IsNullOrWhiteSpace(_todoTitle))
         {
@@ -202,18 +202,18 @@
         });
         await ctx.SaveChangesAsync();
         _todoTitle = string.Empty;
-        await LoadData();
+        await LoadDataAsync();
     }
 
     private async Task OnTodoKeyDown(KeyboardEventArgs e)
     {
         if (e.Key == "Enter")
         {
-            await AddTodo();
+            await AddTodoAsync();
         }
     }
 
-    private async Task ToggleTodo(Todo todo)
+    private async Task ToggleTodoAsync(Todo todo)
     {
         await using var ctx = await TodoFactory.CreateDbContextAsync();
         var entity = await ctx.Todos.FindAsync(todo.Id);
@@ -223,10 +223,10 @@
             entity.CompletedAt = entity.Completed ? DateTime.UtcNow : null;
             await ctx.SaveChangesAsync();
         }
-        await LoadData();
+        await LoadDataAsync();
     }
 
-    private async Task DeleteTodo(Todo todo)
+    private async Task DeleteTodoAsync(Todo todo)
     {
         await using var ctx = await TodoFactory.CreateDbContextAsync();
         var entity = await ctx.Todos.FindAsync(todo.Id);
@@ -235,10 +235,10 @@
             ctx.Todos.Remove(entity);
             await ctx.SaveChangesAsync();
         }
-        await LoadData();
+        await LoadDataAsync();
     }
 
-    private async Task AddNote()
+    private async Task AddNoteAsync()
     {
         if (string.IsNullOrWhiteSpace(_noteTitle) || string.IsNullOrWhiteSpace(_noteContent))
         {
@@ -260,10 +260,10 @@
         _noteContent = string.Empty;
         _noteTag = string.Empty;
         _noteTodoId = null;
-        await LoadData();
+        await LoadDataAsync();
     }
 
-    private async Task DeleteNote(Note note)
+    private async Task DeleteNoteAsync(Note note)
     {
         await using var ctx = await NoteFactory.CreateDbContextAsync();
         var entity = await ctx.Notes.FindAsync(note.Id);
@@ -272,6 +272,6 @@
             ctx.Notes.Remove(entity);
             await ctx.SaveChangesAsync();
         }
-        await LoadData();
+        await LoadDataAsync();
     }
 }

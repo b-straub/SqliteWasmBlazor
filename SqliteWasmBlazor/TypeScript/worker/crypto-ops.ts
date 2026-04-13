@@ -36,6 +36,7 @@ import {
     deriveWrappingKey, unwrapContentKey,
     encryptAesGcm, decryptAesGcm,
     signBatch, verifyBatch,
+    ed25519Verify,
     clearBytes,
     type SymmetricEncryptedData
 } from '@blazorprf/crypto-core';
@@ -265,6 +266,39 @@ function verifySenderIsAdmin(db: any, senderEd25519Hex: string): boolean {
     return senderEd25519Hex === adminHex;
 }
 
+/**
+ * Verify the AdminSignature on a ShareTarget credential (Step 2b).
+ * Canonical payload: `memberPublicKeyBase64 | role | groupContext | keyVersion`
+ * Verified against GroupAdminEd25519PublicKey on the ShareTarget row.
+ */
+function verifyShareTargetCredential(
+    memberPublicKeyBase64: string,
+    role: number,
+    groupContext: string,
+    keyVersion: number,
+    adminSignature: Uint8Array,
+    groupAdminEd25519PublicKeyBase64: string
+): boolean {
+    const canonical = `${memberPublicKeyBase64}|${role}|${groupContext}|${keyVersion}`;
+    const canonicalBytes = new TextEncoder().encode(canonical);
+    const pubKeyBytes = Uint8Array.from(atob(groupAdminEd25519PublicKeyBase64), c => c.charCodeAt(0));
+    return ed25519Verify(adminSignature, canonicalBytes, pubKeyBytes);
+}
+
+/**
+ * Verify that a GroupAdmin's Ed25519 public key belongs to a TrustedContact (Step 2c).
+ * Returns true if a trusted contact with this Ed25519 key exists.
+ */
+function verifyGroupAdminIsTrusted(db: any, groupAdminEd25519PublicKeyBase64: string): boolean {
+    const rows = db.exec({
+        sql: `SELECT Id FROM Contacts WHERE Ed25519PublicKey = ? AND IsTrusted = 1 AND IsDeleted = 0 LIMIT 1`,
+        bind: [groupAdminEd25519PublicKeyBase64],
+        returnValue: 'resultRows',
+        rowMode: 'array'
+    }) as any[][];
+    return rows && rows.length > 0;
+}
+
 interface ParsedPermissions {
     insertDenied: boolean;
     updateDenied: boolean;
@@ -309,9 +343,10 @@ function resolveSenderPermissions(
 
     const senderX25519PubKey = contactRows[0][0] as string;
 
-    // Step 3: X25519PubKey + ShareGroup → ShareTarget.Role
+    // Step 2a: X25519PubKey + ShareGroup → ShareTarget (with credential fields)
     const targetRows = db.exec({
-        sql: `SELECT st.Role FROM ShareTargets st
+        sql: `SELECT st.Role, st.AdminSignature, st.GroupAdminEd25519PublicKey, st.KeyVersion, sg.GroupContext
+              FROM ShareTargets st
               JOIN ShareGroups sg ON st.ShareGroupId = sg.Id
               WHERE st.MemberPublicKey = ? AND sg.GroupContext = ? AND st.KeyVersion = sg.KeyVersion
               LIMIT 1`,
@@ -326,6 +361,31 @@ function resolveSenderPermissions(
     }
 
     const senderRole = targetRows[0][0] as number; // 0=Owner, 1=Editor, 2=Viewer
+    const adminSignature = targetRows[0][1] as Uint8Array | null;
+    const groupAdminEd25519PubKey = targetRows[0][2] as string;
+    const keyVersion = targetRows[0][3] as number;
+    const groupContext = targetRows[0][4] as string;
+
+    // Step 2b: Verify AdminSignature on the ShareTarget credential.
+    // If the signature is present and non-empty, verify it. Empty signatures
+    // are rejected — every ShareTarget must carry a valid credential.
+    if (!adminSignature || adminSignature.length === 0) {
+        logger.warn(MODULE_NAME, `resolveSenderPermissions: ShareTarget missing AdminSignature for ${header.groupContext}`);
+        return null;
+    }
+
+    if (!verifyShareTargetCredential(
+        senderX25519PubKey, senderRole, groupContext, keyVersion,
+        adminSignature, groupAdminEd25519PubKey)) {
+        logger.warn(MODULE_NAME, `resolveSenderPermissions: ShareTarget AdminSignature invalid for ${header.groupContext}`);
+        return null;
+    }
+
+    // Step 2c: Verify the GroupAdmin who signed this credential is a trusted contact.
+    if (!verifyGroupAdminIsTrusted(db, groupAdminEd25519PubKey)) {
+        logger.warn(MODULE_NAME, `resolveSenderPermissions: GroupAdmin ${groupAdminEd25519PubKey.substring(0, 12)}… is not a trusted contact`);
+        return null;
+    }
 
     // Step 4: Role + TableName → fully resolved permission columns
     const permRows = db.exec({

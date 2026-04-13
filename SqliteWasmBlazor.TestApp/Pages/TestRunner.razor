@@ -9,6 +9,7 @@
 @inject IDbContextFactory<CryptoTestContext> CryptoFactory
 @inject ISqliteWasmDatabaseService DatabaseService
 @inject IGroupEncryption GroupEncryption
+@inject BlazorPRF.Crypto.Abstractions.ICryptoProvider CryptoProvider
 
 <PageTitle>Test Runner</PageTitle>
 
@@ -51,7 +52,7 @@
 
     private async Task RunAllTestsAsync()
     {
-        var testFactory = new TestFactory(DbContextFactory, DatabaseService, CryptoFactory);
+        var testFactory = new TestFactory(DbContextFactory, DatabaseService, CryptoFactory, CryptoProvider);
         var tests = testFactory.GetTests().ToList();
 
         _totalTests = tests.Count;

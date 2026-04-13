@@ -49,7 +49,7 @@
                        Color="Color.Primary"
                        StartIcon="@Icons.Material.Filled.FileDownload"
                        FullWidth="true"
-                       Disabled="@(!_exists || _isEmpty || _isBusy)"
+                       Disabled="@(!_exists || IsEmpty || IsBusy)"
                        OnClick="ExportDatabaseAsync">
                 @if (_isExporting)
                 {
@@ -67,13 +67,13 @@
                            OnFilesChanged="HandleImportFileSelectedAsync"
                            Accept=".db,application/octet-stream,application/x-sqlite3"
                            MaximumFileCount="1"
-                           Disabled="@_isBusy">
+                           Disabled="@IsBusy">
                 <CustomContent Context="fileUpload">
                     <MudButton Variant="Variant.Outlined"
                                Color="Color.Secondary"
                                StartIcon="@Icons.Material.Filled.FileUpload"
                                FullWidth="true"
-                               Disabled="@_isBusy"
+                               Disabled="@IsBusy"
                                OnClick="@fileUpload.OpenFilePickerAsync">
                         @if (_isImporting)
                         {
@@ -124,8 +124,8 @@
     private int? _itemCount;
     private bool _isExporting;
     private bool _isImporting;
-    private bool _isBusy => _isExporting || _isImporting;
-    private bool _isEmpty => _itemCount is null or 0;
+    private bool IsBusy => _isExporting || _isImporting;
+    private bool IsEmpty => _itemCount is null or 0;
 
     protected override async Task OnInitializedAsync()
     {
@@ -212,7 +212,7 @@
         }
 
         // Show confirmation dialog when existing DB has data
-        if (_exists && !_isEmpty)
+        if (_exists && !IsEmpty)
         {
             _importConfirmDetails = $"\"{file.Name}\" ({FormatSize(data.Length)}) will replace " +
                                     $"TodoDb.db ({_itemCount} items).";

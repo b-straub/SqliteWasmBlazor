@@ -121,7 +121,7 @@ public class SharingServiceTests : IDisposable
         {
             Id = listId,
             Name = $"List-{listId:N}",
-            SharingScope = SharingScope.Public,
+            SharingScope = SharingScope.PUBLIC,
             SharingId = CryptoSyncBootstrap.SystemSharingId,
             UpdatedAt = ts
         });
@@ -134,7 +134,7 @@ public class SharingServiceTests : IDisposable
                 ListId = listId,
                 ItemName = $"Item-{i}",
                 Quantity = i + 1,
-                SharingScope = SharingScope.Public,
+                SharingScope = SharingScope.PUBLIC,
                 SharingId = CryptoSyncBootstrap.SystemSharingId,
                 UpdatedAt = ts
             });
@@ -147,7 +147,7 @@ public class SharingServiceTests : IDisposable
                 Id = Guid.NewGuid(),
                 ListId = listId,
                 Text = $"Note-{i}",
-                SharingScope = SharingScope.Public,
+                SharingScope = SharingScope.PUBLIC,
                 SharingId = CryptoSyncBootstrap.SystemSharingId,
                 UpdatedAt = ts
             });

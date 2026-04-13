@@ -5,11 +5,11 @@ namespace SqliteWasmBlazor.FloatingWindow.Services;
 /// </summary>
 public enum SnapZone
 {
-    None,
-    Left,
-    Right,
-    Top,
-    Bottom
+    NONE,
+    LEFT,
+    RIGHT,
+    TOP,
+    BOTTOM
 }
 
 /// <summary>
@@ -44,7 +44,7 @@ public sealed class WindowState
     public int? PreMaximizeHeight { get; set; }
 
     // Snap state
-    public SnapZone SnapState { get; set; } = SnapZone.None;
+    public SnapZone SnapState { get; set; } = SnapZone.NONE;
 
     // Position before snap (for restore)
     public int? PreSnapX { get; set; }

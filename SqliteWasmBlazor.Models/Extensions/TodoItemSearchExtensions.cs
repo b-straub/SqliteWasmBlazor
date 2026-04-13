@@ -12,12 +12,12 @@ public enum Fts5QueryMode
     /// Process query by stripping non-indexable characters, tokenizing by space,
     /// and building "token1* AND token2* ..." format for prefix matching
     /// </summary>
-    Processed,
+    PROCESSED,
 
     /// <summary>
     /// Use query as-is without any processing (raw FTS5 syntax)
     /// </summary>
-    Raw
+    RAW
 }
 
 /// <summary>
@@ -132,8 +132,8 @@ public static class TodoItemSearchExtensions
     {
         return mode switch
         {
-            Fts5QueryMode.Processed => ProcessQuery(query),
-            Fts5QueryMode.Raw => query,
+            Fts5QueryMode.PROCESSED => ProcessQuery(query),
+            Fts5QueryMode.RAW => query,
             _ => ProcessQuery(query) // Default to Processed
         };
     }
@@ -148,7 +148,7 @@ public static class TodoItemSearchExtensions
     public static IQueryable<TodoItem> SearchTodoItems(
         this TodoDbContext dbContext,
         string searchQuery,
-        Fts5QueryMode queryMode = Fts5QueryMode.Processed)
+        Fts5QueryMode queryMode = Fts5QueryMode.PROCESSED)
     {
         if (string.IsNullOrWhiteSpace(searchQuery))
         {
@@ -189,7 +189,7 @@ public static class TodoItemSearchExtensions
         string searchQuery,
         string highlightOpen = "<mark>",
         string highlightClose = "</mark>",
-        Fts5QueryMode queryMode = Fts5QueryMode.Processed)
+        Fts5QueryMode queryMode = Fts5QueryMode.PROCESSED)
     {
         if (string.IsNullOrWhiteSpace(searchQuery))
         {
@@ -275,7 +275,7 @@ public static class TodoItemSearchExtensions
         string snippetClose = "</mark>",
         string ellipsis = "...",
         int maxTokens = 10,
-        Fts5QueryMode queryMode = Fts5QueryMode.Processed)
+        Fts5QueryMode queryMode = Fts5QueryMode.PROCESSED)
     {
         if (string.IsNullOrWhiteSpace(searchQuery))
         {

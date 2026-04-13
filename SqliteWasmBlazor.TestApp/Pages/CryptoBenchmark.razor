@@ -496,7 +496,7 @@
             GroupAdminPublicKey = CryptoTestContext.AdminX25519PublicKey,
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow,
-            SharingScope = SharingScope.Public,
+            SharingScope = SharingScope.PUBLIC,
             SharingId = CryptoSyncBootstrap.SystemSharingId
         });
 
@@ -507,10 +507,10 @@
             KeyVersion = 2,
             MemberPublicKey = CryptoTestContext.AdminX25519PublicKey,
             WrappedContentKey = CryptoSyncBootstrap.SerializeWrappedCek(bundle.MemberKeys[0].WrappedContentKey),
-            Role = SyncRole.Owner,
+            Role = SyncRole.OWNER,
             GrantedByContactId = adminContact.Id,
             UpdatedAt = DateTime.UtcNow,
-            SharingScope = SharingScope.Public,
+            SharingScope = SharingScope.PUBLIC,
             SharingId = CryptoSyncBootstrap.SystemSharingId
         });
 
@@ -669,7 +669,7 @@
                     Description = $"Generated row for re-key rotation benchmark at scale {count:N0}",
                     Price = (decimal)(rng.NextDouble() * 100.0),
                     IsBought = idx % 3 == 0,
-                    SharingScope = (int)CryptoSync.SharingScope.Public,
+                    SharingScope = (int)CryptoSync.SharingScope.PUBLIC,
                     SharingId = CryptoSyncBootstrap.SystemSharingId,
                     UpdatedAt = now
                 };

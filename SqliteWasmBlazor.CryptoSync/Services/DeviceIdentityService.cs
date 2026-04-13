@@ -77,7 +77,7 @@ public class DeviceIdentityService(CryptoSyncContextBase context)
     /// Cache this device's own <see cref="TrustedContact.Id"/> on
     /// <see cref="DeviceSettings.OwnContactId"/>. Required by the save
     /// interceptor to resolve "my self-group SharingId" for new
-    /// <see cref="SharingScope.Client"/>-scoped rows. On the admin device
+    /// <see cref="SharingScope.CLIENT"/>-scoped rows. On the admin device
     /// this is set during bootstrap (admin's own contact id). On a
     /// non-admin device the app layer calls this after the first sync
     /// pulls the device's own <see cref="TrustedContact"/> row, matching

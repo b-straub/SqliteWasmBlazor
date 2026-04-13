@@ -17,8 +17,8 @@ namespace SqliteWasmBlazor.CryptoSync;
 ///     <see cref="SyncableEntity.SharingId"/> via a four-step cascade:
 ///     system-table short-circuit → caller-explicit → parent inheritance
 ///     via <see cref="InheritPermissionsAttribute"/> → scope-driven default
-///     (<see cref="SharingScope.Client"/> = self-group,
-///     <see cref="SharingScope.Public"/> = system, <see cref="SharingScope.Shared"/>
+///     (<see cref="SharingScope.CLIENT"/> = self-group,
+///     <see cref="SharingScope.PUBLIC"/> = system, <see cref="SharingScope.SHARED"/>
 ///     requires explicit caller-supplied SharingId).
 ///   </item>
 ///   <item>
@@ -162,7 +162,7 @@ public sealed class CryptoSyncSaveChangesInterceptor : SaveChangesInterceptor
         // STEP 4 — scope-driven default. Default scope = Client (private).
         switch (entity.SharingScope)
         {
-            case SharingScope.Client:
+            case SharingScope.CLIENT:
             {
                 if (!ownContactIdResolved)
                 {
@@ -183,10 +183,10 @@ public sealed class CryptoSyncSaveChangesInterceptor : SaveChangesInterceptor
                 entity.SharingId = CryptoSyncBootstrap.BuildSelfGroupContext(ownContactId);
                 break;
             }
-            case SharingScope.Public:
+            case SharingScope.PUBLIC:
                 entity.SharingId = CryptoSyncBootstrap.SystemSharingId;
                 break;
-            case SharingScope.Shared:
+            case SharingScope.SHARED:
                 throw new InvalidOperationException(
                     "CryptoSyncSaveChangesInterceptor: SharingScope.Shared requires an " +
                     "explicit SharingId — assign the target ShareGroup's GroupContext to " +

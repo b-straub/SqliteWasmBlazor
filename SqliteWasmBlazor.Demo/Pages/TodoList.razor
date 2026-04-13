@@ -111,13 +111,13 @@
                 <MudTd DataLabel="Title">
                     <HighlightedText PlainContent="@context.Title"
                                      HighlightedContent="@GetHighlightedText(context.Id, isTitle: true)"
-                                     UseHighlighting="@(_searchMode != TodoSearchComponent.SearchDisplayMode.Normal)"
+                                     UseHighlighting="@(_searchMode != TodoSearchComponent.SearchDisplayMode.NORMAL)"
                                      Strikethrough="@context.IsCompleted" />
                 </MudTd>
                 <MudTd DataLabel="Description">
                     <HighlightedText PlainContent="@context.Description"
                                      HighlightedContent="@GetHighlightedText(context.Id, isTitle: false)"
-                                     UseHighlighting="@(_searchMode != TodoSearchComponent.SearchDisplayMode.Normal)"
+                                     UseHighlighting="@(_searchMode != TodoSearchComponent.SearchDisplayMode.NORMAL)"
                                      Strikethrough="@context.IsCompleted" />
                 </MudTd>
                 <MudTd DataLabel="Updated">
@@ -196,8 +196,8 @@
     private string _newTitle = string.Empty;
     private string _newDescription = string.Empty;
     private string _searchString = string.Empty;
-    private TodoSearchComponent.SearchDisplayMode _searchMode = TodoSearchComponent.SearchDisplayMode.Normal;
-    private Fts5QueryMode _fts5QueryMode = Fts5QueryMode.Processed;
+    private TodoSearchComponent.SearchDisplayMode _searchMode = TodoSearchComponent.SearchDisplayMode.NORMAL;
+    private Fts5QueryMode _fts5QueryMode = Fts5QueryMode.PROCESSED;
     private CancellationTokenSource? _searchCts;
     private Timer? _debounceTimer;
     private readonly Dictionary<Guid, (string Title, string Description)> _highlightCache = new();
@@ -219,7 +219,7 @@
         {
             try
             {
-                if (_searchMode == TodoSearchComponent.SearchDisplayMode.Highlight)
+                if (_searchMode == TodoSearchComponent.SearchDisplayMode.HIGHLIGHT)
                 {
                 // Use FTS5 with highlighting
                 var query = context.SearchTodoItemsWithHighlight(_searchString, "<mark>", "</mark>", _fts5QueryMode);
@@ -244,7 +244,7 @@
                     TotalItems = count
                 };
             }
-            else if (_searchMode == TodoSearchComponent.SearchDisplayMode.Snippet)
+            else if (_searchMode == TodoSearchComponent.SearchDisplayMode.SNIPPET)
             {
                 // Use FTS5 with snippets (5 tokens = ~5-7 words for short excerpts)
                 var query = context.SearchTodoItemsWithSnippet(_searchString, "<mark>", "</mark>", "...", 5, _fts5QueryMode);

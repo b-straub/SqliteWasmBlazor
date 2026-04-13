@@ -9,6 +9,7 @@
 @inject IDbContextFactory<CryptoTestContext> CryptoFactory
 @inject ISqliteWasmDatabaseService DatabaseService
 @inject IGroupEncryption GroupEncryption
+@inject BlazorPRF.Crypto.Abstractions.ICryptoProvider CryptoProvider
 
 <button type="reset" hidden="@(!_running)" @onclick="@Cancel">Cancel</button>
 
@@ -75,7 +76,7 @@
 
             try
             {
-                var testFactory = new TestFactory(_factory, DatabaseService, CryptoFactory);
+                var testFactory = new TestFactory(_factory, DatabaseService, CryptoFactory, CryptoProvider);
                 _tests.AddRange(testFactory.GetTests(TestName, CategoryFilter));
 
                 _running = true;

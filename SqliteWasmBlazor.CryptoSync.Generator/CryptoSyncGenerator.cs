@@ -857,7 +857,7 @@ public class CryptoSyncGenerator : IIncrementalGenerator
             sb.Append($"CanDelete = {(p.CanDelete ? "true" : "false")}, ");
             sb.Append($"ReadonlyColumns = \"{p.ReadonlyColumns}\", ");
             sb.Append($"ReadwriteColumns = \"{p.ReadwriteColumns}\", ");
-            sb.Append($"SharingScope = SharingScope.Public, SharingId = \"system\", ");
+            sb.Append($"SharingScope = SharingScope.PUBLIC, SharingId = \"system\", ");
             sb.Append($"UpdatedAt = new System.DateTime(2026, 1, 1, 0, 0, 0, System.DateTimeKind.Utc)");
             sb.Append(" }");
             sb.AppendLine(i < seedRows.Count - 1 ? "," : "");

@@ -1,5 +1,3 @@
-using BlazorPRF.Crypto.Abstractions.Services;
-using BlazorPRF.Crypto.Testing;
 using Microsoft.EntityFrameworkCore;
 using SqliteWasmBlazor.CryptoSync.Tests.Fixtures;
 using Xunit;
@@ -147,7 +145,7 @@ public class SignedShareTargetTests : IAsyncLifetime
         Assert.True(ok);
 
         // Verify with an elevated role fails.
-        var elevated = original == SyncRole.Owner ? SyncRole.Editor : SyncRole.Owner;
+        var elevated = original == SyncRole.OWNER ? SyncRole.EDITOR : SyncRole.OWNER;
         var tampered = await _signer.VerifyShareTargetAsync(
             userTarget.GroupAdminEd25519PublicKey,
             userTarget.MemberPublicKey,
