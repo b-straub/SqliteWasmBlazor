@@ -51,6 +51,9 @@ public abstract class CryptoSyncContextBase : DbContext
     public DbSet<SyncPermission> Permissions => Set<SyncPermission>();
     public DbSet<PermissionTableSignature> PermissionSignatures => Set<PermissionTableSignature>();
 
+    // Lifecycle declarations
+    public DbSet<LeaveDeclaration> LeaveDeclarations => Set<LeaveDeclaration>();
+
     // Schema metadata (seeded by generator, queried by worker at import time)
     public DbSet<ColumnRegistryEntry> ColumnRegistry => Set<ColumnRegistryEntry>();
 
@@ -120,6 +123,13 @@ public abstract class CryptoSyncContextBase : DbContext
         modelBuilder.Entity<PermissionTableSignature>(entity =>
         {
             entity.HasKey(e => e.Id);
+        });
+
+        modelBuilder.Entity<LeaveDeclaration>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => new { e.GroupContext, e.MemberEd25519PublicKey });
+            entity.HasQueryFilter(e => !e.IsDeleted);
         });
 
         SeedSystemTablePermissions(modelBuilder);
