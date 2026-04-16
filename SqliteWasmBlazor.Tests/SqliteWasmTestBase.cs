@@ -88,6 +88,10 @@ public abstract class SqliteWasmTestBase(IWaFixture fixture, ITestOutputHelper o
     // Checkpoint Tests
     [InlineData("RestoreToCheckpoint_Basic")]
     [InlineData("RestoreToCheckpoint_WithDeltaReapply")]
+    // Encryption Tests
+    [InlineData("Encryption_BasicCRUD")]
+    [InlineData("Encryption_SpecialCharsPassword")]
+    [InlineData("Encryption_WrongPassword")]
     public async Task TestCaseAsync(string name)
     {
         Assert.NotNull(_fixture.Page);

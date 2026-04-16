@@ -74,22 +74,18 @@ internal sealed partial class SqliteWasmWorkerBridge : ISqliteWasmDatabaseServic
     {
     }
 
-    [JSImport("getBaseHref", "SqliteWasmBlazor")]
-    private static partial string GetBaseHref();
-
     /// <summary>
     /// Initialize the worker and sqlite-wasm module.
     /// </summary>
-    public async Task InitializeAsync(CancellationToken cancellationToken = default)
+    /// <param name="baseHref">The base href path (e.g. "/" or "/myapp/"). Pass <see cref="Microsoft.AspNetCore.Components.NavigationManager.BaseUri"/> resolved to a path. Defaults to "/".</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    public async Task InitializeAsync(string baseHref = "/", CancellationToken cancellationToken = default)
     {
         if (_isInitialized)
         {
             return;
         }
 
-        // Get base href dynamically and construct absolute path
-        await JSHost.ImportAsync("SqliteWasmBlazor", "data:text/javascript,export function getBaseHref() { return document.querySelector('base')?.getAttribute('href') || '/'; }");
-        var baseHref = GetBaseHref();
         var bridgePath = $"{baseHref}_content/SqliteWasmBlazor/sqlite-wasm-bridge.js";
 
         await JSHost.ImportAsync("sqliteWasmWorker", bridgePath, cancellationToken);
@@ -109,17 +105,13 @@ internal sealed partial class SqliteWasmWorkerBridge : ISqliteWasmDatabaseServic
         _isInitialized = true;
     }
 
-    /// <summary>
-    /// Open a database connection in the worker.
-    /// </summary>
-    public async Task OpenDatabaseAsync(string database, CancellationToken cancellationToken = default)
+    /// <summary>Open a database connection in the worker.</summary>
+    /// <param name="password">SQLCipher key; null = no encryption.</param>
+    public async Task OpenDatabaseAsync(string database, string? password = null, CancellationToken cancellationToken = default)
     {
         await EnsureInitializedAsync(cancellationToken);
 
-        var request = new
-        {
-            type = "open", database
-        };
+        var request = new { type = "open", database, key = password };
 
         await SendRequestAsync(request, cancellationToken);
         _openDatabases.Add(database);
@@ -496,7 +488,7 @@ internal sealed partial class SqliteWasmWorkerBridge : ISqliteWasmDatabaseServic
     {
         if (!_isInitialized)
         {
-            await InitializeAsync(cancellationToken);
+            await InitializeAsync("/", cancellationToken);
         }
     }
 

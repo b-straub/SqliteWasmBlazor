@@ -4,6 +4,7 @@ using SqliteWasmBlazor.TestApp.TestInfrastructure.Tests;
 using SqliteWasmBlazor.TestApp.TestInfrastructure.Tests.Checkpoints;
 using SqliteWasmBlazor.TestApp.TestInfrastructure.Tests.CRUD;
 using SqliteWasmBlazor.TestApp.TestInfrastructure.Tests.EFCoreFunctions;
+using SqliteWasmBlazor.TestApp.TestInfrastructure.Tests.Encryption;
 using SqliteWasmBlazor.TestApp.TestInfrastructure.Tests.ImportExport;
 using SqliteWasmBlazor.TestApp.TestInfrastructure.Tests.JsonCollections;
 using SqliteWasmBlazor.TestApp.TestInfrastructure.Tests.Migrations;
@@ -110,6 +111,11 @@ internal class TestFactory
         // Checkpoint Tests (rollback and restore functionality)
         _tests.Add(("Checkpoints", new RestoreToCheckpointBasicTest(factory)));
         _tests.Add(("Checkpoints", new RestoreToCheckpointWithDeltaReapplyTest(factory)));
+
+        // Encryption Tests
+        _tests.Add(("Encryption", new EncryptionBasicCRUDTest(factory, databaseService)));
+        _tests.Add(("Encryption", new EncryptionSpecialCharsPasswordTest(factory, databaseService)));
+        _tests.Add(("Encryption", new EncryptionWrongPasswordTest(factory, databaseService)));
 
         // V2 Bulk Import/Export Tests (worker-side prepared statement loop)
         _tests.Add(("V2 Bulk", new V2BulkTodoRoundTripTest(factory, databaseService)));

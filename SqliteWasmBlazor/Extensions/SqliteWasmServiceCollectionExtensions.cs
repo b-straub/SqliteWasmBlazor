@@ -28,17 +28,19 @@ public static class SqliteWasmServiceCollectionExtensions
     /// Use this method when using the ADO.NET provider directly without EF Core.
     /// </summary>
     /// <param name="services">The service collection.</param>
+    /// <param name="baseHref">Base href of the Blazor app (e.g. "/" or "/myapp/"). Defaults to "/".</param>
     /// <param name="cancellationToken">Optional cancellation token.</param>
     /// <returns>A task that represents the asynchronous operation.</returns>
     /// <exception cref="InvalidOperationException">Thrown when initialization fails or database is locked by another tab.</exception>
     public static async Task InitializeSqliteWasmAsync(
         this IServiceProvider services,
+        string baseHref = "/",
         CancellationToken cancellationToken = default)
     {
         try
         {
             // Initialize the worker bridge
-            await SqliteWasmWorkerBridge.Instance.InitializeAsync(cancellationToken);
+            await SqliteWasmWorkerBridge.Instance.InitializeAsync(baseHref, cancellationToken);
         }
         catch (Exception ex)
         {
@@ -57,9 +59,11 @@ Please close any other tabs running this application and refresh the page.
     /// </summary>
     /// <typeparam name="TContext">The DbContext type to initialize.</typeparam>
     /// <param name="services">The service collection.</param>
+    /// <param name="baseHref">Base href of the Blazor app (e.g. "/" or "/myapp/"). Defaults to "/".</param>
     /// <returns>A task that represents the asynchronous operation.</returns>
     public static async Task InitializeSqliteWasmDatabaseAsync<TContext>(
-        this IServiceProvider services)
+        this IServiceProvider services,
+        string baseHref = "/")
         where TContext : DbContext
     {
         var initService = services.GetRequiredService<IDBInitializationService>();
@@ -67,7 +71,7 @@ Please close any other tabs running this application and refresh the page.
         try
         {
             // Initialize the worker bridge first
-            await SqliteWasmWorkerBridge.Instance.InitializeAsync();
+            await SqliteWasmWorkerBridge.Instance.InitializeAsync(baseHref);
         }
         catch (Exception ex)
         {

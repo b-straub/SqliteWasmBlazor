@@ -45,6 +45,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="SqliteWasmBlazor.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <None Include="../README.md" Pack="true" PackagePath="/" />
     <None Include="../LICENSE" Pack="true" PackagePath="/" />
     <None Include="build/SqliteWasmBlazor.targets" Pack="true" PackagePath="build" />

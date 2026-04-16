@@ -29,6 +29,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\SqliteWasmBlazor\SqliteWasmBlazor.csproj" />
     <ProjectReference Include="..\SqliteWasmBlazor.TestHost\SqliteWasmBlazor.TestHost.csproj" />
   </ItemGroup>
 

@@ -13,6 +13,12 @@ interface IMemoryView {
 
 let worker: Worker | null = null;
 
+// ECDH key-wrapping state — lazily populated on first encrypted open
+let sharedAesKey: CryptoKey | null = null;
+let mainPubKeyRaw: Uint8Array | null = null;
+let pendingKeyExchange: Promise<void> | null = null;
+let resolveKeyExchange: (() => void) | null = null;
+
 // Initialize worker on first import
 (async () => {
     try {
@@ -35,6 +41,37 @@ let worker: Worker | null = null;
                     exports.SqliteWasmBlazor.SqliteWasmWorkerBridge.OnWorkerReady();
                 } catch (error) {
                     console.error('[Worker Bridge] Failed to call OnWorkerReady:', error);
+                }
+                return;
+            }
+
+            // Complete ECDH key exchange when worker sends its public key
+            if (event.data.type === 'workerPublicKey') {
+                try {
+                    const workerPubKey = await crypto.subtle.importKey(
+                        'raw',
+                        event.data.pub,
+                        { name: 'ECDH', namedCurve: 'P-256' },
+                        false,
+                        []
+                    );
+                    const mainKeyPair = await crypto.subtle.generateKey(
+                        { name: 'ECDH', namedCurve: 'P-256' },
+                        true, // must be extractable to export the public key to the worker
+                        ['deriveKey']
+                    );
+                    sharedAesKey = await crypto.subtle.deriveKey(
+                        { name: 'ECDH', public: workerPubKey },
+                        mainKeyPair.privateKey,
+                        { name: 'AES-GCM', length: 256 },
+                        false,
+                        ['encrypt']
+                    );
+                    const rawPub = await crypto.subtle.exportKey('raw', mainKeyPair.publicKey);
+                    mainPubKeyRaw = new Uint8Array(rawPub);
+                    resolveKeyExchange?.();
+                } catch (error) {
+                    console.error('[Worker Bridge] ECDH key exchange failed:', error);
                 }
                 return;
             }
@@ -101,12 +138,42 @@ let worker: Worker | null = null;
 })();
 
 // Called from C# to send request to worker
-export function sendToWorker(messageJson: string): void {
+// Async: if the message carries a SQLCipher key, performs ECDH key exchange (first call only)
+// then encrypts the key with AES-GCM before posting. C# fires and forgets the returned Promise.
+export async function sendToWorker(messageJson: string): Promise<void> {
     if (!worker) {
         throw new Error('Worker not initialized');
     }
 
     const message = JSON.parse(messageJson);
+
+    // Encrypt SQLCipher key if present
+    if (message.data?.key && typeof message.data.key === 'string' && message.data.key.length > 0) {
+        // Lazy key exchange: trigger on first encrypted open
+        if (!sharedAesKey) {
+            if (!pendingKeyExchange) {
+                pendingKeyExchange = new Promise<void>(resolve => {
+                    resolveKeyExchange = resolve;
+                });
+                worker.postMessage({ type: 'initEncryption' });
+            }
+            await pendingKeyExchange;
+        }
+
+        const iv = crypto.getRandomValues(new Uint8Array(12));
+        const ct = await crypto.subtle.encrypt(
+            { name: 'AES-GCM', iv },
+            sharedAesKey!,
+            new TextEncoder().encode(message.data.key)
+        );
+        delete message.data.key;
+        message.data.encryptedKey = {
+            iv: Array.from(iv),
+            ct: Array.from(new Uint8Array(ct)),
+            senderPub: Array.from(mainPubKeyRaw!)
+        };
+    }
+
     worker.postMessage(message);
 }
 

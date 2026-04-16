@@ -17,6 +17,8 @@ interface WorkerRequest {
         database?: string;
         sql?: string;
         parameters?: Record<string, any>;
+        key?: string; // SQLCipher key (plaintext fallback)
+        encryptedKey?: { iv: number[]; ct: number[]; senderPub: number[] }; // ECDH-wrapped key
     };
     binaryPayload?: ArrayBuffer;
 }
@@ -41,6 +43,9 @@ let sqlite3: any;
 let poolUtil: any;
 const openDatabases = new Map<string, any>();
 const pragmasSet = new Set<string>(); // Track which databases have PRAGMAs configured
+
+// ECDH key pair for encrypted key exchange with main thread (lazy — only generated on first encrypted open)
+let workerKeyPair: CryptoKeyPair | null = null;
 
 // Cache table schemas: Map<tableName, Map<columnName, columnType>>
 const schemaCache = new Map<string, Map<string, string>>();
@@ -157,7 +162,7 @@ async function initializeSQLite() {
 }
 
 // Handle messages from main thread
-self.onmessage = async (event: MessageEvent<WorkerRequest | { type: 'setLogLevel'; level: number } | { type: 'init'; baseHref: string }>) => {
+self.onmessage = async (event: MessageEvent<WorkerRequest | { type: 'setLogLevel'; level: number } | { type: 'init'; baseHref: string } | { type: 'initEncryption' }>) => {
     // Handle initialization with base href
     if ('type' in event.data && event.data.type === 'init' && 'baseHref' in event.data) {
         baseHref = event.data.baseHref;
@@ -169,6 +174,18 @@ self.onmessage = async (event: MessageEvent<WorkerRequest | { type: 'setLogLevel
     // Handle log level changes (no response needed)
     if ('type' in event.data && event.data.type === 'setLogLevel' && 'level' in event.data) {
         logger.setLogLevel(event.data.level);
+        return;
+    }
+
+    // Lazy ECDH key exchange — generate worker key pair on first encrypted open request
+    if ('type' in event.data && event.data.type === 'initEncryption') {
+        workerKeyPair = await crypto.subtle.generateKey(
+            { name: 'ECDH', namedCurve: 'P-256' },
+            false, // private key non-extractable
+            ['deriveKey']
+        );
+        const rawPub = await crypto.subtle.exportKey('raw', workerKeyPair.publicKey);
+        self.postMessage({ type: 'workerPublicKey', pub: new Uint8Array(rawPub) });
         return;
     }
 
@@ -222,8 +239,37 @@ async function handleRequest(data: WorkerRequest['data'], binaryPayload?: ArrayB
     const { type, database, sql, parameters } = data;
 
     switch (type) {
-        case 'open':
-            return await openDatabase(database!);
+        case 'open': {
+            if (data.encryptedKey) {
+                // Decrypt ECDH-wrapped key before opening
+                if (!workerKeyPair) {
+                    throw new Error('Encrypted key received but ECDH key pair not initialized');
+                }
+                const { iv, ct, senderPub } = data.encryptedKey;
+                const senderPubKey = await crypto.subtle.importKey(
+                    'raw',
+                    new Uint8Array(senderPub),
+                    { name: 'ECDH', namedCurve: 'P-256' },
+                    false,
+                    []
+                );
+                const sharedKey = await crypto.subtle.deriveKey(
+                    { name: 'ECDH', public: senderPubKey },
+                    workerKeyPair.privateKey,
+                    { name: 'AES-GCM', length: 256 },
+                    false,
+                    ['decrypt']
+                );
+                const ptBytes = await crypto.subtle.decrypt(
+                    { name: 'AES-GCM', iv: new Uint8Array(iv) },
+                    sharedKey,
+                    new Uint8Array(ct)
+                );
+                const password = new TextDecoder().decode(ptBytes);
+                return await openDatabase(database!, password);
+            }
+            return await openDatabase(database!, data.key);
+        }
 
         case 'execute':
             return await executeSql(database!, sql!, parameters || {});
@@ -277,7 +323,7 @@ async function handleRequest(data: WorkerRequest['data'], binaryPayload?: ArrayB
     }
 }
 
-async function openDatabase(dbName: string) {
+async function openDatabase(dbName: string, key?: string) {
     if (!sqlite3 || !poolUtil) {
         throw new Error('SQLite not initialized');
     }
@@ -326,6 +372,13 @@ async function openDatabase(dbName: string) {
     // Always check if PRAGMAs need to be set (even if database was already open)
     // This handles the case where database was closed and reopened
     if (!pragmasSet.has(dbName)) {
+        // Apply SQLCipher key before WAL PRAGMAs.
+        // NOTE: PRAGMA key does not support parameterized queries in the wasm-sqlite3 API;
+        // string interpolation with single-quote doubling is the correct and only approach.
+        if (key) {
+            db.exec(`PRAGMA key = '${key.replace(/'/g, "''")}';`);
+            logger.debug(MODULE_NAME, `Applied encryption key for ${dbName}`);
+        }
         // WAL mode with OPFS requires exclusive locking mode (SQLite 3.47+)
         // Must be set BEFORE activating WAL mode
         db.exec("PRAGMA locking_mode = exclusive;");

@@ -1,8 +1,65 @@
 diff --git a/node_modules/@sqlite.org/sqlite-wasm/dist/index.mjs b/node_modules/@sqlite.org/sqlite-wasm/dist/index.mjs
-index 17ae70c..a649463 100644
+index 17ae70c..079f1e4 100644
 --- a/node_modules/@sqlite.org/sqlite-wasm/dist/index.mjs
 +++ b/node_modules/@sqlite.org/sqlite-wasm/dist/index.mjs
-@@ -14956,6 +14956,17 @@ async function sqlite3InitModule(moduleArg = {}) {
+@@ -2540,7 +2540,26 @@ async function sqlite3InitModule(moduleArg = {}) {
+ 			return -e.errno;
+ 		}
+ 	}
+-	function ___syscall_rmdir(path) {
++	function ___syscall_renameat(olddirfd, oldpath, newdirfd, newpath) {
++		try {
++			oldpath = SYSCALLS.getStr(oldpath);
++			oldpath = SYSCALLS.calculateAt(olddirfd, oldpath);
++			newpath = SYSCALLS.getStr(newpath);
++			newpath = SYSCALLS.calculateAt(newdirfd, newpath);
++			FS.rename(oldpath, newpath);
++			return 0;
++		} catch (e) {
++			if (typeof FS == "undefined" || !(e.name === "ErrnoError")) throw e;
++			return -e.errno;
++		}
++	}
++	function ___syscall_getdents64(fd, dirp, count) {
++		return -38;
++	}
++	function __abort_js() {
++		abort('');
++	}
++		function ___syscall_rmdir(path) {
+ 		try {
+ 			path = SYSCALLS.getStr(path);
+ 			FS.rmdir(path);
+@@ -3195,7 +3214,10 @@ async function sqlite3InitModule(moduleArg = {}) {
+ 		fd_seek: _fd_seek,
+ 		fd_sync: _fd_sync,
+ 		fd_write: _fd_write,
+-		memory: wasmMemory
++		memory: wasmMemory,
++		__syscall_renameat: ___syscall_renameat,
++		__syscall_getdents64: ___syscall_getdents64,
++		_abort_js: __abort_js
+ 	};
+ 	function run() {
+ 		if (runDependencies > 0) {
+@@ -11952,6 +11974,12 @@ async function sqlite3InitModule(moduleArg = {}) {
+ 			const util = sqlite3.util, wasm = sqlite3.wasm, toss3 = util.toss3, hop = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
+ 			const kvvfsMethods = new sqlite3_kvvfs_methods(wasm.exports.sqlite3__wasm_kvvfs_methods());
+ 			util.assert(32 <= kvvfsMethods.$nKeySize, "unexpected kvvfsMethods.$nKeySize: " + kvvfsMethods.$nKeySize);
++			/* Guard: if the WASM was built from pre-3.52 SQLite sources, the
++			sqlite3_kvvfs_methods struct lacks the WASM-specific extension fields
++			(pVfs, pIoDb, pIoJrnl, nBufferSize). Skip the JS Storage override in that
++			case - the C-only kvvfs implementation remains active, which is fine for
++			OPFS-based projects that don't use the kvvfs localStorage/sessionStorage VFS.
++			The simple !$pVfs check is insufficient because the pre-3.52 struct is only
++			16 bytes; reading offset 16 returns heap garbage that may be non-zero.
++			We cross-check against pKvvfs (the pointer from sqlite3_vfs_find("kvvfs")):
++			in a 3.52 WASM $pVfs must equal pKvvfs; a garbage value virtually never will. */
++			if (!kvvfsMethods.$pVfs || kvvfsMethods.$pVfs !== pKvvfs) return;
+ 			/**
+ 			Most of the VFS-internal state.
+ 			*/
+@@ -14956,6 +14984,17 @@ async function sqlite3InitModule(moduleArg = {}) {
  				
  				Returns the 2nd argument.
  				*/
@@ -20,7 +77,7 @@ index 17ae70c..a649463 100644
  				storeErr(e, code) {
  					if (e) {
  						e.sqlite3Rc = code || capi.SQLITE_IOERR;
-@@ -15207,6 +15218,9 @@ async function sqlite3InitModule(moduleArg = {}) {
+@@ -15207,6 +15246,9 @@ async function sqlite3InitModule(moduleArg = {}) {
  				unlink(filename) {
  					return this.#p.deletePath(filename);
  				}

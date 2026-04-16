@@ -1,0 +1,30 @@
+--- a/ext/wasm/GNUmakefile
++++ b/ext/wasm/GNUmakefile
+@@ -404,7 +404,8 @@
+   -DSQLITE_OMIT_DEPRECATED \
+   -DSQLITE_OMIT_UTF16 \
+   -DSQLITE_OMIT_LOAD_EXTENSION \
+-  -DSQLITE_OMIT_SHARED_CACHE
++  -DSQLITE_OMIT_SHARED_CACHE \
++  $(SQLCIPHER_EXTRA_CFLAGS)
+ # ^^^ These particular OMITs are hard-coded in sqlite3-wasm.c and
+ # removing them from this list will serve only to break the speedtest1
+ # builds.
+@@ -430,7 +431,8 @@
+ ifeq (0,$(wasm-bare-bones))
+   # The so-called canonical build is full-featured:
+   SQLITE_OPT = \
+     $(SQLITE_OPT.common) \
+-    $(SQLITE_OPT.full-featured)
++    $(SQLITE_OPT.full-featured) \
++    $(SQLCIPHER_FEATURE_FLAGS)
+ else
+   # The so-called bare-bones build is exactly that:
+@@ -801,6 +803,7 @@
+ # Re. undefined symbol handling, see: https://lld.llvm.org/WebAssembly.html
+ emcc.jsflags += -sERROR_ON_UNDEFINED_SYMBOLS=1
+ emcc.jsflags += -sLLD_REPORT_UNDEFINED
++emcc.jsflags += $(SQLCIPHER_LINK_FLAGS)
+ #emcc.jsflags += --allow-undefined
+ #emcc.jsflags += --import-undefined
+ #emcc.jsflags += --unresolved-symbols=import-dynamic --experimental-pic

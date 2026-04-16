@@ -77,6 +77,28 @@ public sealed class SqliteWasmConnection : DbConnection
         return ":memory:";
     }
 
+    internal static string? ParsePassword(string? connectionString)
+    {
+        if (string.IsNullOrEmpty(connectionString))
+            return null;
+
+        var parts = connectionString.Split(';');
+        foreach (var part in parts)
+        {
+            var kv = part.Split('=', 2);
+            if (kv.Length == 2 &&
+                kv[0].Trim().Equals("Password", StringComparison.OrdinalIgnoreCase))
+            {
+                var value = kv[1].Trim();
+                return value.Length > 0 ? value : null;
+            }
+        }
+
+        return null;
+    }
+
+    private string? GetPassword() => ParsePassword(_connectionString);
+
     public override void Open()
     {
         // EF Core's EnsureCreatedAsync may call synchronous Open() in some paths
@@ -105,7 +127,7 @@ public sealed class SqliteWasmConnection : DbConnection
 
         try
         {
-            await _bridge.OpenDatabaseAsync(Database, cancellationToken);
+            await _bridge.OpenDatabaseAsync(Database, GetPassword(), cancellationToken);
 
             // PRAGMAs are set by the worker on first database open
             // This ensures they apply to the actual worker-side connection and persist
