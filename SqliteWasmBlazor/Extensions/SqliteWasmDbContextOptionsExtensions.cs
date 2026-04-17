@@ -40,6 +40,26 @@ public static class SqliteWasmDbContextOptionsExtensions
         return optionsBuilder;
     }
 
+    /// <inheritdoc cref="UseSqliteWasm(DbContextOptionsBuilder, SqliteWasmConnection)"/>
+    public static DbContextOptionsBuilder<TContext> UseSqliteWasm<TContext>(
+        this DbContextOptionsBuilder<TContext> optionsBuilder,
+        SqliteWasmConnection connection)
+        where TContext : DbContext
+    {
+        ((DbContextOptionsBuilder)optionsBuilder).UseSqliteWasm(connection);
+        return optionsBuilder;
+    }
+
+    /// <inheritdoc cref="UseSqliteWasm(DbContextOptionsBuilder, string)"/>
+    public static DbContextOptionsBuilder<TContext> UseSqliteWasm<TContext>(
+        this DbContextOptionsBuilder<TContext> optionsBuilder,
+        string connectionString)
+        where TContext : DbContext
+    {
+        ((DbContextOptionsBuilder)optionsBuilder).UseSqliteWasm(connectionString);
+        return optionsBuilder;
+    }
+
     /// <summary>
     /// Configures the DbContext to use the SqliteWasm provider with the specified connection string.
     /// </summary>
