@@ -67,7 +67,7 @@ await FileOperationsInterop.InitializeAsync();
 var host = builder.Build();
 
 // Initialize SqliteWasm databases with migration support
-await host.Services.InitializeSqliteWasmDatabaseAsync<TodoDbContext>();
-await host.Services.InitializeSqliteWasmDatabaseAsync<NoteDbContext>();
+await host.Services.InitializeSqliteWasmDatabaseAsync<TodoDbContext>(builder.HostEnvironment);
+await host.Services.InitializeSqliteWasmDatabaseAsync<NoteDbContext>(builder.HostEnvironment);
 
 await host.RunAsync();

@@ -12,6 +12,6 @@ builder.Services.AddScoped(_ => new HttpClient { BaseAddress = new Uri(builder.H
 var host = builder.Build();
 
 // Initialize SqliteWasm for ADO.NET usage (no EF Core needed!)
-await host.Services.InitializeSqliteWasmAsync();
+await host.Services.InitializeSqliteWasmAsync(builder.HostEnvironment);
 
 await host.RunAsync();

@@ -1,6 +1,7 @@
 // SqliteWasmBlazor - Minimal EF Core compatible provider
 // MIT License
 
+using Microsoft.AspNetCore.Components.WebAssembly.Hosting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -29,18 +30,20 @@ public static class SqliteWasmServiceCollectionExtensions
     /// </summary>
     /// <param name="services">The service collection.</param>
     /// <param name="baseHref">Base href of the Blazor app (e.g. "/" or "/myapp/"). Defaults to "/".</param>
+    /// <param name="assetRoot">Static-asset path segment, e.g. "_content/SqliteWasmBlazor/". Override for browser-extension builds.</param>
     /// <param name="cancellationToken">Optional cancellation token.</param>
     /// <returns>A task that represents the asynchronous operation.</returns>
     /// <exception cref="InvalidOperationException">Thrown when initialization fails or database is locked by another tab.</exception>
     public static async Task InitializeSqliteWasmAsync(
         this IServiceProvider services,
         string baseHref = "/",
+        string assetRoot = "_content/SqliteWasmBlazor/",
         CancellationToken cancellationToken = default)
     {
         try
         {
             // Initialize the worker bridge
-            await SqliteWasmWorkerBridge.Instance.InitializeAsync(baseHref, cancellationToken);
+            await SqliteWasmWorkerBridge.Instance.InitializeAsync(baseHref, assetRoot, cancellationToken);
         }
         catch (Exception ex)
         {
@@ -55,15 +58,35 @@ Please close any other tabs running this application and refresh the page.
     }
 
     /// <summary>
+    /// Initializes the SqliteWasm worker bridge without Entity Framework Core.
+    /// Derives the base href from <paramref name="environment"/>.<see cref="IWebAssemblyHostEnvironment.BaseAddress"/> — the recommended path for sub-path deployments.
+    /// </summary>
+    /// <param name="services">The service collection.</param>
+    /// <param name="environment">The host environment. Provides <see cref="IWebAssemblyHostEnvironment.BaseAddress"/>, which already reflects the <c>&lt;base href&gt;</c> baked in at build time.</param>
+    /// <param name="assetRoot">Static-asset path segment, e.g. "_content/SqliteWasmBlazor/". Override for browser-extension builds.</param>
+    /// <param name="cancellationToken">Optional cancellation token.</param>
+    public static Task InitializeSqliteWasmAsync(
+        this IServiceProvider services,
+        IWebAssemblyHostEnvironment environment,
+        string assetRoot = "_content/SqliteWasmBlazor/",
+        CancellationToken cancellationToken = default)
+    {
+        var baseHref = new Uri(environment.BaseAddress).AbsolutePath;
+        return services.InitializeSqliteWasmAsync(baseHref, assetRoot, cancellationToken);
+    }
+
+    /// <summary>
     /// Initializes the SqliteWasm database by applying pending migrations and handling migration history recovery.
     /// </summary>
     /// <typeparam name="TContext">The DbContext type to initialize.</typeparam>
     /// <param name="services">The service collection.</param>
     /// <param name="baseHref">Base href of the Blazor app (e.g. "/" or "/myapp/"). Defaults to "/".</param>
+    /// <param name="assetRoot">Static-asset path segment, e.g. "_content/SqliteWasmBlazor/". Override for browser-extension builds.</param>
     /// <returns>A task that represents the asynchronous operation.</returns>
     public static async Task InitializeSqliteWasmDatabaseAsync<TContext>(
         this IServiceProvider services,
-        string baseHref = "/")
+        string baseHref = "/",
+        string assetRoot = "_content/SqliteWasmBlazor/")
         where TContext : DbContext
     {
         var initService = services.GetRequiredService<IDBInitializationService>();
@@ -71,7 +94,7 @@ Please close any other tabs running this application and refresh the page.
         try
         {
             // Initialize the worker bridge first
-            await SqliteWasmWorkerBridge.Instance.InitializeAsync(baseHref);
+            await SqliteWasmWorkerBridge.Instance.InitializeAsync(baseHref, assetRoot);
         }
         catch (Exception ex)
         {
@@ -137,6 +160,24 @@ Please close any other tabs running this application and refresh the page.
             initService.ErrorMessage += Environment.NewLine;
             initService.ErrorMessage += $"{ex.StackTrace}";
         }
+    }
+
+    /// <summary>
+    /// Initializes the SqliteWasm database by applying pending migrations and handling migration history recovery.
+    /// Derives the base href from <paramref name="environment"/>.<see cref="IWebAssemblyHostEnvironment.BaseAddress"/> — the recommended path for sub-path deployments.
+    /// </summary>
+    /// <typeparam name="TContext">The DbContext type to initialize.</typeparam>
+    /// <param name="services">The service collection.</param>
+    /// <param name="environment">The host environment. Provides <see cref="IWebAssemblyHostEnvironment.BaseAddress"/>, which already reflects the <c>&lt;base href&gt;</c> baked in at build time.</param>
+    /// <param name="assetRoot">Static-asset path segment, e.g. "_content/SqliteWasmBlazor/". Override for browser-extension builds.</param>
+    public static Task InitializeSqliteWasmDatabaseAsync<TContext>(
+        this IServiceProvider services,
+        IWebAssemblyHostEnvironment environment,
+        string assetRoot = "_content/SqliteWasmBlazor/")
+        where TContext : DbContext
+    {
+        var baseHref = new Uri(environment.BaseAddress).AbsolutePath;
+        return services.InitializeSqliteWasmDatabaseAsync<TContext>(baseHref, assetRoot);
     }
 
     /// <summary>

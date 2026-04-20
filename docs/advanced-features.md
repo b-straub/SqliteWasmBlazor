@@ -221,3 +221,26 @@ await DatabaseService.ImportDatabaseAsync("TodoDb.db", data);
 ```
 
 See [Changelog](../CHANGELOG.md#raw-database-importexport) for full implementation details.
+
+## Deploying Under a Sub-path
+
+To host at a non-root path (e.g. `/myapp/`), pass the host environment at startup — the library derives the base href from `HostEnvironment.BaseAddress`, which Blazor already sets from `<base href>`:
+
+```csharp
+// Program.cs
+var host = builder.Build();
+await host.Services.InitializeSqliteWasmAsync(builder.HostEnvironment);        // ADO.NET
+await host.Services.InitializeSqliteWasmDatabaseAsync<MyDbContext>(builder.HostEnvironment); // EF Core
+```
+
+Using the default `"/"` on a sub-path deployment will silently 404 the worker bridge.
+
+### Browser-extension builds
+
+Blazor.BrowserExtension flattens `_content/SqliteWasmBlazor/` to `content/SqliteWasmBlazor/`. Override `assetRoot`:
+
+```csharp
+await host.Services.InitializeSqliteWasmAsync(baseHref, assetRoot: "content/SqliteWasmBlazor/");
+```
+
+The same `assetRoot` parameter is available on `InitializeSqliteWasmDatabaseAsync` and on `.Components`/`.FloatingWindow`.

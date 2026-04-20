@@ -23,7 +23,8 @@ public static partial class FileOperationsInterop
     /// Initialize the file operations module
     /// Must be called in Program.cs before WebAssemblyHostBuilder.Build()
     /// </summary>
-    public static async Task InitializeAsync()
+    /// <param name="assetRoot">Static-asset path segment, e.g. "_content/SqliteWasmBlazor.Components/". Override for browser-extension builds.</param>
+    public static async Task InitializeAsync(string assetRoot = "_content/SqliteWasmBlazor.Components/")
     {
         if (!OperatingSystem.IsBrowser())
         {
@@ -34,7 +35,7 @@ public static partial class FileOperationsInterop
         {
             await JSHost.ImportAsync(
                 ModuleName,
-                "../_content/SqliteWasmBlazor.Components/file-operations.js");
+                $"../{assetRoot}file-operations.js");
             Console.WriteLine("FileOperations module loaded successfully");
         }
         catch (Exception ex)

@@ -197,7 +197,8 @@ builder.Services.AddSqliteWasm();
 var host = builder.Build();
 
 // Initialize SqliteWasm database with automatic migration support
-await host.Services.InitializeSqliteWasmDatabaseAsync<TodoDbContext>();
+// Pass builder.HostEnvironment so sub-path deployments resolve the worker bridge correctly.
+await host.Services.InitializeSqliteWasmDatabaseAsync<TodoDbContext>(builder.HostEnvironment);
 
 await host.RunAsync();
 ```

@@ -49,6 +49,8 @@ const MODULE_NAME = 'SQLite Worker';
 
 // Store base href from main thread
 let baseHref = '/';
+// Asset root (e.g. "_content/SqliteWasmBlazor/"). Override for browser-extension builds.
+let assetRoot = '_content/SqliteWasmBlazor/';
 
 // Helper function to convert BigInt and Uint8Array for JSON serialization
 // BigInts within safe integer range (±2^53-1) are converted to number for efficiency
@@ -105,7 +107,7 @@ async function initializeSQLite() {
             locateFile(path: string) {
                 // Tell sqlite-wasm where to find the wasm file using base href
                 if (path.endsWith('.wasm')) {
-                    return `${baseHref}_content/SqliteWasmBlazor/${path}`;
+                    return `${baseHref}${assetRoot}${path}`;
                 }
                 return path;
             }
@@ -157,11 +159,11 @@ async function initializeSQLite() {
 }
 
 // Handle messages from main thread
-self.onmessage = async (event: MessageEvent<WorkerRequest | { type: 'setLogLevel'; level: number } | { type: 'init'; baseHref: string }>) => {
-    // Handle initialization with base href
+self.onmessage = async (event: MessageEvent<WorkerRequest | { type: 'setLogLevel'; level: number } | { type: 'init'; baseHref: string; assetRoot: string }>) => {
+    // Handle initialization with base href and asset root
     if ('type' in event.data && event.data.type === 'init' && 'baseHref' in event.data) {
         baseHref = event.data.baseHref;
-        // Start initialization after receiving base href
+        assetRoot = event.data.assetRoot;
         await initializeSQLite();
         return;
     }

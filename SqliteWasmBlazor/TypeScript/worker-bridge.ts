@@ -13,18 +13,18 @@ interface IMemoryView {
 
 let worker: Worker | null = null;
 
-// Initialize worker on first import
-(async () => {
+// Called from C# (JSImport) to create the worker with explicit asset paths.
+// Avoids reading <base href> from the DOM, which is blocked by strict CSP and
+// unreliable in browser-extension contexts.
+export function initializeBridge(baseHref: string, assetRoot: string): void {
     try {
-        // Create worker - load from static assets path using base href
-        const baseHref = document.querySelector('base')?.getAttribute('href') || '/';
         worker = new Worker(
-            `${baseHref}_content/SqliteWasmBlazor/sqlite-wasm-worker.js`,
+            `${baseHref}${assetRoot}sqlite-wasm-worker.js`,
             { type: 'module' }
         );
 
-        // Send base href to worker so it can locate WASM files
-        worker.postMessage({ type: 'init', baseHref });
+        // Pass both paths so the worker can locate .wasm and other assets.
+        worker.postMessage({ type: 'init', baseHref, assetRoot });
 
         // Handle messages from worker
         worker.onmessage = async (event) => {
@@ -97,8 +97,17 @@ let worker: Worker | null = null;
 
     } catch (error) {
         console.error('[Worker Bridge] Failed to create worker:', error);
+        // Notify C# so InitializeAsync throws instead of timing out.
+        try {
+            const exports = await (globalThis as any).getDotnetRuntime(0).getAssemblyExports("SqliteWasmBlazor.dll");
+            exports.SqliteWasmBlazor.SqliteWasmWorkerBridge.OnWorkerError(
+                error instanceof Error ? error.message : 'Failed to create worker'
+            );
+        } catch {
+            // Runtime not yet available — nothing more we can do.
+        }
     }
-})();
+}
 
 // Called from C# to send request to worker
 export function sendToWorker(messageJson: string): void {
@@ -144,6 +153,7 @@ export const logger = {
 
 // Make functions available to C# JSImport
 (globalThis as any).sqliteWasmWorker = {
+    initializeBridge,
     sendToWorker,
     sendBinaryToWorker
 };

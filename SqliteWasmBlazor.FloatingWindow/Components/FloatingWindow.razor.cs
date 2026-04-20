@@ -258,7 +258,7 @@ public partial class FloatingWindow : IAsyncDisposable
         try
         {
             _jsModule = await JSRuntime.InvokeAsync<IJSObjectReference>(
-                "import", "./_content/SqliteWasmBlazor.FloatingWindow/floating-window.js");
+                "import", $"./{FloatingWindowOptions.AssetRoot}floating-window.js");
 
             if (Draggable)
             {

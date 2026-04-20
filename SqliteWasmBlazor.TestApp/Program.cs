@@ -46,14 +46,10 @@ builder.Services.AddDbContextFactory<TodoDbContext>(options =>
 // Register SqliteWasm database management service
 builder.Services.AddSqliteWasm();
 
-// Derive the base href from the app's base address so sub-path deployments
-// (e.g. <base href="/myapp/">) are handled correctly without DOM inspection.
-var baseHref = new Uri(builder.HostEnvironment.BaseAddress).AbsolutePath;
-
 var host = builder.Build();
 
 // Initialize sqlite-wasm worker
-await host.Services.InitializeSqliteWasmAsync(baseHref: baseHref);
+await host.Services.InitializeSqliteWasmAsync(builder.HostEnvironment);
 
 // Initialize database - always recreate for clean test runs
 using (var scope = host.Services.CreateScope())

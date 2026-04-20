@@ -18,8 +18,11 @@ Shows how to initialize SqliteWasm without EF Core:
 
 ```csharp
 // Initialize SqliteWasm for ADO.NET usage (no EF Core needed!)
-await host.Services.InitializeSqliteWasmAsync();
+// Pass HostEnvironment so sub-path deployments (e.g. <base href="/myapp/">) resolve the worker correctly.
+await host.Services.InitializeSqliteWasmAsync(builder.HostEnvironment);
 ```
+
+> **Sub-path deployments:** passing `builder.HostEnvironment` is the recommended approach. The library derives `baseHref` from `HostEnvironment.BaseAddress`, which already reflects the `<base href>` baked in at build time. See [Deploying Under a Sub-path](../docs/advanced-features.md#deploying-under-a-sub-path) for details.
 
 ### Pages/Home.razor
 Complete ADO.NET example with:
