@@ -3,6 +3,7 @@
 
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 
 namespace SqliteWasmBlazor;
 
@@ -12,33 +13,48 @@ namespace SqliteWasmBlazor;
 public static class SqliteWasmServiceCollectionExtensions
 {
     /// <summary>
-    /// Registers SqliteWasm services including the database management service.
-    /// Call this in Program.cs before building the app.
+    /// Registers SqliteWasm services and configuration. Call this in Program.cs before
+    /// <see cref="Microsoft.AspNetCore.Components.WebAssembly.Hosting.WebAssemblyHostBuilder.Build"/>.
     /// </summary>
     /// <param name="services">The service collection.</param>
+    /// <param name="configure">Optional configuration callback. For sub-path deployments
+    /// set <see cref="SqliteWasmOptions.HostEnvironment"/>; for browser-extension builds
+    /// override <see cref="SqliteWasmOptions.AssetRoot"/>.</param>
     /// <returns>The service collection for chaining.</returns>
-    public static IServiceCollection AddSqliteWasm(this IServiceCollection services)
+    public static IServiceCollection AddSqliteWasm(
+        this IServiceCollection services,
+        Action<SqliteWasmOptions>? configure = null)
     {
+        if (configure is not null)
+        {
+            services.Configure(configure);
+        }
+        else
+        {
+            services.AddOptions<SqliteWasmOptions>();
+        }
+
         services.AddSingleton<ISqliteWasmDatabaseService>(SqliteWasmWorkerBridge.Instance);
         return services;
     }
 
     /// <summary>
-    /// Initializes the SqliteWasm worker bridge without Entity Framework Core.
-    /// Use this method when using the ADO.NET provider directly without EF Core.
+    /// Initializes the SqliteWasm worker bridge using the options configured via
+    /// <see cref="AddSqliteWasm"/>. Use this method when consuming the ADO.NET provider
+    /// directly without EF Core.
     /// </summary>
-    /// <param name="services">The service collection.</param>
+    /// <param name="services">The service provider.</param>
     /// <param name="cancellationToken">Optional cancellation token.</param>
-    /// <returns>A task that represents the asynchronous operation.</returns>
     /// <exception cref="InvalidOperationException">Thrown when initialization fails or database is locked by another tab.</exception>
     public static async Task InitializeSqliteWasmAsync(
         this IServiceProvider services,
         CancellationToken cancellationToken = default)
     {
+        var options = services.GetRequiredService<IOptions<SqliteWasmOptions>>().Value;
+
         try
         {
-            // Initialize the worker bridge
-            await SqliteWasmWorkerBridge.Instance.InitializeAsync(cancellationToken);
+            await SqliteWasmWorkerBridge.Instance.InitializeAsync(options, cancellationToken);
         }
         catch (Exception ex)
         {
@@ -53,21 +69,21 @@ Please close any other tabs running this application and refresh the page.
     }
 
     /// <summary>
-    /// Initializes the SqliteWasm database by applying pending migrations and handling migration history recovery.
+    /// Initializes the SqliteWasm worker bridge and applies pending EF Core migrations
+    /// for <typeparamref name="TContext"/>, recovering the migration history when necessary.
     /// </summary>
     /// <typeparam name="TContext">The DbContext type to initialize.</typeparam>
-    /// <param name="services">The service collection.</param>
-    /// <returns>A task that represents the asynchronous operation.</returns>
+    /// <param name="services">The service provider.</param>
     public static async Task InitializeSqliteWasmDatabaseAsync<TContext>(
         this IServiceProvider services)
         where TContext : DbContext
     {
         var initService = services.GetRequiredService<IDBInitializationService>();
+        var options = services.GetRequiredService<IOptions<SqliteWasmOptions>>().Value;
 
         try
         {
-            // Initialize the worker bridge first
-            await SqliteWasmWorkerBridge.Instance.InitializeAsync();
+            await SqliteWasmWorkerBridge.Instance.InitializeAsync(options);
         }
         catch (Exception ex)
         {
@@ -83,12 +99,10 @@ Please close any other tabs running this application and refresh the page.
 
         try
         {
-            // Create a scope for database initialization
             using var scope = services.CreateScope();
             var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<TContext>>();
             await using var dbContext = await factory.CreateDbContextAsync();
 
-            // Apply pending migrations only (skip if database is already up to date)
             var pendingMigrations = await dbContext.Database.GetPendingMigrationsAsync();
             if (pendingMigrations.Any())
             {
@@ -100,9 +114,6 @@ Please close any other tabs running this application and refresh the page.
                                             (ex.Message.Contains("table", StringComparison.OrdinalIgnoreCase) &&
                                              ex.Message.Contains("exist", StringComparison.OrdinalIgnoreCase)))
                 {
-                    // Tables exist but migration history is missing/corrupted
-                    // This can happen if database was created with EnsureCreated or __EFMigrationsHistory was deleted
-                    // Attempt to recover by recreating the migration history table
                     var recovered = await RecoverMigrationHistoryAsync(dbContext);
 
                     if (!recovered)

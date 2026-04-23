@@ -44,7 +44,7 @@ builder.Services.AddDbContextFactory<TodoDbContext>(options =>
 });
 
 // Register SqliteWasm database management service
-builder.Services.AddSqliteWasm();
+builder.Services.AddSqliteWasm(o => o.HostEnvironment = builder.HostEnvironment);
 
 var host = builder.Build();
 
