@@ -47,8 +47,9 @@ const schemaCache = new Map<string, Map<string, string>>();
 
 const MODULE_NAME = 'SQLite Worker';
 
-// Store base href from main thread
+// Asset resolution paths, received in the 'init' message from the bridge.
 let baseHref = '/';
+let assetRoot = '_content/SqliteWasmBlazor/';
 
 // Helper function to convert BigInt and Uint8Array for JSON serialization
 // BigInts within safe integer range (±2^53-1) are converted to number for efficiency
@@ -103,9 +104,8 @@ async function initializeSQLite() {
             print: console.log,
             printErr: console.error,
             locateFile(path: string) {
-                // Tell sqlite-wasm where to find the wasm file using base href
                 if (path.endsWith('.wasm')) {
-                    return `${baseHref}_content/SqliteWasmBlazor/${path}`;
+                    return `${baseHref}${assetRoot}${path}`;
                 }
                 return path;
             }
