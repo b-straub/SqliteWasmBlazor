@@ -30,6 +30,7 @@
     
     <ItemGroup Condition="'$(Configuration)' == 'Debug'">
         <NativeFileReference Include="..\SqliteWasmBlazor\native\lib\e_sqlite3.a"/>
+        <ProjectReference Include="..\SqliteWasmBlazor\SqliteWasmBlazor.csproj" />
     </ItemGroup>
 
     <ItemGroup>
