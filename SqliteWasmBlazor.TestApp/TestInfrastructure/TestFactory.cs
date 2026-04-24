@@ -31,7 +31,8 @@ internal class TestFactory
         ISqliteWasmDatabaseService databaseService,
         IDbContextFactory<CryptoTestContext>? cryptoFactory = null,
         BlazorPRF.Crypto.Abstractions.ICryptoProvider? cryptoProvider = null,
-        IDbContextFactory<EncryptedTestContext>? encryptedFactory = null)
+        IDbContextFactory<EncryptedTestContext>? encryptedFactory = null,
+        IDbContextFactory<PlainVfsTestContext>? plainVfsFactory = null)
     {
         PopulateTests(todoFactory, databaseService);
         if (cryptoFactory is not null)
@@ -40,7 +41,7 @@ internal class TestFactory
         }
         if (encryptedFactory is not null)
         {
-            PopulateVfsEncryptionTests(encryptedFactory, todoFactory, databaseService);
+            PopulateVfsEncryptionTests(encryptedFactory, todoFactory, databaseService, plainVfsFactory);
         }
     }
 
@@ -68,7 +69,8 @@ internal class TestFactory
     private void PopulateVfsEncryptionTests(
         IDbContextFactory<EncryptedTestContext> encryptedFactory,
         IDbContextFactory<TodoDbContext> todoFactory,
-        ISqliteWasmDatabaseService databaseService)
+        ISqliteWasmDatabaseService databaseService,
+        IDbContextFactory<PlainVfsTestContext>? plainVfsFactory)
     {
         const string cat = "VFS Encryption";
 
@@ -93,11 +95,14 @@ internal class TestFactory
         var t7 = new VfsPhysicalLayoutTest(encryptedFactory, databaseService);
         _entries.Add(new TestEntry(cat, t7.Name, () => t7.RunTestWithFreshDatabaseAsync()));
 
-        var t8 = new VfsEncryptedPerformanceSmokeTest(todoFactory, encryptedFactory, databaseService);
-        _entries.Add(new TestEntry(cat, t8.Name, () => t8.RunTestWithFreshDatabaseAsync()));
+        if (plainVfsFactory is not null)
+        {
+            var t8 = new VfsEncryptedPerformanceSmokeTest(plainVfsFactory, encryptedFactory, databaseService);
+            _entries.Add(new TestEntry(cat, t8.Name, () => t8.RunTestWithFreshDatabaseAsync()));
 
-        var t9 = new VfsSameJournalModePerformanceTest(todoFactory, encryptedFactory, databaseService);
-        _entries.Add(new TestEntry(cat, t9.Name, () => t9.RunTestWithFreshDatabaseAsync()));
+            var t9 = new VfsSameJournalModePerformanceTest(plainVfsFactory, encryptedFactory, databaseService);
+            _entries.Add(new TestEntry(cat, t9.Name, () => t9.RunTestWithFreshDatabaseAsync()));
+        }
     }
 
     private void PopulateCryptoTests(

@@ -66,6 +66,14 @@ builder.Services.AddDbContextFactory<EncryptedTestContext>(options =>
         VfsEncryptionTestBase.TestKey);
 });
 
+// Plain twin of EncryptedTestContext — same VfsTestItem schema, no key.
+// Lets the perf tests compare plain vs encrypted on identical workloads so
+// the measured delta is AEAD cost, not schema-complexity cost.
+builder.Services.AddDbContextFactory<PlainVfsTestContext>(options =>
+{
+    options.UseSqliteWasm($"Data Source={PlainVfsTestContext.DatabaseName}");
+});
+
 // Register SqliteWasm database management service
 builder.Services.AddSqliteWasm();
 

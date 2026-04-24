@@ -1,6 +1,4 @@
 using Microsoft.EntityFrameworkCore;
-using SqliteWasmBlazor.Models;
-using SqliteWasmBlazor.Models.Models;
 using System.Diagnostics;
 
 namespace SqliteWasmBlazor.TestApp.TestInfrastructure.VfsEncryption;
@@ -10,10 +8,10 @@ namespace SqliteWasmBlazor.TestApp.TestInfrastructure.VfsEncryption;
 /// <c>journal_mode=MEMORY</c> before inserting, so the measured delta
 /// reflects ChaCha20-Poly1305 page crypto cost rather than WAL fsync I/O.
 ///
-/// Both paths default to WAL, so this test differs from
-/// <see cref="VfsEncryptedPerformanceSmokeTest"/> only in the forced
-/// MEMORY mode — useful for isolating pure crypto overhead from
-/// journal-write costs.
+/// Both paths use the same <see cref="VfsTestItem"/> schema — plain via
+/// <see cref="PlainVfsTestContext"/> (no key), encrypted via
+/// <see cref="EncryptedTestContext"/> (test key). Combined with MEMORY
+/// journal mode, the ratio isolates crypto overhead alone.
 ///
 /// Expected reading: encrypted should be within ~1.5-2× plain for write
 /// workloads. A ratio much above that indicates the crypto path is slower
@@ -24,12 +22,12 @@ internal sealed class VfsSameJournalModePerformanceTest
     private const int RowCount = 500;
     private const double CatastrophicRatio = 5.0;
 
-    private readonly IDbContextFactory<TodoDbContext> _plainFactory;
+    private readonly IDbContextFactory<PlainVfsTestContext> _plainFactory;
     private readonly IDbContextFactory<EncryptedTestContext> _encFactory;
     private readonly ISqliteWasmDatabaseService _databaseService;
 
     public VfsSameJournalModePerformanceTest(
-        IDbContextFactory<TodoDbContext> plainFactory,
+        IDbContextFactory<PlainVfsTestContext> plainFactory,
         IDbContextFactory<EncryptedTestContext> encFactory,
         ISqliteWasmDatabaseService databaseService)
     {
@@ -67,17 +65,9 @@ internal sealed class VfsSameJournalModePerformanceTest
             await ctx.Database.ExecuteSqlRawAsync("PRAGMA journal_mode = MEMORY;");
 
             ctx.ChangeTracker.AutoDetectChangesEnabled = false;
-            var listId = Guid.NewGuid();
-            ctx.TodoLists.Add(new TodoList
-            {
-                Id = listId,
-                Title = "perf-list-iso",
-                IsActive = true,
-                CreatedAt = DateTime.UtcNow,
-            });
             for (var i = 0; i < RowCount; i++)
             {
-                ctx.Todos.Add(new Todo { Title = $"todo-{i}", Description = new string('x', 200), TodoListId = listId });
+                ctx.Items.Add(new VfsTestItem { Marker = $"item-{i}", Payload = new string('x', 200) });
             }
             ctx.ChangeTracker.DetectChanges();
             await ctx.SaveChangesAsync();
@@ -102,7 +92,7 @@ internal sealed class VfsSameJournalModePerformanceTest
         var ratio = plainMs > 0 ? (double)encMs / plainMs : double.PositiveInfinity;
 
         Console.WriteLine(
-            $"[{Name}] plain={plainMs} ms, encrypted={encMs} ms, ratio={ratio:F2}× ({RowCount} rows each, both journal_mode=MEMORY)");
+            $"[{Name}] plain={plainMs} ms, encrypted={encMs} ms, ratio={ratio:F2}× ({RowCount} rows each, same schema, both journal_mode=MEMORY)");
 
         if (ratio > CatastrophicRatio)
         {

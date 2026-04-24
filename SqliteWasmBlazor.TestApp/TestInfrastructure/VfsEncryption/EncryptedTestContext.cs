@@ -35,3 +35,28 @@ public sealed class EncryptedTestContext : DbContext
         });
     }
 }
+
+/// <summary>
+/// Structural twin of <see cref="EncryptedTestContext"/> that opens through
+/// the VFS <i>without</i> a key. Used by the VFS perf tests so the
+/// plain-vs-encrypted comparison runs on an identical schema — the ratio
+/// then reflects AEAD cost alone, not schema-complexity differences.
+/// </summary>
+public sealed class PlainVfsTestContext : DbContext
+{
+    public const string DatabaseName = "PlainVfsTestDb.db";
+
+    public PlainVfsTestContext(DbContextOptions<PlainVfsTestContext> options) : base(options) { }
+
+    public DbSet<VfsTestItem> Items => Set<VfsTestItem>();
+
+    protected override void OnModelCreating(ModelBuilder modelBuilder)
+    {
+        base.OnModelCreating(modelBuilder);
+        modelBuilder.Entity<VfsTestItem>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.ToTable("VfsTestItems");
+        });
+    }
+}
