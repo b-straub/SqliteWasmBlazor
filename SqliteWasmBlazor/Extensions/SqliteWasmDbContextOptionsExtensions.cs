@@ -118,6 +118,17 @@ public static class SqliteWasmDbContextOptionsExtensions
         return optionsBuilder.UseSqliteWasm(connection);
     }
 
+    /// <inheritdoc cref="UseSqliteWasm(DbContextOptionsBuilder, string, ReadOnlyMemory{byte})"/>
+    public static DbContextOptionsBuilder<TContext> UseSqliteWasm<TContext>(
+        this DbContextOptionsBuilder<TContext> optionsBuilder,
+        string connectionString,
+        ReadOnlyMemory<byte> encryptionKey)
+        where TContext : DbContext
+    {
+        ((DbContextOptionsBuilder)optionsBuilder).UseSqliteWasm(connectionString, encryptionKey);
+        return optionsBuilder;
+    }
+
     /// <summary>
     /// Configures the DbContext to use the SqliteWasm provider with a
     /// user-supplied password. The worker derives the 32-byte VFS key via
@@ -152,5 +163,16 @@ public static class SqliteWasmDbContextOptionsExtensions
             EncryptionPassword = password,
         };
         return optionsBuilder.UseSqliteWasm(connection);
+    }
+
+    /// <inheritdoc cref="UseSqliteWasmPassword(DbContextOptionsBuilder, string, ReadOnlyMemory{byte})"/>
+    public static DbContextOptionsBuilder<TContext> UseSqliteWasmPassword<TContext>(
+        this DbContextOptionsBuilder<TContext> optionsBuilder,
+        string connectionString,
+        ReadOnlyMemory<byte> password)
+        where TContext : DbContext
+    {
+        ((DbContextOptionsBuilder)optionsBuilder).UseSqliteWasmPassword(connectionString, password);
+        return optionsBuilder;
     }
 }
