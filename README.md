@@ -409,13 +409,9 @@ All modern browsers (2023+) support OPFS with Synchronous Access Handles, includ
 
 ## Contributing
 
-Contributions welcome! Please:
+Issues, bug reports, and feature discussions are always welcome.
 
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests for new functionality
-5. Submit a pull request
+For code contributions we use an **issue-first policy**: please open an issue and agree on the approach before submitting a pull request. Trivial fixes (typos, obvious one-line bugs) can be sent directly. See [CONTRIBUTING.md](CONTRIBUTING.md) for details and rationale.
 
 ## Credits
 
