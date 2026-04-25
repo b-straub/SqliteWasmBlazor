@@ -59,7 +59,7 @@ builder.Services.AddDbContextFactory<NoteDbContext>(options =>
 builder.Services.AddSingleton<IDBInitializationService, DBInitializationService>();
 
 // Register SqliteWasm database management service
-builder.Services.AddSqliteWasm();
+builder.Services.AddSqliteWasm(o => o.HostEnvironment = builder.HostEnvironment);
 
 // Initialize FileOperations JS module for import/export
 await FileOperationsInterop.InitializeAsync();

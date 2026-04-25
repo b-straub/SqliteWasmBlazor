@@ -1,5 +1,6 @@
 @inject IWindowManager WindowManager
 @inject IJSRuntime JSRuntime
+@inject Microsoft.Extensions.Options.IOptions<FloatingWindowOptions> FloatingWindowOptions
 
 @if (IsOpen && _state is not null && !_state.IsMinimized)
 {

@@ -74,32 +74,31 @@ internal sealed partial class SqliteWasmWorkerBridge : ISqliteWasmDatabaseServic
     {
     }
 
-    [JSImport("getBaseHref", "SqliteWasmBlazor")]
-    private static partial string GetBaseHref();
-
     /// <summary>
-    /// Initialize the worker and sqlite-wasm module.
+    /// Initialize the worker bridge. Invoked from <see cref="SqliteWasmServiceCollectionExtensions.InitializeSqliteWasmAsync"/>
+    /// with options resolved from DI — callers should not invoke this directly.
     /// </summary>
-    public async Task InitializeAsync(CancellationToken cancellationToken = default)
+    /// <param name="options">Resolved <see cref="SqliteWasmOptions"/> carrying <c>BaseHref</c> and <c>AssetRoot</c>.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    public async Task InitializeAsync(SqliteWasmOptions options, CancellationToken cancellationToken = default)
     {
         if (_isInitialized)
         {
             return;
         }
 
-        // Get base href dynamically and construct absolute path
-        await JSHost.ImportAsync("SqliteWasmBlazor", "data:text/javascript,export function getBaseHref() { return document.querySelector('base')?.getAttribute('href') || '/'; }");
-        var baseHref = GetBaseHref();
-        var bridgePath = $"{baseHref}_content/SqliteWasmBlazor/sqlite-wasm-bridge.js";
+        var bridgePath = $"{options.BaseHref}{options.AssetRoot}sqlite-wasm-bridge.js";
 
         await JSHost.ImportAsync("sqliteWasmWorker", bridgePath, cancellationToken);
 
-        // Wait for worker to signal ready or error
         _initializationTcs = new TaskCompletionSource<bool>();
         var token = cancellationToken;
         await using var registration = token.Register(() => _initializationTcs.TrySetCanceled());
 
-        // Worker will call OnWorkerReady() or OnWorkerError() via JSExport
+        // Single awaitable JSImport: creates the Worker and posts the init message.
+        // CSP-safe (no DOM read, no data: URLs); worker ready/error signal arrives via JSExport.
+        await InitializeBridgeAsync(options.BaseHref, options.AssetRoot);
+
         var ready = await _initializationTcs.Task;
         if (!ready)
         {
@@ -492,12 +491,20 @@ internal sealed partial class SqliteWasmWorkerBridge : ISqliteWasmDatabaseServic
         }
     }
 
-    private async Task EnsureInitializedAsync(CancellationToken cancellationToken)
+    private Task EnsureInitializedAsync(CancellationToken cancellationToken)
     {
-        if (!_isInitialized)
+        if (_isInitialized)
         {
-            await InitializeAsync(cancellationToken);
+            return Task.CompletedTask;
         }
+
+        // Fail fast rather than silently lazy-initialising with defaults —
+        // on a sub-path or browser-extension build the defaults ("/" + "_content/SqliteWasmBlazor/")
+        // would 404 the worker and produce a confusing timeout. Forcing explicit init
+        // at the DI layer makes the misconfiguration a visible startup error.
+        throw new InvalidOperationException(
+            "SqliteWasm is not initialized. Call services.InitializeSqliteWasmAsync() " +
+            "or services.InitializeSqliteWasmDatabaseAsync<TContext>() in Program.cs before performing any database operation.");
     }
 
     private async Task<SqlQueryResult> SendRequestAsync(object request, CancellationToken cancellationToken)
@@ -791,6 +798,9 @@ internal sealed partial class SqliteWasmWorkerBridge : ISqliteWasmDatabaseServic
     {
         _initializationTcs?.TrySetException(new InvalidOperationException($"Worker initialization failed: {error}"));
     }
+
+    [JSImport("initializeBridge", "sqliteWasmWorker")]
+    private static partial Task InitializeBridgeAsync(string baseHref, string assetRoot);
 
     [JSImport("sendToWorker", "sqliteWasmWorker")]
     private static partial void SendToWorker(string messageJson);
