@@ -78,7 +78,7 @@ builder.Services.AddDbContextFactory<PlainVfsTestContext>(options =>
 builder.Services.AddSqliteWasm(o => o.HostEnvironment = builder.HostEnvironment);
 
 // Register BlazorPRF crypto services (Noble.js + SubtleCrypto)
-builder.Services.AddBlazorPrf();
+builder.Services.AddBlazorPrf(configureBlazorPrf: o => o.HostEnvironment = builder.HostEnvironment);
 
 var host = builder.Build();
 

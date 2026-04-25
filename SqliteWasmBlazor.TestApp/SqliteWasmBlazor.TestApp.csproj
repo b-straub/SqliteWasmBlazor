@@ -11,11 +11,9 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly" Version="10.0.5" />
-        <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.DevServer" Version="10.0.5" PrivateAssets="all" />
+        <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly" Version="10.0.6" />
+        <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.DevServer" Version="10.0.6" PrivateAssets="all" />
         <PackageReference Include="MudBlazor" Version="9.2.0" />
-        <PackageReference Include="BlazorPRF.Crypto.Testing" Version="$(BlazorPRFVersion)" />
-        <ProjectReference Include="..\..\BlazorPRF\BlazorPRF.Crypto\BlazorPRF.Crypto.csproj" />
         <!-- Exclude large (1.1MB) SQLitePCLRaw native library - SqliteWasmBlazor provides minimal (9.8KB) stub -->
         <PackageReference Include="SQLitePCLRaw.lib.e_sqlite3" Version="$(SqlitePCLRawVersion)" ExcludeAssets="native;buildTransitive" />
     </ItemGroup>
@@ -29,6 +27,7 @@
         <ProjectReference Include="..\SqliteWasmBlazor.CryptoSync\SqliteWasmBlazor.CryptoSync.csproj" />
         <ProjectReference Include="..\SqliteWasmBlazor.CryptoSync.Generator\SqliteWasmBlazor.CryptoSync.Generator.csproj"
                           OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+        <ProjectReference Include="..\..\BlazorPRF\BlazorPRF.Crypto\BlazorPRF.Crypto.csproj" />
     </ItemGroup>
     
 </Project>
