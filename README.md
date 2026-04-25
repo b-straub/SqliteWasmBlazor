@@ -44,6 +44,32 @@ The public API surface is intentionally kept minimal to reduce the risk of break
 
 ## Breaking Changes
 
+- **v0.9.0-pre** — CSP hardening: removed the inline `data:text/javascript` import that
+  auto-detected `<base href>`. The worker URL is now built from `SqliteWasmOptions.BaseHref`
+  (default `"/"`).
+
+  Apps deployed on a **sub-path** must now opt in explicitly:
+  ```csharp
+  builder.Services.AddSqliteWasm(o => o.HostEnvironment = builder.HostEnvironment);
+  ```
+  This derives `BaseHref` from the runtime `<base href>` exactly as the old auto-probe did,
+  but without the CSP-blocked `data:` import. Root-path (`/`) deployments need no change.
+
+  **Browser-extension** builds (which flatten the `_content/` underscore prefix) override
+  the asset root:
+  ```csharp
+  builder.Services.AddSqliteWasm(o => o.AssetRoot = "content/SqliteWasmBlazor/");
+  ```
+
+  Companion packages gained the same options pattern:
+  - `Components`: `FileOperationsInterop.InitializeAsync(o => o.AssetRoot = "...")`
+  - `FloatingWindow`: `services.AddFloatingWindow(o => o.AssetRoot = "...")`
+
+  Calling a database operation before `InitializeSqliteWasmAsync` /
+  `InitializeSqliteWasmDatabaseAsync<T>` now throws `InvalidOperationException` with a clear
+  message, instead of silently lazy-initialising with default settings (which 404'd on
+  sub-path / extension builds).
+
 - **v0.7.2-pre** - `SqliteWasmWorkerBridge` is now internal. Use `ISqliteWasmDatabaseService` via DI instead:
   ```csharp
   // Program.cs - add service registration

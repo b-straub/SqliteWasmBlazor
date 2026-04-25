@@ -24,6 +24,10 @@ import {
 let sqlite3: any;
 let poolUtil: any;
 let baseHref = '/';
+// Asset resolution path, received in the 'init' message from the bridge.
+// Override (e.g. "content/SqliteWasmBlazor/") supports browser-extension builds
+// that flatten the underscore-prefixed _content path.
+let assetRoot = '_content/SqliteWasmBlazor/';
 
 interface WorkerRequest {
     id: number;
@@ -106,9 +110,8 @@ async function initializeSQLite() {
             print: console.log,
             printErr: console.error,
             locateFile(path: string) {
-                // Tell sqlite-wasm where to find the wasm file using base href
                 if (path.endsWith('.wasm')) {
-                    return `${baseHref}_content/SqliteWasmBlazor/${path}`;
+                    return `${baseHref}${assetRoot}${path}`;
                 }
                 return path;
             }
@@ -179,11 +182,14 @@ async function initializeSQLite() {
 }
 
 // Handle messages from main thread
-self.onmessage = async (event: MessageEvent<WorkerRequest | { type: 'setLogLevel'; level: number } | { type: 'init'; baseHref: string }>) => {
-    // Handle initialization with base href
+self.onmessage = async (event: MessageEvent<WorkerRequest | { type: 'setLogLevel'; level: number } | { type: 'init'; baseHref: string; assetRoot?: string }>) => {
+    // Handle initialization with base href and asset root
     if ('type' in event.data && event.data.type === 'init' && 'baseHref' in event.data) {
         baseHref = event.data.baseHref;
         setBaseHref(baseHref);
+        if (event.data.assetRoot) {
+            assetRoot = event.data.assetRoot;
+        }
         // Start initialization after receiving base href
         await initializeSQLite();
         return;

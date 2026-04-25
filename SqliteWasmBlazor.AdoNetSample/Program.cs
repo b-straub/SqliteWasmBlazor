@@ -9,6 +9,8 @@ builder.RootComponents.Add<HeadOutlet>("head::after");
 
 builder.Services.AddScoped(_ => new HttpClient { BaseAddress = new Uri(builder.HostEnvironment.BaseAddress) });
 
+builder.Services.AddSqliteWasm(o => o.HostEnvironment = builder.HostEnvironment);
+
 var host = builder.Build();
 
 // Initialize SqliteWasm for ADO.NET usage (no EF Core needed!)

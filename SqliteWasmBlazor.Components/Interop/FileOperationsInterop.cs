@@ -20,21 +20,26 @@ public static partial class FileOperationsInterop
     public static partial void DownloadMessagePackFile([JSMarshalAs<JSType.MemoryView>] ArraySegment<byte> data, string filename);
 
     /// <summary>
-    /// Initialize the file operations module
-    /// Must be called in Program.cs before WebAssemblyHostBuilder.Build()
+    /// Initialize the file operations module.
+    /// Must be called in Program.cs before WebAssemblyHostBuilder.Build().
     /// </summary>
-    public static async Task InitializeAsync()
+    /// <param name="configure">Optional options callback. Override <see cref="SqliteWasmComponentsOptions.AssetRoot"/>
+    /// for browser-extension builds.</param>
+    public static async Task InitializeAsync(Action<SqliteWasmComponentsOptions>? configure = null)
     {
         if (!OperatingSystem.IsBrowser())
         {
             return;
         }
 
+        var options = new SqliteWasmComponentsOptions();
+        configure?.Invoke(options);
+
         try
         {
             await JSHost.ImportAsync(
                 ModuleName,
-                "../_content/SqliteWasmBlazor.Components/file-operations.js");
+                $"../{options.AssetRoot}file-operations.js");
             Console.WriteLine("FileOperations module loaded successfully");
         }
         catch (Exception ex)

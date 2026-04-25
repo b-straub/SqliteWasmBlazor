@@ -75,7 +75,7 @@ builder.Services.AddDbContextFactory<PlainVfsTestContext>(options =>
 });
 
 // Register SqliteWasm database management service
-builder.Services.AddSqliteWasm();
+builder.Services.AddSqliteWasm(o => o.HostEnvironment = builder.HostEnvironment);
 
 // Register BlazorPRF crypto services (Noble.js + SubtleCrypto)
 builder.Services.AddBlazorPrf();

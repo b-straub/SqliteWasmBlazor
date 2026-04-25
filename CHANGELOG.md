@@ -2,6 +2,42 @@
 
 All notable changes to SqliteWasmBlazor are documented in this file.
 
+## Version 0.9.0-pre
+
+### CSP Hardening + Options-Driven Configuration
+
+Removes the `data:text/javascript` JS import previously used to auto-probe `<base href>` from the DOM — blocked under a strict `script-src` Content-Security-Policy — and replaces it with explicit, DI-resolved options.
+
+**New configuration shape:**
+
+```csharp
+// Root-path deployment — no change needed
+builder.Services.AddSqliteWasm();
+
+// Sub-path deployment — derive BaseHref from <base href>
+builder.Services.AddSqliteWasm(o => o.HostEnvironment = builder.HostEnvironment);
+
+// Browser-extension build — override the static-asset root
+builder.Services.AddSqliteWasm(o => o.AssetRoot = "content/SqliteWasmBlazor/");
+```
+
+**`SqliteWasmOptions`:**
+- `BaseHref` — origin-side path prefix, default `"/"`
+- `AssetRoot` — segment between `BaseHref` and package files, default `"_content/SqliteWasmBlazor/"`
+- `HostEnvironment` (setter) — convenience that derives `BaseHref` from `IWebAssemblyHostEnvironment.BaseAddress`
+
+**Companion packages** gained the same pattern:
+- `SqliteWasmBlazor.Components`: `FileOperationsInterop.InitializeAsync(Action<SqliteWasmComponentsOptions>?)`
+- `SqliteWasmBlazor.FloatingWindow`: `services.AddFloatingWindow(Action<FloatingWindowOptions>?)`
+
+**Behaviour change:** calling a database operation before `InitializeSqliteWasmAsync` / `InitializeSqliteWasmDatabaseAsync<T>` now throws `InvalidOperationException` with a clear message, instead of silently lazy-initialising with default settings (which 404'd on sub-path / extension builds).
+
+**CSP samples:** `AdoNetSample`, `Demo`, and `TestApp` `index.html` now ship a strict `Content-Security-Policy` meta tag (`script-src 'self' 'wasm-unsafe-eval'`, `object-src 'none'`, `base-uri 'self'`) to validate the hardened init path.
+
+**Tests:** new `SubPathTests` Playwright E2E coverage runs the full TestApp under `/myapp/`, asserting the `<base href>` → `HostEnvironment.BaseAddress` → `BaseHref` chain works end-to-end and that no CSP violations fire.
+
+**Acknowledgement:** the design was sparked by [@astrema](https://github.com/astrema)'s [PR #16](https://github.com/b-straub/SqliteWasmBlazor/pull/16), which raised the CSP and sub-path issues and proposed the original `baseHref` parameter. The sub-path E2E test infrastructure is ported from that PR.
+
 ## Version 0.8.3-pre
 
 ### V2 Worker-Side Bulk Import/Export
