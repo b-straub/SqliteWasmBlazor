@@ -57,7 +57,18 @@ internal sealed class VfsTamperDetectionTest(
         // so ImportDatabaseAsync auto-detects them as opaque and skips both
         // the header check and the byte-18 WAL patch that would otherwise
         // invalidate the AEAD tag on slot 0.
-        await DatabaseService.ImportDatabaseAsync(EncryptedDatabaseName, ciphertext);
+        //
+        // Opaque imports refuse-to-overwrite an existing DB, so we wipe
+        // first. CloseDatabaseAsync above already cleared the key registry
+        // for this path, so verify-on-write skips at import time — the
+        // tamper detection we're testing surfaces at the next read instead,
+        // which is exactly the path EF takes when reopening the DB below.
+        await DatabaseService.DeleteDatabaseAsync(EncryptedDatabaseName);
+        var importOutcome = await DatabaseService.ImportDatabaseAsync(EncryptedDatabaseName, ciphertext);
+        if (importOutcome != VfsImportResult.OK)
+        {
+            return $"Expected import outcome OK (no key registered → no verify), got {importOutcome}";
+        }
 
         // Reopen with the correct key. Reading any row should force the VFS to
         // decrypt slot 1 and fail.

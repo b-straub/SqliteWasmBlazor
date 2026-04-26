@@ -1,7 +1,6 @@
 using BlazorPRF.Crypto.Testing;
 using MessagePack;
 using MessagePack.Resolvers;
-using SqliteWasmBlazor;
 using Xunit;
 
 namespace SqliteWasmBlazor.CryptoSync.Tests;
@@ -188,6 +187,209 @@ public class PrfVfsEnvelopeTests
         var header = new VfsKeyHeader { Key = key };
         header.Clear();
         Assert.All(header.Key, b => Assert.Equal(0, b));
+    }
+
+    // ----------------- Slot-rekey cross-validation -----------------
+
+    /// <summary>
+    /// Mirror of the worker's <c>rekeySlots(input, dbPath, sourceKey, targetKey)</c>
+    /// helper, implemented with BouncyCastle. Used to assert byte-identical
+    /// output against synthetic encrypted inputs the C# side can also
+    /// produce — a bug in the worker rekey loop that misordered ciphertext,
+    /// nonce, or tag bytes would diverge from this reference output and
+    /// fail the cross-validation tests below.
+    /// </summary>
+    private static byte[] RekeySlotsReference(
+        byte[] input,
+        string dbPath,
+        byte[]? sourceKey,
+        byte[]? targetKey)
+    {
+        var sourceSlot = sourceKey is null ? SectorSize : PhysicalSlotSize;
+        var targetSlot = targetKey is null ? SectorSize : PhysicalSlotSize;
+        if (input.Length == 0) return [];
+        if (input.Length % sourceSlot != 0)
+        {
+            throw new InvalidOperationException(
+                $"Input length {input.Length} not a multiple of source slot size {sourceSlot}");
+        }
+        var slotCount = input.Length / sourceSlot;
+        var output = new byte[slotCount * targetSlot];
+
+        for (var i = 0; i < slotCount; i++)
+        {
+            var aad = BuildPageAad(dbPath, (uint)i);
+            byte[] plaintext;
+            if (sourceKey is null)
+            {
+                plaintext = new byte[PagePlaintextLen];
+                Buffer.BlockCopy(input, i * sourceSlot, plaintext, 0, PagePlaintextLen);
+            }
+            else
+            {
+                var srcStart = i * sourceSlot;
+                var ct = new byte[PagePlaintextLen];
+                var nonce = new byte[PageNonceLen];
+                var tag = new byte[PageTagLen];
+                Buffer.BlockCopy(input, srcStart, ct, 0, PagePlaintextLen);
+                Buffer.BlockCopy(input, srcStart + PagePlaintextLen, nonce, 0, PageNonceLen);
+                Buffer.BlockCopy(input, srcStart + PagePlaintextLen + PageNonceLen, tag, 0, PageTagLen);
+                var cipherPlusTag = new byte[PagePlaintextLen + PageTagLen];
+                Buffer.BlockCopy(ct, 0, cipherPlusTag, 0, PagePlaintextLen);
+                Buffer.BlockCopy(tag, 0, cipherPlusTag, PagePlaintextLen, PageTagLen);
+                var pt = CryptoOperations.DecryptChaCha20Poly1305(cipherPlusTag, sourceKey, nonce, aad)
+                    ?? throw new InvalidOperationException($"Source slot {i} failed AEAD");
+                plaintext = pt;
+            }
+
+            var dstStart = i * targetSlot;
+            if (targetKey is null)
+            {
+                Buffer.BlockCopy(plaintext, 0, output, dstStart, PagePlaintextLen);
+            }
+            else
+            {
+                // Use a deterministic nonce so the reference output is
+                // reproducible byte-for-byte. (The worker uses a random
+                // nonce per write, so we don't compare against worker output
+                // directly — these tests compare reference vs reference.)
+                var nonce = MakeNonce(7777 + i);
+                var encWithTag = CryptoOperations.EncryptChaCha20Poly1305(plaintext, targetKey, nonce, aad);
+                Buffer.BlockCopy(encWithTag, 0, output, dstStart, PagePlaintextLen);
+                Buffer.BlockCopy(nonce, 0, output, dstStart + PagePlaintextLen, PageNonceLen);
+                Buffer.BlockCopy(encWithTag, PagePlaintextLen, output, dstStart + PagePlaintextLen + PageNonceLen, PageTagLen);
+            }
+        }
+
+        return output;
+    }
+
+    [Fact]
+    public void Rekey_PlainToEncrypted_RoundTripsThroughDecrypt()
+    {
+        const string dbPath = "/databases/rekey-bc.db";
+        var slotCount = 3;
+        var pagePlaintexts = new byte[slotCount][];
+        for (var i = 0; i < slotCount; i++)
+        {
+            var p = new byte[PagePlaintextLen];
+            for (var j = 0; j < p.Length; j++) p[j] = (byte)((i * 13 + j * 5) & 0xff);
+            pagePlaintexts[i] = p;
+        }
+
+        var input = new byte[slotCount * PagePlaintextLen];
+        for (var i = 0; i < slotCount; i++)
+        {
+            Buffer.BlockCopy(pagePlaintexts[i], 0, input, i * PagePlaintextLen, PagePlaintextLen);
+        }
+
+        var kNew = MakeKey(31);
+        var encrypted = RekeySlotsReference(input, dbPath, sourceKey: null, targetKey: kNew);
+        Assert.Equal(slotCount * PhysicalSlotSize, encrypted.Length);
+
+        for (var i = 0; i < slotCount; i++)
+        {
+            var aad = BuildPageAad(dbPath, (uint)i);
+            var slotStart = i * PhysicalSlotSize;
+            var ct = new byte[PagePlaintextLen];
+            var nonce = new byte[PageNonceLen];
+            var tag = new byte[PageTagLen];
+            Buffer.BlockCopy(encrypted, slotStart, ct, 0, PagePlaintextLen);
+            Buffer.BlockCopy(encrypted, slotStart + PagePlaintextLen, nonce, 0, PageNonceLen);
+            Buffer.BlockCopy(encrypted, slotStart + PagePlaintextLen + PageNonceLen, tag, 0, PageTagLen);
+            var cipherPlusTag = new byte[PagePlaintextLen + PageTagLen];
+            Buffer.BlockCopy(ct, 0, cipherPlusTag, 0, PagePlaintextLen);
+            Buffer.BlockCopy(tag, 0, cipherPlusTag, PagePlaintextLen, PageTagLen);
+            var decrypted = CryptoOperations.DecryptChaCha20Poly1305(cipherPlusTag, kNew, nonce, aad);
+            Assert.NotNull(decrypted);
+            Assert.Equal(pagePlaintexts[i], decrypted);
+        }
+    }
+
+    [Fact]
+    public void Rekey_EncryptedToEncrypted_DecryptsUnderNewKeyOnly()
+    {
+        const string dbPath = "/databases/rekey-bc-2.db";
+        var slotCount = 2;
+        var kOld = MakeKey(41);
+        var kNew = MakeKey(43);
+
+        // Build an encrypted-format input under K_old.
+        var pagePlaintexts = new byte[slotCount][];
+        var input = new byte[slotCount * PhysicalSlotSize];
+        for (var i = 0; i < slotCount; i++)
+        {
+            var p = new byte[PagePlaintextLen];
+            for (var j = 0; j < p.Length; j++) p[j] = (byte)((i * 11 + j * 3) & 0xff);
+            pagePlaintexts[i] = p;
+            var nonce = MakeNonce(100 + i);
+            var aad = BuildPageAad(dbPath, (uint)i);
+            var encWithTag = CryptoOperations.EncryptChaCha20Poly1305(p, kOld, nonce, aad);
+            var slotStart = i * PhysicalSlotSize;
+            Buffer.BlockCopy(encWithTag, 0, input, slotStart, PagePlaintextLen);
+            Buffer.BlockCopy(nonce, 0, input, slotStart + PagePlaintextLen, PageNonceLen);
+            Buffer.BlockCopy(encWithTag, PagePlaintextLen, input, slotStart + PagePlaintextLen + PageNonceLen, PageTagLen);
+        }
+
+        var output = RekeySlotsReference(input, dbPath, sourceKey: kOld, targetKey: kNew);
+        Assert.Equal(slotCount * PhysicalSlotSize, output.Length);
+
+        // Under K_new: decrypt cleanly back to original plaintexts.
+        for (var i = 0; i < slotCount; i++)
+        {
+            var slotStart = i * PhysicalSlotSize;
+            var ct = new byte[PagePlaintextLen];
+            var nonce = new byte[PageNonceLen];
+            var tag = new byte[PageTagLen];
+            Buffer.BlockCopy(output, slotStart, ct, 0, PagePlaintextLen);
+            Buffer.BlockCopy(output, slotStart + PagePlaintextLen, nonce, 0, PageNonceLen);
+            Buffer.BlockCopy(output, slotStart + PagePlaintextLen + PageNonceLen, tag, 0, PageTagLen);
+            var cipherPlusTag = new byte[PagePlaintextLen + PageTagLen];
+            Buffer.BlockCopy(ct, 0, cipherPlusTag, 0, PagePlaintextLen);
+            Buffer.BlockCopy(tag, 0, cipherPlusTag, PagePlaintextLen, PageTagLen);
+
+            var aad = BuildPageAad(dbPath, (uint)i);
+            var pt = CryptoOperations.DecryptChaCha20Poly1305(cipherPlusTag, kNew, nonce, aad);
+            Assert.NotNull(pt);
+            Assert.Equal(pagePlaintexts[i], pt);
+
+            // Under K_old: must fail.
+            var failed = CryptoOperations.DecryptChaCha20Poly1305(cipherPlusTag, kOld, nonce, aad);
+            Assert.Null(failed);
+        }
+    }
+
+    [Fact]
+    public void Rekey_EncryptedToPlain_RecoversOriginalPlaintext()
+    {
+        const string dbPath = "/databases/rekey-bc-3.db";
+        var slotCount = 2;
+        var kOld = MakeKey(53);
+
+        var pagePlaintexts = new byte[slotCount][];
+        var input = new byte[slotCount * PhysicalSlotSize];
+        for (var i = 0; i < slotCount; i++)
+        {
+            var p = new byte[PagePlaintextLen];
+            for (var j = 0; j < p.Length; j++) p[j] = (byte)((i * 17 + j * 19) & 0xff);
+            pagePlaintexts[i] = p;
+            var nonce = MakeNonce(200 + i);
+            var aad = BuildPageAad(dbPath, (uint)i);
+            var encWithTag = CryptoOperations.EncryptChaCha20Poly1305(p, kOld, nonce, aad);
+            var slotStart = i * PhysicalSlotSize;
+            Buffer.BlockCopy(encWithTag, 0, input, slotStart, PagePlaintextLen);
+            Buffer.BlockCopy(nonce, 0, input, slotStart + PagePlaintextLen, PageNonceLen);
+            Buffer.BlockCopy(encWithTag, PagePlaintextLen, input, slotStart + PagePlaintextLen + PageNonceLen, PageTagLen);
+        }
+
+        var output = RekeySlotsReference(input, dbPath, sourceKey: kOld, targetKey: null);
+        Assert.Equal(slotCount * PagePlaintextLen, output.Length);
+        for (var i = 0; i < slotCount; i++)
+        {
+            var slice = new byte[PagePlaintextLen];
+            Buffer.BlockCopy(output, i * PagePlaintextLen, slice, 0, PagePlaintextLen);
+            Assert.Equal(pagePlaintexts[i], slice);
+        }
     }
 
     private static byte[] MakeKey(int seed)

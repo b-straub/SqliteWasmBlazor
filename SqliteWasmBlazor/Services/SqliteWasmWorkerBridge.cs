@@ -235,7 +235,7 @@ internal sealed partial class SqliteWasmWorkerBridge : ISqliteWasmDatabaseServic
     }
 
     /// <inheritdoc />
-    public Task<VfsKeyInstallOutcome> InstallEncryptionKeyAsync(
+    public Task<VfsKeyInstallResult> InstallEncryptionKeyAsync(
         string databaseName,
         ReadOnlySpan<byte> key,
         CancellationToken cancellationToken = default)
@@ -287,7 +287,7 @@ internal sealed partial class SqliteWasmWorkerBridge : ISqliteWasmDatabaseServic
         return WaitAndZeroizeKeyEnvelope(tcs.Task, header, envelope, requestId, cancellationToken);
     }
 
-    private async Task<VfsKeyInstallOutcome> WaitAndZeroizeKeyEnvelope(
+    private async Task<VfsKeyInstallResult> WaitAndZeroizeKeyEnvelope(
         Task<SqlQueryResult> response,
         VfsKeyHeader header,
         byte[] envelope,
@@ -306,9 +306,9 @@ internal sealed partial class SqliteWasmWorkerBridge : ISqliteWasmDatabaseServic
             // ExistsDatabaseAsync uses): 0=NoExistingDb, 1=Match, 2=WrongKey.
             return result.RowsAffected switch
             {
-                0 => VfsKeyInstallOutcome.NO_EXISTING_DB,
-                1 => VfsKeyInstallOutcome.MATCH,
-                2 => VfsKeyInstallOutcome.WRONG_KEY,
+                0 => VfsKeyInstallResult.NO_EXISTING_DB,
+                1 => VfsKeyInstallResult.MATCH,
+                2 => VfsKeyInstallResult.WRONG_KEY,
                 var other => throw new InvalidOperationException(
                     $"Worker returned unexpected install outcome code {other}"),
             };
@@ -418,8 +418,15 @@ internal sealed partial class SqliteWasmWorkerBridge : ISqliteWasmDatabaseServic
     /// input is treated as opaque ciphertext of a PRF-VFS-encrypted DB —
     /// both the header validation and the byte-18 patch are skipped because
     /// they would corrupt the AEAD tag on slot 0.
+    ///
+    /// Opaque imports are subject to refuse-on-existing + verify-on-write:
+    /// the worker rejects writes over an existing DB at this path
+    /// (<see cref="VfsImportResult.EXISTING_DB_REFUSED"/>) and, when an
+    /// encryption key is registered, AEAD-tests slot 0 of the freshly written
+    /// DB. A failed verify rolls back the import (unlinks the file) and
+    /// returns <see cref="VfsImportResult.WRONG_KEY"/>.
     /// </summary>
-    public async Task ImportDatabaseAsync(
+    public async Task<VfsImportResult> ImportDatabaseAsync(
         string databaseName,
         byte[] data,
         CancellationToken cancellationToken = default)
@@ -457,17 +464,31 @@ internal sealed partial class SqliteWasmWorkerBridge : ISqliteWasmDatabaseServic
             using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             timeoutCts.CancelAfter(60000);
 
+            SqlQueryResult result;
             try
             {
-                await tcs.Task.WaitAsync(timeoutCts.Token);
+                result = await tcs.Task.WaitAsync(timeoutCts.Token);
             }
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
             {
                 throw new TimeoutException("Import database operation timed out after 60 seconds.");
             }
 
-            // Worker closes the DB during import
+            // Worker closes the DB during import (no-op when the DB wasn't
+            // open or when the import was refused before close).
             _openDatabases.Remove(databaseName);
+
+            // Worker encodes the import outcome in rowsAffected (same
+            // tri-state channel InstallEncryptionKeyAsync uses):
+            // 0 = OK, 1 = WRONG_KEY (rolled back), 2 = EXISTING_DB_REFUSED.
+            return result.RowsAffected switch
+            {
+                0 => VfsImportResult.OK,
+                1 => VfsImportResult.WRONG_KEY,
+                2 => VfsImportResult.EXISTING_DB_REFUSED,
+                var other => throw new InvalidOperationException(
+                    $"Worker returned unexpected import outcome code {other}"),
+            };
         }
         catch
         {
@@ -482,11 +503,121 @@ internal sealed partial class SqliteWasmWorkerBridge : ISqliteWasmDatabaseServic
     /// </summary>
     public async Task<byte[]> ExportDatabaseAsync(string databaseName, CancellationToken cancellationToken = default)
     {
+        return await SendRawBinaryRequestAsync(
+            databaseName,
+            new { type = "exportDb", database = databaseName },
+            "Export database",
+            cancellationToken);
+    }
+
+    /// <inheritdoc />
+    public async Task<byte[]> ExportPlainAsync(string databaseName, CancellationToken cancellationToken = default)
+    {
+        return await SendRawBinaryRequestAsync(
+            databaseName,
+            new { type = "exportPlain", database = databaseName },
+            "Export plain",
+            cancellationToken);
+    }
+
+    /// <inheritdoc />
+    public Task<byte[]> ExportRekeyedAsync(
+        string databaseName,
+        ReadOnlyMemory<byte> newKey,
+        CancellationToken cancellationToken = default)
+    {
+        if (!_isInitialized)
+        {
+            throw new InvalidOperationException(
+                "Worker bridge not initialized. Ensure InitializeSqliteWasmAsync ran before exporting.");
+        }
+        if (newKey.Length != 32)
+        {
+            throw new ArgumentException(
+                $"newKey must be exactly 32 bytes, got {newKey.Length}", nameof(newKey));
+        }
+
+        var header = new VfsKeyHeader
+        {
+            Version = 1,
+            Key = newKey.ToArray(),
+            AadVersion = "v1",
+        };
+
+        var requestId = Interlocked.Increment(ref _nextRequestId);
+        var tcs = new TaskCompletionSource<byte[]>();
+        _pendingBinaryRequests[requestId] = tcs;
+
+        byte[] envelope;
+        try
+        {
+            envelope = MessagePackSerializer.Serialize(header);
+            var metadataJson = JsonSerializer.Serialize(new
+            {
+                id = requestId,
+                data = new { type = "exportRekeyed", database = databaseName }
+            });
+            SendBinaryToWorker(envelope.AsSpan(), metadataJson);
+        }
+        catch
+        {
+            _pendingBinaryRequests.TryRemove(requestId, out _);
+            header.Clear();
+            throw;
+        }
+
+        return WaitAndZeroizeRekeyEnvelope(tcs.Task, header, envelope, requestId, databaseName, cancellationToken);
+    }
+
+    private async Task<byte[]> WaitAndZeroizeRekeyEnvelope(
+        Task<byte[]> response,
+        VfsKeyHeader header,
+        byte[] envelope,
+        int requestId,
+        string databaseName,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await using var registration = cancellationToken.Register(() =>
+            {
+                _pendingBinaryRequests.TryRemove(requestId, out _);
+                response.ContinueWith(_ => { }, TaskScheduler.Default);
+            });
+
+            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeoutCts.CancelAfter(60_000);
+
+            try
+            {
+                var result = await response.WaitAsync(timeoutCts.Token);
+                // Worker closes the DB during export for consistent snapshot.
+                _openDatabases.Remove(databaseName);
+                return result;
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                throw new TimeoutException("Export rekeyed timed out after 60 seconds.");
+            }
+        }
+        finally
+        {
+            System.Security.Cryptography.CryptographicOperations.ZeroMemory(envelope);
+            header.Clear();
+            _pendingBinaryRequests.TryRemove(requestId, out _);
+        }
+    }
+
+    private async Task<byte[]> SendRawBinaryRequestAsync(
+        string databaseName,
+        object request,
+        string opName,
+        CancellationToken cancellationToken)
+    {
         await EnsureInitializedAsync(cancellationToken);
 
         var requestId = Interlocked.Increment(ref _nextRequestId);
         var tcs = new TaskCompletionSource<byte[]>();
-
         _pendingBinaryRequests[requestId] = tcs;
 
         try
@@ -497,12 +628,7 @@ internal sealed partial class SqliteWasmWorkerBridge : ISqliteWasmDatabaseServic
                 tcs.TrySetCanceled();
             });
 
-            var requestJson = JsonSerializer.Serialize(new
-            {
-                id = requestId,
-                data = new { type = "exportDb", database = databaseName }
-            });
-
+            var requestJson = JsonSerializer.Serialize(new { id = requestId, data = request });
             SendToWorker(requestJson);
 
             using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -511,13 +637,13 @@ internal sealed partial class SqliteWasmWorkerBridge : ISqliteWasmDatabaseServic
             try
             {
                 var result = await tcs.Task.WaitAsync(timeoutCts.Token);
-                // Worker closes the DB during export for consistent snapshot
+                // Worker closes the DB during export for consistent snapshot.
                 _openDatabases.Remove(databaseName);
                 return result;
             }
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
             {
-                throw new TimeoutException("Export database operation timed out after 60 seconds.");
+                throw new TimeoutException($"{opName} operation timed out after 60 seconds.");
             }
         }
         catch

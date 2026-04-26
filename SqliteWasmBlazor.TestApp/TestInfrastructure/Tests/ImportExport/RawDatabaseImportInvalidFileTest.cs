@@ -15,16 +15,24 @@ internal class RawDatabaseImportInvalidFileTest(IDbContextFactory<TodoDbContext>
             throw new InvalidOperationException("ISqliteWasmDatabaseService not available");
         }
 
-        // Try importing random non-SQLite bytes. ImportDatabaseAsync now
-        // auto-detects ciphertext vs plaintext via the "SQLite format 3"
-        // magic, so random bytes are treated as opaque and written to OPFS
-        // without upfront rejection — encrypted-DB backup restore requires
-        // exactly this tolerance. The error surfaces on the NEXT open,
-        // when SQLite can't parse the random bytes as a valid database.
+        // Try importing random non-SQLite bytes. ImportDatabaseAsync auto-
+        // detects ciphertext vs plaintext via the "SQLite format 3" magic,
+        // so random bytes are treated as opaque. The opaque path refuses
+        // to overwrite an existing DB at the same path, so we delete the
+        // fresh one created by RunTestWithFreshDatabaseAsync first.
+        // Encrypted-DB backup restore takes the same wipe-then-import shape.
+        // The error surfaces on the NEXT open, when SQLite can't parse the
+        // random bytes as a valid database.
         var randomData = new byte[1024];
         Random.Shared.NextBytes(randomData);
 
-        await DatabaseService.ImportDatabaseAsync("TestDb.db", randomData);
+        await DatabaseService.DeleteDatabaseAsync("TestDb.db");
+        var result = await DatabaseService.ImportDatabaseAsync("TestDb.db", randomData);
+        if (result != VfsImportResult.OK)
+        {
+            throw new InvalidOperationException(
+                $"Expected ImportDatabaseAsync to write opaque bytes (OK), got {result}");
+        }
 
         try
         {

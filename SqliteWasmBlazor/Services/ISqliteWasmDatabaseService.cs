@@ -10,7 +10,7 @@ namespace SqliteWasmBlazor;
 /// drops the registry entry before returning, so the registry never carries
 /// a known-wrong key.
 /// </summary>
-public enum VfsKeyInstallOutcome
+public enum VfsKeyInstallResult
 {
     /// <summary>
     /// No DB file exists at this path. The key is registered and the next
@@ -29,6 +29,41 @@ public enum VfsKeyInstallOutcome
     /// registry entry; caller must re-install with a different key or wipe.
     /// </summary>
     WRONG_KEY = 2,
+}
+
+/// <summary>
+/// Outcome returned by <see cref="ISqliteWasmDatabaseService.ImportDatabaseAsync"/>.
+/// Plain (non-opaque) imports always return <see cref="OK"/> on success and
+/// throw on byte-level failures. Opaque (encrypted) imports go through the
+/// refuse-on-existing + verify-on-write policy: a fresh-path import that
+/// AEAD-verifies under the registered key returns <see cref="OK"/>; an
+/// import refused because a DB already exists at the path returns
+/// <see cref="EXISTING_DB_REFUSED"/>; an import whose slot 0 fails AEAD
+/// under the registered key returns <see cref="WRONG_KEY"/> after the
+/// worker has rolled back (unlinked) the partial file.
+/// </summary>
+public enum VfsImportResult
+{
+    /// <summary>
+    /// Bytes written. For opaque imports with a registered key, slot 0 also
+    /// AEAD-verified.
+    /// </summary>
+    OK = 0,
+
+    /// <summary>
+    /// Opaque import only: slot 0 failed AEAD authentication under the
+    /// registered key. The worker has unlinked the half-written file so no
+    /// state survives the failed import.
+    /// </summary>
+    WRONG_KEY = 1,
+
+    /// <summary>
+    /// Opaque import only: a DB file already exists at this path. Caller
+    /// must call <see cref="ISqliteWasmDatabaseService.DeleteDatabaseAsync"/>
+    /// first. Plain imports keep their overwrite semantics and never return
+    /// this code.
+    /// </summary>
+    EXISTING_DB_REFUSED = 2,
 }
 
 /// <summary>
@@ -69,24 +104,77 @@ public interface ISqliteWasmDatabaseService
     Task CloseDatabaseAsync(string databaseName, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Imports a raw .db file into OPFS.
-    /// The database is not opened after import - caller must re-open when ready
-    /// (e.g., after cleaning up backup files to avoid SAH pool exhaustion).
+    /// Imports a raw .db file into OPFS. The database is not opened after
+    /// import — caller must re-open when ready (e.g., after cleaning up
+    /// backup files to avoid SAH pool exhaustion).
+    ///
+    /// Auto-detects ciphertext vs plaintext via the SQLite-format-3 magic
+    /// bytes. Plain imports allow overwriting an existing DB and always
+    /// return <see cref="VfsImportResult.OK"/> on success. Opaque (encrypted)
+    /// imports are subject to the refuse-on-existing + verify-on-write
+    /// policy and may return <see cref="VfsImportResult.EXISTING_DB_REFUSED"/>
+    /// or <see cref="VfsImportResult.WRONG_KEY"/>.
     /// </summary>
     /// <param name="databaseName">The database filename (e.g., "mydb.db")</param>
-    /// <param name="data">Raw SQLite database bytes</param>
+    /// <param name="data">Raw SQLite database bytes (plaintext .db file or
+    /// PRF-VFS slot-format ciphertext)</param>
     /// <param name="cancellationToken">Cancellation token</param>
-    Task ImportDatabaseAsync(string databaseName, byte[] data, CancellationToken cancellationToken = default);
+    Task<VfsImportResult> ImportDatabaseAsync(string databaseName, byte[] data,
+        CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Exports a raw .db file from OPFS.
-    /// The database is closed before export for a consistent snapshot.
-    /// Caller must re-open the database after export.
+    /// Exports a raw .db file from OPFS verbatim. The database is closed
+    /// before export for a consistent snapshot. Caller must re-open the
+    /// database after export.
+    ///
+    /// For plain DBs, returns SQLite-format pages. For PRF-VFS-encrypted
+    /// DBs, returns the on-disk slot-format ciphertext (4124-byte slots) —
+    /// effectively the "UNCHANGED" rekey mode. Use
+    /// <see cref="ExportPlainAsync"/> to get decrypted plain pages or
+    /// <see cref="ExportRekeyedAsync"/> to re-wrap under a new key.
     /// </summary>
     /// <param name="databaseName">The database filename (e.g., "mydb.db")</param>
     /// <param name="cancellationToken">Cancellation token</param>
-    /// <returns>Raw SQLite database bytes</returns>
+    /// <returns>Raw bytes (plain pages or slot-format ciphertext, depending
+    /// on the DB's registered key state).</returns>
     Task<byte[]> ExportDatabaseAsync(string databaseName, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Export an encrypted DB as plain SQLite pages. The worker snapshots
+    /// the registered key, closes the DB, decrypts every slot, and returns
+    /// a normal .db file the caller can open under any standard SQLite
+    /// implementation. If the DB has no registered key, the result is
+    /// identical to <see cref="ExportDatabaseAsync"/>.
+    /// </summary>
+    /// <param name="databaseName">The database filename.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>Plain SQLite database bytes.</returns>
+    Task<byte[]> ExportPlainAsync(string databaseName, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Re-export the DB under a caller-supplied 32-byte ChaCha20-Poly1305
+    /// key. The worker snapshots the source key (if any), closes the DB,
+    /// decrypts every slot under the source key, and re-encrypts under
+    /// <paramref name="newKey"/> with the same path-bound AAD. The resulting
+    /// bytes can be handed to <see cref="ImportDatabaseAsync"/> on the
+    /// recipient side, where they will verify-on-write under the same
+    /// <paramref name="newKey"/> registered via
+    /// <see cref="InstallEncryptionKeyAsync"/>.
+    ///
+    /// AAD constraint: the recipient must import to the same database name
+    /// the sender exported from (AAD binds <c>dbPath</c>). Cross-path
+    /// migration is not supported by this primitive.
+    ///
+    /// The span is consumed synchronously — bytes are copied into a
+    /// MessagePack envelope, posted to the worker, and the envelope buffer
+    /// is zeroed before this method returns.
+    /// </summary>
+    /// <param name="databaseName">The database filename.</param>
+    /// <param name="newKey">Exactly 32 bytes of new key material.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>Slot-format ciphertext bytes under <paramref name="newKey"/>.</returns>
+    Task<byte[]> ExportRekeyedAsync(string databaseName, ReadOnlyMemory<byte> newKey,
+        CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Plain (non-encrypted) bulk import from V2 MessagePack payload.
@@ -167,12 +255,12 @@ public interface ISqliteWasmDatabaseService
     /// <param name="key">Exactly 32 bytes of key material.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>
-    /// <see cref="VfsKeyInstallOutcome.NO_EXISTING_DB"/> for a fresh path,
-    /// <see cref="VfsKeyInstallOutcome.MATCH"/> if the existing DB decrypts
-    /// cleanly, or <see cref="VfsKeyInstallOutcome.WRONG_KEY"/> if AEAD
+    /// <see cref="VfsKeyInstallResult.NO_EXISTING_DB"/> for a fresh path,
+    /// <see cref="VfsKeyInstallResult.MATCH"/> if the existing DB decrypts
+    /// cleanly, or <see cref="VfsKeyInstallResult.WRONG_KEY"/> if AEAD
     /// auth failed (worker has already cleared the registry entry in that case).
     /// </returns>
-    Task<VfsKeyInstallOutcome> InstallEncryptionKeyAsync(string databaseName,
+    Task<VfsKeyInstallResult> InstallEncryptionKeyAsync(string databaseName,
         ReadOnlySpan<byte> key, CancellationToken cancellationToken = default);
 
     /// <summary>

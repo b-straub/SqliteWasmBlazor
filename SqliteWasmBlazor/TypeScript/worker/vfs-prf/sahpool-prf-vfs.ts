@@ -57,10 +57,10 @@ export interface PrfSAHPoolOptions {
 
 /**
  * Tri-state result of {@link PrfPoolUtil.verifyEncryptionKey}. Mirrors the
- * C# {@code VfsKeyInstallOutcome} enum; the bridge encodes these as 0/1/2
+ * C# {@code VfsKeyInstallResult} enum; the bridge encodes these as 0/1/2
  * in the response's {@code rowsAffected} field.
  */
-export type VfsKeyVerifyOutcome = 'noExistingDb' | 'match' | 'wrongKey';
+export type VfsKeyVerifyResult = 'noExistingDb' | 'match' | 'wrongKey';
 
 export interface PrfPoolUtil {
     vfsName: string;
@@ -76,7 +76,7 @@ export interface PrfPoolUtil {
     wipeFiles(): Promise<void>;
     unlink(filename: string): boolean;
     renameFile(oldPath: string, newPath: string): true;
-    verifyEncryptionKey(path: string): VfsKeyVerifyOutcome;
+    verifyEncryptionKey(path: string): VfsKeyVerifyResult;
     removeVfs(): Promise<boolean>;
     pauseVfs(): PrfPoolUtil;
     unpauseVfs(): Promise<PrfPoolUtil>;
@@ -558,7 +558,7 @@ class OpfsSAHPool {
      * e.g. dropping the registry entry on `'wrongKey'` so a known-wrong
      * key never sees a write.
      */
-    verifyEncryptionKey(path: string): VfsKeyVerifyOutcome {
+    verifyEncryptionKey(path: string): VfsKeyVerifyResult {
         const sah = this.mapFilenameToSAH.get(path);
         if (!sah) return 'noExistingDb';
 

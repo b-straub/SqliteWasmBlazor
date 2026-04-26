@@ -16,9 +16,11 @@ import { bulkExportEncryptedV2, bulkImportEncryptedV2, bulkRotateKeyV2 } from '.
 import { installOpfsSAHPoolVfs as installPrfVfs } from './vfs-prf/sahpool-prf-vfs';
 import {
     registerKeyForPath,
+    getKeyForPath,
     clearKeyForPath,
     isPathEncrypted,
 } from './vfs-prf/key-registry';
+import { rekeySlots } from './vfs-prf/rekey';
 
 // Re-export mutable state references for local use
 let sqlite3: any;
@@ -310,6 +312,30 @@ async function handleRequest(data: WorkerRequest['data'], binaryPayload?: ArrayB
         case 'exportDb':
             return await exportDatabase(database!);
 
+        case 'exportPlain':
+            // PRF-keyed export to plain SQLite pages. The worker reads the
+            // registered key for this path, snapshots it, closes the DB
+            // (which clears the registry), and decrypts every slot back to
+            // 4096-byte plaintext. Output bytes are a normal .db file. If
+            // no key is registered, the result is identical to exportDb
+            // (verbatim plain pages from the SAH).
+            return await exportPlain(database!);
+
+        case 'exportRekeyed':
+            // PRF-keyed export rekeyed under a caller-supplied K_new. Worker
+            // snapshots the source key from the registry (if any), closes
+            // the DB, then for every slot decrypts under K_old and
+            // re-encrypts under K_new with the same path-bound AAD. Output
+            // bytes are slot-format ciphertext and ImportDatabaseAsync will
+            // verify-on-write under K_new on the recipient side.
+            if (!binaryPayload) {
+                throw new Error('exportRekeyed requires binaryPayload (VfsKeyHeader for K_new)');
+            }
+            return await exportRekeyed(
+                database!,
+                unpackVfsKeyHeader(new Uint8Array(binaryPayload)),
+            );
+
         case 'bulkImport':
             if (!binaryPayload) {
                 throw new Error('bulkImport requires binaryPayload (V2 MessagePack)');
@@ -472,7 +498,7 @@ async function openDatabase(dbName: string, encryptionKey?: Uint8Array) {
  * worker AEAD-tests slot 0 against the freshly registered key. On mismatch
  * the registry entry is cleared so a known-wrong key never sees a write.
  * The outcome is encoded in `rowsAffected` (0 = no existing DB, 1 = match,
- * 2 = wrong key); the C# bridge maps this to VfsKeyInstallOutcome.
+ * 2 = wrong key); the C# bridge maps this to VfsKeyInstallResult.
  */
 function registerEncryptionKey(dbName: string, key: Uint8Array) {
     if (key.length !== 32) {
@@ -481,8 +507,8 @@ function registerEncryptionKey(dbName: string, key: Uint8Array) {
     const dbPath = `/databases/${dbName}`;
     registerKeyForPath(dbPath, key);
 
-    const outcome = poolUtil.verifyEncryptionKey(dbPath);
-    if (outcome === 'wrongKey') {
+    const result = poolUtil.verifyEncryptionKey(dbPath);
+    if (result === 'wrongKey') {
         clearKeyForPath(dbPath);
         logger.warn(
             MODULE_NAME,
@@ -493,9 +519,9 @@ function registerEncryptionKey(dbName: string, key: Uint8Array) {
 
     logger.debug(
         MODULE_NAME,
-        `Registered encryption key for ${dbPath} (verify: ${outcome})`
+        `Registered encryption key for ${dbPath} (verify: ${result})`
     );
-    return { rowsAffected: outcome === 'match' ? 1 : 0 };
+    return { rowsAffected: result === 'match' ? 1 : 0 };
 }
 
 /**
@@ -898,6 +924,25 @@ async function importDatabase(dbName: string, data: Uint8Array, opaque = false) 
             `Importing database ${dbName} (${data.length} bytes${opaque ? ', opaque' : ''})`
         );
 
+        const dbPath = `/databases/${dbName}`;
+
+        // For opaque (encrypted) imports, refuse to overwrite an existing DB.
+        // Rolling back a partial overwrite would require a backup-and-restore
+        // dance; the design memo's policy is "caller must wipe first" instead.
+        // Plain imports keep their overwrite semantics for back-compat with
+        // the existing plain-DB import test suite.
+        if (opaque) {
+            const fileNames: string[] = poolUtil.getFileNames();
+            if (fileNames.includes(dbPath)) {
+                logger.warn(
+                    MODULE_NAME,
+                    `Refused opaque import of ${dbName}: existing DB at ${dbPath}; caller must wipe first`,
+                );
+                // VfsImportResult.EXISTING_DB_REFUSED = 2
+                return { rowsAffected: 2 };
+            }
+        }
+
         // Close database if open (SAHPool requirement). Note: for encrypted
         // paths this ALSO clears the key registry entry, so a subsequent
         // opaque import cannot be detected via isEncryptedPath — the opaque
@@ -907,14 +952,104 @@ async function importDatabase(dbName: string, data: Uint8Array, opaque = false) 
         // Import the raw database file into OPFS SAHPool. When opaque=true,
         // the fork skips the 'SQLite format 3' header check and the byte-18
         // WAL-mode patch, which would corrupt an AEAD tag for encrypted DBs.
-        const dbPath = `/databases/${dbName}`;
         poolUtil.importDb(dbPath, data, opaque);
+
+        // Verify-on-write: when an encryption key is registered for this
+        // path, AEAD-test slot 0 of the freshly written DB. On WrongKey
+        // unlink the file so the failed import leaves no half-written DB
+        // behind. This catches both corrupted ciphertext and recipient-side
+        // key mismatches at write time, instead of waiting for the first
+        // SQLite read to fail.
+        if (opaque && isPathEncrypted(dbPath)) {
+            const verify = poolUtil.verifyEncryptionKey(dbPath);
+            if (verify === 'wrongKey') {
+                poolUtil.unlink(dbPath);
+                logger.warn(
+                    MODULE_NAME,
+                    `Verify-on-write rejected import of ${dbName}: AEAD failed on slot 0; rolled back`,
+                );
+                // VfsImportResult.WRONG_KEY = 1
+                return { rowsAffected: 1 };
+            }
+            logger.debug(
+                MODULE_NAME,
+                `Verify-on-write OK for ${dbName} (slot 0: ${verify})`,
+            );
+        }
 
         logger.info(MODULE_NAME, `✓ Imported database: ${dbName} (${data.length} bytes)`);
 
-        return { success: true, rowsAffected: data.length };
+        // VfsImportResult.OK = 0
+        return { rowsAffected: 0 };
     } catch (error) {
         logger.error(MODULE_NAME, `Failed to import database ${dbName}:`, error);
+        throw error;
+    }
+}
+
+/**
+ * Snapshot the registered key for the given path before any code path that
+ * clears it (e.g. closeDatabase). Returns a fresh copy so the caller can
+ * use the bytes after the registry has been wiped.
+ */
+function snapshotKeyForPath(dbPath: string): Uint8Array | undefined {
+    const live = getKeyForPath(dbPath);
+    if (live === undefined) {
+        return undefined;
+    }
+    const copy = new Uint8Array(live.length);
+    copy.set(live);
+    return copy;
+}
+
+async function exportPlain(dbName: string) {
+    if (!sqlite3 || !poolUtil) {
+        throw new Error('SQLite not initialized');
+    }
+
+    try {
+        const dbPath = `/databases/${dbName}`;
+        const sourceKey = snapshotKeyForPath(dbPath);
+
+        await closeDatabase(dbName);
+
+        const raw: Uint8Array = poolUtil.exportFile(dbPath);
+        const plain = rekeySlots(raw, dbPath, sourceKey, undefined);
+
+        logger.info(
+            MODULE_NAME,
+            `✓ Exported plain ${dbName}: ${raw.length}B (slot format) → ${plain.length}B (plain pages)`,
+        );
+
+        return { rawBinary: true, data: plain };
+    } catch (error) {
+        logger.error(MODULE_NAME, `Failed to export plain ${dbName}:`, error);
+        throw error;
+    }
+}
+
+async function exportRekeyed(dbName: string, newKey: Uint8Array) {
+    if (!sqlite3 || !poolUtil) {
+        throw new Error('SQLite not initialized');
+    }
+
+    try {
+        const dbPath = `/databases/${dbName}`;
+        const sourceKey = snapshotKeyForPath(dbPath);
+
+        await closeDatabase(dbName);
+
+        const raw: Uint8Array = poolUtil.exportFile(dbPath);
+        const rekeyed = rekeySlots(raw, dbPath, sourceKey, newKey);
+
+        logger.info(
+            MODULE_NAME,
+            `✓ Exported rekeyed ${dbName}: ${raw.length}B in → ${rekeyed.length}B out (under K_new)`,
+        );
+
+        return { rawBinary: true, data: rekeyed };
+    } catch (error) {
+        logger.error(MODULE_NAME, `Failed to export rekeyed ${dbName}:`, error);
         throw error;
     }
 }
