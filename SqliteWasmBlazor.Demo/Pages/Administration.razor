@@ -43,9 +43,6 @@
         Database administration and performance testing tools
     </MudText>
 
-    <!-- Database Import/Export Card -->
-    <TodoImportExport DatabaseName="TodoDb.db" OnDataChanged="RefreshDataAsync" />
-
     <!-- Delta Sync Management Card -->
     <MudPaper Elevation="2" Class="pa-4 mb-6">
         <MudText Typo="Typo.h6" Class="mb-3">
@@ -337,13 +334,6 @@
     protected override async Task OnInitializedAsync()
     {
         await LoadSyncStateAsync();
-    }
-
-    private async void RefreshDataAsync()
-    {
-        // Called after import - reload sync state and trigger refresh
-        await LoadSyncStateAsync();
-        StateHasChanged();
     }
 
     private async Task LoadSyncStateAsync()
