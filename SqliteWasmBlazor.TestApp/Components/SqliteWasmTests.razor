@@ -13,6 +13,7 @@
 @inject ISqliteWasmDatabaseService DatabaseService
 @inject IGroupEncryption GroupEncryption
 @inject BlazorPRF.Crypto.Abstractions.ICryptoProvider CryptoProvider
+@inject IServiceProvider Services
 
 <button type="reset" hidden="@(!_running)" @onclick="@Cancel">Cancel</button>
 
@@ -79,7 +80,7 @@
 
             try
             {
-                var testFactory = new TestFactory(_factory, DatabaseService, CryptoFactory, CryptoProvider, EncryptedFactory, PlainVfsFactory);
+                var testFactory = new TestFactory(_factory, DatabaseService, CryptoFactory, CryptoProvider, EncryptedFactory, PlainVfsFactory, Services);
                 _tests.AddRange(testFactory.GetTests(TestName, CategoryFilter));
 
                 _running = true;

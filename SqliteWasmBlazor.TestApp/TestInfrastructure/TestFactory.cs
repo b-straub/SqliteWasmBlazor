@@ -7,6 +7,7 @@ using SqliteWasmBlazor.TestApp.TestInfrastructure.Tests.EFCoreFunctions;
 using SqliteWasmBlazor.TestApp.TestInfrastructure.Tests.ImportExport;
 using SqliteWasmBlazor.TestApp.TestInfrastructure.Tests.JsonCollections;
 using SqliteWasmBlazor.TestApp.TestInfrastructure.Tests.Migrations;
+using SqliteWasmBlazor.TestApp.TestInfrastructure.Tests.Migrations.Recovery;
 using SqliteWasmBlazor.TestApp.TestInfrastructure.Tests.RaceConditions;
 using SqliteWasmBlazor.TestApp.TestInfrastructure.Tests.Relationships;
 using SqliteWasmBlazor.TestApp.TestInfrastructure.Tests.Transactions;
@@ -32,9 +33,14 @@ internal class TestFactory
         IDbContextFactory<CryptoTestContext>? cryptoFactory = null,
         BlazorPRF.Crypto.Abstractions.ICryptoProvider? cryptoProvider = null,
         IDbContextFactory<EncryptedTestContext>? encryptedFactory = null,
-        IDbContextFactory<PlainVfsTestContext>? plainVfsFactory = null)
+        IDbContextFactory<PlainVfsTestContext>? plainVfsFactory = null,
+        IServiceProvider? services = null)
     {
         PopulateTests(todoFactory, databaseService);
+        if (services is not null)
+        {
+            PopulateMigrationRecoveryTests(services);
+        }
         if (cryptoFactory is not null)
         {
             PopulateCryptoTests(cryptoFactory, databaseService, cryptoProvider);
@@ -42,7 +48,26 @@ internal class TestFactory
         if (encryptedFactory is not null)
         {
             PopulateVfsEncryptionTests(encryptedFactory, todoFactory, databaseService, plainVfsFactory);
+            if (services is not null)
+            {
+                var prfMismatch = new PrfCredentialMismatchFailureTest(services);
+                _entries.Add(new TestEntry("VFS Encryption", prfMismatch.Name, () => prfMismatch.RunTestWithFreshDatabaseAsync()));
+            }
         }
+    }
+
+    private void PopulateMigrationRecoveryTests(IServiceProvider services)
+    {
+        const string cat = "Migrations";
+
+        var t1 = new RecoveryHistoryRebuildTest(services);
+        _entries.Add(new TestEntry(cat, t1.Name, () => t1.RunTestWithFreshDatabaseAsync()));
+
+        var t2 = new RecoveryDroppedColumnTest(services);
+        _entries.Add(new TestEntry(cat, t2.Name, () => t2.RunTestWithFreshDatabaseAsync()));
+
+        var t3 = new RecoveryExtraColumnTest(services);
+        _entries.Add(new TestEntry(cat, t3.Name, () => t3.RunTestWithFreshDatabaseAsync()));
     }
 
     public IEnumerable<TestEntry> GetTests(string? testName = null, string? category = null)

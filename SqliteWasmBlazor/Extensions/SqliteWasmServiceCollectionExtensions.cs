@@ -2,6 +2,8 @@
 // MIT License
 
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Metadata;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 
@@ -252,19 +254,38 @@ Please close any other tabs running this application and refresh the page.
                 return new RecoveryResult(false, mismatches);
             }
 
-            var modelEntityTypes = dbContext.Model.GetEntityTypes();
-            foreach (var entityType in modelEntityTypes)
+            // Use the design-time model so IsTableExcludedFromMigrations is
+            // available — the runtime model strips that annotation. Mirrors
+            // ValidateImportedSchemaAsync's filter so FTS5 / virtual tables
+            // marked ExcludeFromMigrations don't produce spurious mismatches.
+            var designTimeModel = dbContext.GetService<IDesignTimeModel>().Model;
+            foreach (var entityType in designTimeModel.GetEntityTypes())
             {
                 var tableName = entityType.GetTableName();
-                if (string.IsNullOrEmpty(tableName))
+                if (string.IsNullOrEmpty(tableName)
+                    || entityType.IsOwned()
+                    || entityType.IsTableExcludedFromMigrations())
                 {
                     continue;
                 }
 
-                cmd.CommandText = $"SELECT * FROM \"{tableName}\" LIMIT 0";
+                // PRAGMA table_info is the SQLite-canonical introspection
+                // path. SELECT * LIMIT 0 is unreliable here — some drivers
+                // (this one included) only populate column metadata when at
+                // least one row is materialized, leaving FieldCount=0 on
+                // empty results and miscounting every column as missing.
+                cmd.CommandText = $"PRAGMA table_info(\"{tableName}\")";
                 cmd.Parameters.Clear();
 
-                await using var reader = await cmd.ExecuteReaderAsync();
+                var actualColumns = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                await using (var reader = await cmd.ExecuteReaderAsync())
+                {
+                    // table_info row shape: cid, name, type, notnull, dflt_value, pk
+                    while (await reader.ReadAsync())
+                    {
+                        actualColumns.Add(reader.GetString(1));
+                    }
+                }
 
                 var expectedColumns = entityType.GetProperties()
                     .Where(p => !p.IsShadowProperty())
@@ -272,12 +293,6 @@ Please close any other tabs running this application and refresh the page.
                     .Where(c => !string.IsNullOrEmpty(c))
                     .Select(c => c!)
                     .ToHashSet(StringComparer.OrdinalIgnoreCase);
-
-                var actualColumns = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                for (int i = 0; i < reader.FieldCount; i++)
-                {
-                    actualColumns.Add(reader.GetName(i));
-                }
 
                 foreach (var expectedColumn in expectedColumns)
                 {
