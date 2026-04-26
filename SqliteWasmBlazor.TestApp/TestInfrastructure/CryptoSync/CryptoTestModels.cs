@@ -60,7 +60,26 @@ public class CryptoTestListItem : SyncableEntity
 /// </summary>
 public partial class CryptoTestContext : CryptoSyncContextBase
 {
+    /// <summary>
+    /// Deterministic 32-byte PRF-VFS test key. CryptoSync browser tests run
+    /// the full sync pipeline on top of the encrypted VFS so the integration
+    /// surface matches production: shadow + envelope crypto layered above
+    /// page-level AEAD. Distinct byte pattern from <c>VfsEncryptionTestBase.TestKey</c>
+    /// so a stray cross-DB open is identifiable in dumps.
+    /// </summary>
+    public static readonly byte[] EncryptionKey = BuildEncryptionKey();
+
     public CryptoTestContext(DbContextOptions<CryptoTestContext> options) : base(options) { }
+
+    private static byte[] BuildEncryptionKey()
+    {
+        var key = new byte[32];
+        for (var i = 0; i < 32; i++)
+        {
+            key[i] = (byte)(0xC0 + i);
+        }
+        return key;
+    }
 
     public DbSet<CryptoTestItem> CryptoTestItems => Set<CryptoTestItem>();
     public DbSet<CryptoTestList> CryptoTestLists => Set<CryptoTestList>();

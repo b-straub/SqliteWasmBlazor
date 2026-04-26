@@ -46,15 +46,12 @@ builder.Services.AddDbContextFactory<TodoDbContext>(options =>
 #endif
 });
 
-// Add CryptoSync test context (separate DB from TodoDb)
+// Add CryptoSync test context (separate DB from TodoDb). Routed through the
+// PRF-keyed VFS so the integration tests exercise the full production stack:
+// shadow + envelope crypto on top of page-level AEAD, not in isolation.
 builder.Services.AddDbContextFactory<CryptoTestContext>(options =>
 {
-#if DEBUG
-    var cryptoConnection = new SqliteWasmConnection("Data Source=CryptoTestDb.db", LogLevel.Debug);
-#else
-    var cryptoConnection = new SqliteWasmConnection("Data Source=CryptoTestDb.db");
-#endif
-    options.UseSqliteWasm(cryptoConnection);
+    options.UseSqliteWasm("Data Source=CryptoTestDb.db", CryptoTestContext.EncryptionKey);
 });
 
 // Add PRF-VFS integration-test context. Opens via the encrypted VFS path
