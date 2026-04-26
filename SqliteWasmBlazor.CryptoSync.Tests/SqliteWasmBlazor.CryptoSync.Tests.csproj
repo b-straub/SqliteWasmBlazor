@@ -10,8 +10,8 @@
   <ItemGroup>
     <ProjectReference Include="..\SqliteWasmBlazor.CryptoSync\SqliteWasmBlazor.CryptoSync.csproj" />
     <!-- Run the generator against this test project so we can unit-test the
-         generated registries (CryptoTableRegistry, SystemTableRegistry,
-         SensitiveEntityRegistry) and shadow classes against TestSyncContext. -->
+         generated registries (CryptoTableRegistry, SystemTableRegistry) and
+         shadow classes against TestSyncContext. -->
     <ProjectReference Include="..\SqliteWasmBlazor.CryptoSync.Generator\SqliteWasmBlazor.CryptoSync.Generator.csproj"
                       OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
   </ItemGroup>

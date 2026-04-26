@@ -81,12 +81,6 @@ public class GeneratorRegistryTests
     }
 
     [Fact]
-    public void SensitiveEntityRegistry_Empty_WhenNoSensitiveEntities()
-    {
-        Assert.Empty(SensitiveEntityRegistry.Tables);
-    }
-
-    [Fact]
     public void Crypto_TestItem_ShadowClass_IsGenerated()
     {
         var shadow = new Crypto_TestItem
