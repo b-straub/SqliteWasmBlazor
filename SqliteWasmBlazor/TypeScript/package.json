@@ -15,7 +15,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@blazorprf/crypto-core": "file:../../../BlazorPRF/BlazorPRF.Crypto/TypeScript/packages/crypto-core",
+    "@sqlitewasmblazor/crypto-core": "file:../../SqliteWasmBlazor.Crypto/TypeScript/packages/crypto-core",
     "@noble/ciphers": "^1.2.1",
     "@noble/curves": "^1.7.0",
     "@noble/hashes": "^1.6.1",

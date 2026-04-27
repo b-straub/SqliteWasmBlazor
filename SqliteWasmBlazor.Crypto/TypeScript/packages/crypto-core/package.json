@@ -1,0 +1,26 @@
+{
+  "name": "@sqlitewasmblazor/crypto-core",
+  "version": "0.2.0",
+  "description": "Pure TypeScript crypto primitives + group encryption for SqliteWasmBlazor.Crypto",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "peerDependencies": {
+    "@awasm/noble": "^0.1.0",
+    "@noble/curves": "^1.7.0"
+  },
+  "devDependencies": {
+    "vitest": "^3.1.1"
+  }
+}

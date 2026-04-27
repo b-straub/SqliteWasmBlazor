@@ -20,17 +20,9 @@
                       OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
   </ItemGroup>
 
-  <!-- During development: use ProjectReference for latest renamed models -->
-  <!-- ToDo use nuget for release -->
   <ItemGroup>
-    <ProjectReference Include="..\..\BlazorPRF\BlazorPRF.Crypto.Abstractions\BlazorPRF.Crypto.Abstractions.csproj" />
+    <ProjectReference Include="..\SqliteWasmBlazor.Crypto.Abstractions\SqliteWasmBlazor.Crypto.Abstractions.csproj" />
   </ItemGroup>
-
-  <!-- ToDo use nuget for release
-  <ItemGroup Condition="'$(Configuration)' == 'Release'">
-    <PackageReference Include="BlazorPRF.Crypto.Abstractions" />
-  </ItemGroup>
-  -->
 
   <ItemGroup>
     <PackageReference Include="MessagePack" />

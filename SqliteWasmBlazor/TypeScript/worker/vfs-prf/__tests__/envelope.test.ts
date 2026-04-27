@@ -4,14 +4,14 @@
 // we test the parts we can isolate from SQLite / OPFS:
 //   - aad.ts: buildPageAad shape
 //   - key-registry.ts: lifecycle + wipe
-//   - envelope round-trip via @blazorprf/crypto-core primitives
+//   - envelope round-trip via @sqlitewasmblazor/crypto-core primitives
 // End-to-end SQL tests live in the Demo / TestApp run (browser).
 
 import { describe, it, expect } from 'vitest';
 import {
     encryptChaCha20Poly1305,
     decryptChaCha20Poly1305,
-} from '@blazorprf/crypto-core';
+} from '@sqlitewasmblazor/crypto-core';
 import { buildPageAad } from '../aad.js';
 import {
     registerKeyForPath,

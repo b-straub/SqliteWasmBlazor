@@ -16,7 +16,7 @@
 import {
     encryptChaCha20Poly1305,
     decryptChaCha20Poly1305,
-} from '@blazorprf/crypto-core';
+} from '@sqlitewasmblazor/crypto-core';
 import { buildPageAad } from './aad.js';
 
 const SECTOR_SIZE = 4096;

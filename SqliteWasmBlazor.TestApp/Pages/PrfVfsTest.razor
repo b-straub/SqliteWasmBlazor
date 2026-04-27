@@ -1,7 +1,7 @@
 @page "/prf-vfs-test"
-@using BlazorPRF.Crypto.Abstractions.Formatting
-@using BlazorPRF.Crypto.Configuration
-@using BlazorPRF.Crypto.Services
+@using SqliteWasmBlazor.Crypto.Abstractions.Formatting
+@using SqliteWasmBlazor.Crypto.Configuration
+@using SqliteWasmBlazor.Crypto.Services
 @using Microsoft.EntityFrameworkCore
 @using Microsoft.Extensions.Options
 @using R3
@@ -18,7 +18,7 @@
         <MudText Typo="Typo.h5" Class="mb-2">PRF-keyed VFS demo</MudText>
         <MudText Typo="Typo.body2" Class="mb-2">
             End-to-end check: derive a 32-byte VFS key from a WebAuthn PRF
-            credential via BlazorPRF's <code>DeriveDomainKeyAsync</code>,
+            credential via SqliteWasmBlazor.Crypto's <code>DeriveDomainKeyAsync</code>,
             install it in the worker registry through a span-only handoff
             (<code>SecureKeyCache.UseKey</code>), open the encrypted DB
             through EF, and round-trip rows. <code>KeyExpired</code>

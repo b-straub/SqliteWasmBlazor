@@ -30,7 +30,7 @@ namespace SqliteWasmBlazor.TestApp.TestInfrastructure.Tests.EncryptedDelta;
 internal class PermissionEnforcementTest(
     IDbContextFactory<CryptoTestContext> cryptoFactory,
     ISqliteWasmDatabaseService databaseService,
-    BlazorPRF.Crypto.Abstractions.ICryptoProvider cryptoProvider)
+    SqliteWasmBlazor.Crypto.Abstractions.ICryptoProvider cryptoProvider)
     : CryptoSyncTestBase(cryptoFactory, databaseService)
 {
     public override string Name => "CryptoSync_PermissionEnforcement";

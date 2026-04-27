@@ -1,6 +1,6 @@
 using System.Reflection;
-using BlazorPRF.Crypto.Abstractions.Services;
-using BlazorPRF.Crypto.Testing;
+using SqliteWasmBlazor.Crypto.Abstractions.Services;
+using SqliteWasmBlazor.Crypto.Testing;
 using MessagePack;
 using Microsoft.EntityFrameworkCore;
 using SqliteWasmBlazor.CryptoSync.Tests.Fixtures;

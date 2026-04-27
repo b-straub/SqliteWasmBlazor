@@ -5,14 +5,14 @@
 @using SqliteWasmBlazor.TestApp.TestInfrastructure.VfsEncryption
 @using Microsoft.EntityFrameworkCore
 @using SqliteWasmBlazor.Models
-@using BlazorPRF.Crypto.Abstractions.Services
+@using SqliteWasmBlazor.Crypto.Abstractions.Services
 @inject IDbContextFactory<TodoDbContext> DbContextFactory
 @inject IDbContextFactory<CryptoTestContext> CryptoFactory
 @inject IDbContextFactory<EncryptedTestContext> EncryptedFactory
 @inject IDbContextFactory<PlainVfsTestContext> PlainVfsFactory
 @inject ISqliteWasmDatabaseService DatabaseService
 @inject IGroupEncryption GroupEncryption
-@inject BlazorPRF.Crypto.Abstractions.ICryptoProvider CryptoProvider
+@inject SqliteWasmBlazor.Crypto.Abstractions.ICryptoProvider CryptoProvider
 @inject IServiceProvider Services
 
 <button type="reset" hidden="@(!_running)" @onclick="@Cancel">Cancel</button>

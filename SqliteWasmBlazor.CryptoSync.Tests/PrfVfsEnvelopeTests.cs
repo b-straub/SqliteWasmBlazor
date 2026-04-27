@@ -1,4 +1,4 @@
-using BlazorPRF.Crypto.Testing;
+using SqliteWasmBlazor.Crypto.Testing;
 using MessagePack;
 using MessagePack.Resolvers;
 using Xunit;
@@ -14,12 +14,12 @@ namespace SqliteWasmBlazor.CryptoSync.Tests;
 /// using ChaCha20-Poly1305 with AAD = "prf-vfs-v1|" + dbPath + "|" + slotIndexLE32.
 ///
 /// These tests reproduce the envelope construction on the C# side via
-/// BouncyCastle (BlazorPRF.Crypto.Testing.CryptoOperations) and verify it
+/// BouncyCastle (SqliteWasmBlazor.Crypto.Testing.CryptoOperations) and verify it
 /// round-trips. Cross-implementation assurance comes from the observation
 /// that ChaCha20-Poly1305 is deterministic for fixed inputs: if BC produces
-/// matching output for an RFC 8439 vector (covered by BlazorPRF's own
+/// matching output for an RFC 8439 vector (covered by SqliteWasmBlazor.Crypto's own
 /// CryptoCrossValidationTests) AND @awasm/noble produces matching output
-/// for that same vector (covered by @blazorprf/crypto-core's vitest suite),
+/// for that same vector (covered by @sqlitewasmblazor/crypto-core's vitest suite),
 /// then by transitivity the two implementations produce identical
 /// ciphertexts for every valid (key, nonce, plaintext, AAD) triple the
 /// PRF-VFS ever constructs.

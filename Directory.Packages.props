@@ -23,10 +23,13 @@
 
   <!-- Microsoft.Extensions -->
   <ItemGroup>
+    <PackageVersion Include="Microsoft.Extensions.Configuration.Abstractions" Version="10.0.7" />
     <PackageVersion Include="Microsoft.Extensions.DependencyInjection" Version="10.0.7" />
     <PackageVersion Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.7" />
     <PackageVersion Include="Microsoft.Extensions.DependencyModel" Version="10.0.7" />
     <PackageVersion Include="Microsoft.Extensions.Logging.Console" Version="10.0.7" />
+    <PackageVersion Include="Microsoft.Extensions.Options" Version="10.0.7" />
+    <PackageVersion Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="10.0.7" />
   </ItemGroup>
 
   <!-- Roslyn / source generators.
@@ -67,10 +70,13 @@
     <PackageVersion Include="R3" Version="1.3.0" />
   </ItemGroup>
 
-  <!-- BlazorPRF / SqliteWasmBlazor (own packages, pre-release) -->
+  <!-- BouncyCastle (test-only) -->
   <ItemGroup>
-    <PackageVersion Include="BlazorPRF.Crypto.Abstractions" Version="0.7.0-pre" />
-    <PackageVersion Include="BlazorPRF.Crypto.Testing" Version="0.7.0-pre" />
+    <PackageVersion Include="BouncyCastle.Cryptography" Version="2.6.2" />
+  </ItemGroup>
+
+  <!-- SqliteWasmBlazor (own packages, pre-release) -->
+  <ItemGroup>
     <PackageVersion Include="SqliteWasmBlazor" Version="0.9.0-pre" />
   </ItemGroup>
 </Project>

@@ -1,4 +1,4 @@
-using BlazorPRF.Crypto.Abstractions.Services;
+using SqliteWasmBlazor.Crypto.Abstractions.Services;
 using Microsoft.EntityFrameworkCore;
 
 namespace SqliteWasmBlazor.CryptoSync;

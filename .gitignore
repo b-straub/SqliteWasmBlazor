@@ -68,6 +68,8 @@ SqliteWasm.Data/wwwroot/sqlite-wasm-bridge.js
 .nuget
 SqliteWasmBlazor/wwwroot
 SqliteWasmBlazor/native/lib/sqlite3_stub.o
+SqliteWasmBlazor.Crypto/wwwroot
+SqliteWasmBlazor.Crypto/TypeScript/packages/*/dist/
 
 # Internal documentation
 docs/internal/

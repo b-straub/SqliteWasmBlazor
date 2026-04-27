@@ -39,8 +39,8 @@ import {
     ed25519Verify,
     clearBytes,
     type SymmetricEncryptedData
-} from '@blazorprf/crypto-core';
-import { sha256 } from '@blazorprf/crypto-core';
+} from '@sqlitewasmblazor/crypto-core';
+import { sha256 } from '@sqlitewasmblazor/crypto-core';
 import { openDatabases, sqlite3, bigIntUnpackr, MODULE_NAME } from './worker-state';
 import { convertValueForSqlite, convertValueFromSqlite } from './type-conversion';
 import { bulkInsertRows } from './bulk-ops';

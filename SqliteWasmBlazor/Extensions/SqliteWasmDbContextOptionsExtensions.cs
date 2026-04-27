@@ -89,7 +89,7 @@ public static class SqliteWasmDbContextOptionsExtensions
     /// <param name="optionsBuilder">The builder being used to configure the context.</param>
     /// <param name="connectionString">Connection string (e.g., "Data Source=MyDb.db").</param>
     /// <param name="encryptionKey">
-    /// 32-byte ChaCha20-Poly1305 key. Derive via BlazorPRF's
+    /// 32-byte ChaCha20-Poly1305 key. Derive via SqliteWasmBlazor.Crypto's
     /// <c>deriveHkdfKey(prfSeed, "prf-vfs-v1|" + dbPath, 32)</c> or equivalent.
     /// </param>
     /// <returns>The options builder for chaining.</returns>

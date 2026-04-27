@@ -33,7 +33,7 @@ import {
     encryptChaCha20Poly1305,
     decryptChaCha20Poly1305,
     clearBytes,
-} from '@blazorprf/crypto-core';
+} from '@sqlitewasmblazor/crypto-core';
 import { getKeyForPath, isPathEncrypted as isEncryptedPath } from './key-registry.js';
 import { buildPageAad } from './aad.js';
 

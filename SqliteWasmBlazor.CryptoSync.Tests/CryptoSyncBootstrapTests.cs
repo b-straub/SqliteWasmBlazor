@@ -1,6 +1,6 @@
-using BlazorPRF.Crypto.Abstractions;
-using BlazorPRF.Crypto.Abstractions.Services;
-using BlazorPRF.Crypto.Testing;
+using SqliteWasmBlazor.Crypto.Abstractions;
+using SqliteWasmBlazor.Crypto.Abstractions.Services;
+using SqliteWasmBlazor.Crypto.Testing;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Xunit;
@@ -17,7 +17,7 @@ public class CryptoSyncBootstrapTests
 {
     private readonly ICryptoProvider _crypto = new BouncyCastleCryptoProvider();
 
-    private async Task<(AdminSeedData Seed, BlazorPRF.Crypto.Abstractions.Models.DualKeyPairFull Keys)> CreateSeedAsync()
+    private async Task<(AdminSeedData Seed, SqliteWasmBlazor.Crypto.Abstractions.Models.DualKeyPairFull Keys)> CreateSeedAsync()
     {
         var groupEncryption = new GroupEncryptionService(_crypto);
         var bootstrap = new CryptoSyncBootstrap(groupEncryption, new DeclarationSigner(_crypto));

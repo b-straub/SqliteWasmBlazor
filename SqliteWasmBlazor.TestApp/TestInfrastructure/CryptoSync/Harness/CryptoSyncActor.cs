@@ -1,5 +1,5 @@
-using BlazorPRF.Crypto.Abstractions;
-using BlazorPRF.Crypto.Abstractions.Models;
+using SqliteWasmBlazor.Crypto.Abstractions;
+using SqliteWasmBlazor.Crypto.Abstractions.Models;
 using Microsoft.EntityFrameworkCore;
 using SqliteWasmBlazor.CryptoSync;
 

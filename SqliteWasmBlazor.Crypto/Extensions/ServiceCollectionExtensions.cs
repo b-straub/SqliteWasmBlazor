@@ -1,0 +1,118 @@
+using System.Runtime.Versioning;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using SqliteWasmBlazor.Crypto.Abstractions;
+using SqliteWasmBlazor.Crypto.Abstractions.Services;
+using SqliteWasmBlazor.Crypto.Configuration;
+using SqliteWasmBlazor.Crypto.Services;
+
+// ReSharper disable once CheckNamespace
+namespace SqliteWasmBlazor.Crypto.Extensions;
+
+/// <summary>
+/// Extension methods for registering SqliteWasmBlazorCrypto services with Noble.js + SubtleCrypto provider.
+/// </summary>
+[SupportedOSPlatform("browser")]
+public static class ServiceCollectionExtensions
+{
+    /// <summary>
+    /// Add SqliteWasmBlazorCrypto services with Noble.js crypto provider to the service collection.
+    /// </summary>
+    /// <param name="services">The service collection</param>
+    /// <param name="configuration">Optional configuration for binding <see cref="PrfOptions"/> and
+    /// <see cref="KeyCacheOptions"/>. <see cref="SqliteWasmBlazorCryptoOptions"/> (asset resolution) is configured
+    /// via the <paramref name="configure"/> callback because it requires runtime values
+    /// like <see cref="Microsoft.AspNetCore.Components.WebAssembly.Hosting.IWebAssemblyHostEnvironment"/>.</param>
+    /// <param name="configure">Optional callback to configure asset resolution
+    /// (<see cref="SqliteWasmBlazorCryptoOptions.HostEnvironment"/> for sub-path deployments,
+    /// <see cref="SqliteWasmBlazorCryptoOptions.AssetRoot"/> for browser-extension builds).</param>
+    /// <returns>The service collection for chaining</returns>
+    public static IServiceCollection AddSqliteWasmBlazorCrypto(
+        this IServiceCollection services,
+        IConfiguration? configuration = null,
+        Action<SqliteWasmBlazorCryptoOptions>? configure = null)
+    {
+        // PRF + cache options (bind from configuration when supplied)
+        if (configuration is not null)
+        {
+            services.Configure<PrfOptions>(configuration.GetSection(PrfOptions.SectionName));
+            services.Configure<KeyCacheOptions>(configuration.GetSection(KeyCacheOptions.SectionName));
+        }
+        else
+        {
+            services.Configure<PrfOptions>(_ => { });
+            services.Configure<KeyCacheOptions>(_ => { });
+        }
+
+        // Asset resolution — runtime-only (no appsettings binding because IWebAssemblyHostEnvironment
+        // can't be expressed in JSON).
+        if (configure is not null)
+        {
+            services.Configure(configure);
+        }
+        else
+        {
+            services.AddOptions<SqliteWasmBlazorCryptoOptions>();
+        }
+
+        // Register crypto provider
+        services.AddSingleton<ICryptoProvider, NobleCryptoProvider>();
+        services.AddSingleton<IVapidCryptoProvider, VapidCryptoProvider>();
+
+        // Register services
+        services.AddSingleton<ISecureKeyCache, SecureKeyCache>();
+        services.AddSingleton<PrfService>();
+        services.AddSingleton<IPrfService>(sp => sp.GetRequiredService<PrfService>());
+        services.AddSingleton<IEd25519PublicKeyProvider>(sp => sp.GetRequiredService<PrfService>());
+        services.AddSingleton<ISymmetricEncryption, SymmetricEncryptionService>();
+        services.AddSingleton<IAsymmetricEncryption, AsymmetricEncryptionService>();
+        services.AddSingleton<ISigningService, SigningService>();
+        services.AddSingleton<IGroupEncryption, GroupEncryptionService>();
+
+        return services;
+    }
+
+    /// <summary>
+    /// Add SqliteWasmBlazorCrypto services with custom configuration callbacks.
+    /// </summary>
+    /// <param name="services">The service collection</param>
+    /// <param name="configurePrf">Action to configure PRF options</param>
+    /// <param name="configureCache">Optional action to configure cache options</param>
+    /// <param name="configure">Optional callback to configure asset resolution
+    /// (<see cref="SqliteWasmBlazorCryptoOptions.HostEnvironment"/> for sub-path deployments).</param>
+    /// <returns>The service collection for chaining</returns>
+    public static IServiceCollection AddSqliteWasmBlazorCrypto(
+        this IServiceCollection services,
+        Action<PrfOptions> configurePrf,
+        Action<KeyCacheOptions>? configureCache = null,
+        Action<SqliteWasmBlazorCryptoOptions>? configure = null)
+    {
+        services.Configure(configurePrf);
+        services.Configure(configureCache ?? (_ => { }));
+
+        if (configure is not null)
+        {
+            services.Configure(configure);
+        }
+        else
+        {
+            services.AddOptions<SqliteWasmBlazorCryptoOptions>();
+        }
+
+        // Register crypto provider
+        services.AddSingleton<ICryptoProvider, NobleCryptoProvider>();
+        services.AddSingleton<IVapidCryptoProvider, VapidCryptoProvider>();
+
+        // Register services
+        services.AddScoped<ISecureKeyCache, SecureKeyCache>();
+        services.AddScoped<PrfService>();
+        services.AddScoped<IPrfService>(sp => sp.GetRequiredService<PrfService>());
+        services.AddScoped<IEd25519PublicKeyProvider>(sp => sp.GetRequiredService<PrfService>());
+        services.AddScoped<ISymmetricEncryption, SymmetricEncryptionService>();
+        services.AddScoped<IAsymmetricEncryption, AsymmetricEncryptionService>();
+        services.AddScoped<ISigningService, SigningService>();
+        services.AddScoped<IGroupEncryption, GroupEncryptionService>();
+
+        return services;
+    }
+}

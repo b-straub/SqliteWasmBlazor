@@ -1,6 +1,6 @@
 using System.Security.Cryptography;
-using BlazorPRF.Crypto.Abstractions.Models;
-using BlazorPRF.Crypto.Abstractions.Services;
+using SqliteWasmBlazor.Crypto.Abstractions.Models;
+using SqliteWasmBlazor.Crypto.Abstractions.Services;
 
 namespace SqliteWasmBlazor.CryptoSync;
 

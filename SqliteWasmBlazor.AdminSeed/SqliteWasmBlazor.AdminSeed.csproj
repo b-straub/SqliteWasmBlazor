@@ -14,7 +14,7 @@
   <ItemGroup>
     <ProjectReference Include="..\SqliteWasmBlazor.CryptoSync\SqliteWasmBlazor.CryptoSync.csproj" />
     <ProjectReference Include="..\SqliteWasmBlazor.TestApp\SqliteWasmBlazor.TestApp.csproj" />
-    <ProjectReference Include="..\..\BlazorPRF\BlazorPRF.Crypto.Testing\BlazorPRF.Crypto.Testing.csproj" />
+    <ProjectReference Include="..\SqliteWasmBlazor.Crypto.Testing\SqliteWasmBlazor.Crypto.Testing.csproj" />
   </ItemGroup>
 
 </Project>

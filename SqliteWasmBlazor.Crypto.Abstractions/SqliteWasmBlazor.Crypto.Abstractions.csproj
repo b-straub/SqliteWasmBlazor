@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Version>$(SqliteWasmBlazorVersion)</Version>
+    <Authors>bernisoft</Authors>
+    <Description>Core abstractions, models, and interfaces for SqliteWasmBlazor.Crypto operations. Zero dependencies.</Description>
+    <PackageTags>blazor;webauthn;prf;encryption;crypto;abstractions</PackageTags>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/b-straub/SqliteWasmBlazor</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/b-straub/SqliteWasmBlazor</RepositoryUrl>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <GeneratePackageOnBuild Condition="'$(Configuration)' == 'Release'">true</GeneratePackageOnBuild>
+    <IncludeSymbols>true</IncludeSymbols>
+    <EmbedAllSources>true</EmbedAllSources>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <PackageOutputPath>$(MSBuildThisFileDirectory)../.nuget</PackageOutputPath>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="../README.md" Pack="true" PackagePath="/" />
+  </ItemGroup>
+
+</Project>

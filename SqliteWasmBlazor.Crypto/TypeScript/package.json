@@ -1,0 +1,22 @@
+{
+  "name": "sqlitewasmblazor-crypto-typescript",
+  "version": "1.0.0",
+  "description": "Noble.js + SubtleCrypto hybrid for SqliteWasmBlazor.Crypto",
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build -w @sqlitewasmblazor/crypto-core && esbuild src/index.ts --bundle --format=esm --sourcemap=inline --outfile=../wwwroot/noble-prf.js",
+    "build:release": "npm run build -w @sqlitewasmblazor/crypto-core && esbuild src/index.ts --bundle --format=esm --minify --outfile=../wwwroot/noble-prf.js",
+    "test": "npm test -w @sqlitewasmblazor/crypto-core"
+  },
+  "devDependencies": {
+    "esbuild": "^0.27.1",
+    "typescript": "^5.7.2"
+  },
+  "dependencies": {
+    "@awasm/noble": "^0.1.0",
+    "@noble/curves": "^1.7.0"
+  }
+}

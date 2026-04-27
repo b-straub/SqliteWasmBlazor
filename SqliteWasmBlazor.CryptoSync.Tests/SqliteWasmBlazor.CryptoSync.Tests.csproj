@@ -16,13 +16,8 @@
                       OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
   </ItemGroup>
 
-  <!-- During development: use ProjectReference for latest renamed models -->
-  <ItemGroup Condition="'$(Configuration)' == 'Debug'">
-    <ProjectReference Include="..\..\BlazorPRF\BlazorPRF.Crypto.Testing\BlazorPRF.Crypto.Testing.csproj" />
-  </ItemGroup>
-
-  <ItemGroup Condition="'$(Configuration)' == 'Release'">
-    <PackageReference Include="BlazorPRF.Crypto.Testing" />
+  <ItemGroup>
+    <ProjectReference Include="..\SqliteWasmBlazor.Crypto.Testing\SqliteWasmBlazor.Crypto.Testing.csproj" />
   </ItemGroup>
 
   <ItemGroup>

@@ -6,8 +6,8 @@
 @using System.Text
 @using System.Text.Json
 @using Microsoft.EntityFrameworkCore
-@using BlazorPRF.Crypto.Abstractions
-@using BlazorPRF.Crypto.Abstractions.Services
+@using SqliteWasmBlazor.Crypto.Abstractions
+@using SqliteWasmBlazor.Crypto.Abstractions.Services
 @using SqliteWasmBlazor
 @using SqliteWasmBlazor.Components.Interop
 @using SqliteWasmBlazor.CryptoSync
@@ -478,7 +478,7 @@
     private async Task PersistNewKeyVersionAsync(
         string dbName,
         string newGroupContext,
-        BlazorPRF.Crypto.Abstractions.Models.GroupKeyBundle bundle)
+        SqliteWasmBlazor.Crypto.Abstractions.Models.GroupKeyBundle bundle)
     {
         var connection = new SqliteWasmConnection($"Data Source={dbName}");
         var optionsBuilder = new DbContextOptionsBuilder<CryptoTestContext>();

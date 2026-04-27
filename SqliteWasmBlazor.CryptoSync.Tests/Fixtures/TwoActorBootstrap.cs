@@ -1,6 +1,6 @@
-using BlazorPRF.Crypto.Abstractions;
-using BlazorPRF.Crypto.Abstractions.Services;
-using BlazorPRF.Crypto.Testing;
+using SqliteWasmBlazor.Crypto.Abstractions;
+using SqliteWasmBlazor.Crypto.Abstractions.Services;
+using SqliteWasmBlazor.Crypto.Testing;
 using Microsoft.EntityFrameworkCore;
 
 namespace SqliteWasmBlazor.CryptoSync.Tests.Fixtures;

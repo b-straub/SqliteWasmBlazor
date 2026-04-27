@@ -31,7 +31,7 @@ internal class TestFactory
         IDbContextFactory<TodoDbContext> todoFactory,
         ISqliteWasmDatabaseService databaseService,
         IDbContextFactory<CryptoTestContext>? cryptoFactory = null,
-        BlazorPRF.Crypto.Abstractions.ICryptoProvider? cryptoProvider = null,
+        SqliteWasmBlazor.Crypto.Abstractions.ICryptoProvider? cryptoProvider = null,
         IDbContextFactory<EncryptedTestContext>? encryptedFactory = null,
         IDbContextFactory<PlainVfsTestContext>? plainVfsFactory = null,
         IServiceProvider? services = null)
@@ -133,7 +133,7 @@ internal class TestFactory
     private void PopulateCryptoTests(
         IDbContextFactory<CryptoTestContext> cryptoFactory,
         ISqliteWasmDatabaseService databaseService,
-        BlazorPRF.Crypto.Abstractions.ICryptoProvider? cryptoProvider)
+        SqliteWasmBlazor.Crypto.Abstractions.ICryptoProvider? cryptoProvider)
     {
         var test1 = new CryptoSyncRoundTripTest(cryptoFactory, databaseService);
         _entries.Add(new TestEntry("Encrypted Delta", test1.Name, () => test1.RunTestWithFreshDatabaseAsync()));

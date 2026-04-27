@@ -1,4 +1,4 @@
-using BlazorPRF.Crypto.Testing;
+using SqliteWasmBlazor.Crypto.Testing;
 using Xunit;
 
 namespace SqliteWasmBlazor.CryptoSync.Tests;

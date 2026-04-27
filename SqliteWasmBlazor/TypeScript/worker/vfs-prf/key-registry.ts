@@ -4,7 +4,7 @@
 // The registry is populated before the DB is opened (so xOpen can pick up
 // the key) and cleared on close (clearBytes wipes the buffer first).
 
-import { clearBytes } from '@blazorprf/crypto-core';
+import { clearBytes } from '@sqlitewasmblazor/crypto-core';
 
 const pathToKey = new Map<string, Uint8Array>();
 

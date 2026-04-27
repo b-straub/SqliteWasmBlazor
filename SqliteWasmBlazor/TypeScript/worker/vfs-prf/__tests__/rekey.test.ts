@@ -9,7 +9,7 @@ import { describe, it, expect } from 'vitest';
 import {
     encryptChaCha20Poly1305,
     decryptChaCha20Poly1305,
-} from '@blazorprf/crypto-core';
+} from '@sqlitewasmblazor/crypto-core';
 import { rekeySlots } from '../rekey.js';
 import { buildPageAad } from '../aad.js';
 

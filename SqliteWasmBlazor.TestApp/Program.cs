@@ -5,7 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using MudBlazor.Services;
 using SqliteWasmBlazor;
 using SqliteWasmBlazor.Models;
-using BlazorPRF.Crypto.Extensions;
+using SqliteWasmBlazor.Crypto.Extensions;
 using SqliteWasmBlazor.TestApp.TestInfrastructure.CryptoSync;
 using SqliteWasmBlazor.TestApp.TestInfrastructure.VfsEncryption;
 
@@ -72,7 +72,7 @@ builder.Services.AddDbContextFactory<PlainVfsTestContext>(options =>
 });
 
 // PRF-VFS demo page context. Registered without a key in DI: the page
-// derives the key via BlazorPRF DomainKeys (DeriveDomainKeyAsync +
+// derives the key via SqliteWasmBlazor.Crypto DomainKeys (DeriveDomainKeyAsync +
 // SecureKeyCache.UseKey) and installs it directly into the worker
 // registry through ISqliteWasmDatabaseService.InstallEncryptionKeyAsync
 // before resolving this factory. xOpen picks up the registered key and
@@ -85,8 +85,8 @@ builder.Services.AddDbContextFactory<PrfVfsTestContext>(options =>
 // Register SqliteWasm database management service
 builder.Services.AddSqliteWasm(o => o.HostEnvironment = builder.HostEnvironment);
 
-// Register BlazorPRF crypto services (Noble.js + SubtleCrypto)
-builder.Services.AddBlazorPrf(configureBlazorPrf: o => o.HostEnvironment = builder.HostEnvironment);
+// Register SqliteWasmBlazor.Crypto services (Noble.js + SubtleCrypto)
+builder.Services.AddSqliteWasmBlazorCrypto(configure: o => o.HostEnvironment = builder.HostEnvironment);
 
 var host = builder.Build();
 

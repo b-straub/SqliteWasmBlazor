@@ -4,8 +4,9 @@
     <Platform Name="x64" />
     <Platform Name="x86" />
   </Configurations>
-  <Project Path="../BlazorPRF/BlazorPRF.Crypto.Abstractions/BlazorPRF.Crypto.Abstractions.csproj" />
-  <Project Path="../BlazorPRF/BlazorPRF.Crypto.Testing/BlazorPRF.Crypto.Testing.csproj" />
+  <Project Path="SqliteWasmBlazor.Crypto.Abstractions/SqliteWasmBlazor.Crypto.Abstractions.csproj" />
+  <Project Path="SqliteWasmBlazor.Crypto.Testing/SqliteWasmBlazor.Crypto.Testing.csproj" />
+  <Project Path="SqliteWasmBlazor.Crypto/SqliteWasmBlazor.Crypto.csproj" />
   <Project Path="GeneratorRunner/GeneratorRunner.csproj" />
   <Project Path="SqliteWasmBlazor.AdminSeed/SqliteWasmBlazor.AdminSeed.csproj" />
   <Project Path="SqliteWasmBlazor.AdoNetSample/SqliteWasmBlazor.AdoNetSample.csproj" />

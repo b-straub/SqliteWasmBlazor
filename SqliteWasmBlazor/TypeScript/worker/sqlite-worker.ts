@@ -266,7 +266,7 @@ async function handleRequest(data: WorkerRequest['data'], binaryPayload?: ArrayB
 
         case 'registerEncryptionKey':
             // PRF / DomainKeys path: caller derived a 32-byte key in C# from
-            // BlazorPRF's SecureKeyCache and is shipping it as a VfsKeyHeader
+            // SqliteWasmBlazor.Crypto's SecureKeyCache and is shipping it as a VfsKeyHeader
             // envelope (same shape as 'open' with a key, minus the actual open).
             // The key is stored in the per-path registry so the next plain
             // 'open' message picks it up at xOpen.
@@ -480,7 +480,7 @@ async function openDatabase(dbName: string, encryptionKey?: Uint8Array) {
  * opening the DB. The next plain 'open' for the same dbName will see the
  * registered key in xOpen and route through the encrypted VFS path.
  *
- * Used by the BlazorPRF DomainKeys flow: C# derives the key in
+ * Used by the SqliteWasmBlazor.Crypto DomainKeys flow: C# derives the key in
  * SecureKeyCache, hands it to the bridge as a span (no managed copy), the
  * bridge ships it here as a VfsKeyHeader envelope, and the page then
  * resolves a normal DbContext factory which triggers the no-key 'open'.
