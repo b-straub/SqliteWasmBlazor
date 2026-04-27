@@ -1,5 +1,5 @@
-using Microsoft.AspNetCore.Components.WebAssembly.Hosting;
 using SqliteWasmBlazor.Crypto.Extensions;
+using SqliteWasmBlazor.Hosting;
 
 namespace SqliteWasmBlazor.Crypto.Configuration;
 
@@ -7,30 +7,10 @@ namespace SqliteWasmBlazor.Crypto.Configuration;
 /// Configuration for SqliteWasmBlazor.Crypto JavaScript asset resolution. Registered via
 /// <see cref="ServiceCollectionExtensions.AddSqliteWasmBlazorCrypto"/>.
 /// </summary>
-public sealed class SqliteWasmBlazorCryptoOptions
+public sealed class SqliteWasmBlazorCryptoOptions : SqliteWasmAssetOptions
 {
-    /// <summary>
-    /// Base href of the Blazor app — origin-side path prefix.
-    /// Defaults to "/". For sub-path deployments prefer setting <see cref="HostEnvironment"/>,
-    /// which derives <see cref="BaseHref"/> from the runtime <c>&lt;base href&gt;</c>.
-    /// </summary>
-    public string BaseHref { get; set; } = "/";
-
-    /// <summary>
-    /// Path segment between <see cref="BaseHref"/> and package file names.
-    /// Defaults to "_content/SqliteWasmBlazor.Crypto/" (standard Blazor static-asset convention).
-    /// Override to "content/SqliteWasmBlazor.Crypto/" for Blazor.BrowserExtension builds,
-    /// which flatten the underscore-prefixed path.
-    /// </summary>
-    public string AssetRoot { get; set; } = "_content/SqliteWasmBlazor.Crypto/";
-
-    /// <summary>
-    /// Convenience setter: derives <see cref="BaseHref"/> from
-    /// <see cref="IWebAssemblyHostEnvironment.BaseAddress"/>, which Blazor already
-    /// resolves from the baked-in <c>&lt;base href&gt;</c>.
-    /// </summary>
-    public IWebAssemblyHostEnvironment HostEnvironment
+    public SqliteWasmBlazorCryptoOptions()
     {
-        set => BaseHref = new Uri(value.BaseAddress).AbsolutePath;
+        AssetRoot = "_content/SqliteWasmBlazor.Crypto/";
     }
 }

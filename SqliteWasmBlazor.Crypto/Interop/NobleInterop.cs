@@ -50,7 +50,7 @@ internal static partial class NobleInterop
             throw new InvalidOperationException(
                 "SqliteWasmBlazor.Crypto is not configured. Call services.AddSqliteWasmBlazorCrypto(...) before " +
                 "resolving any crypto service. For sub-path or browser-extension deployments " +
-                "set SqliteWasmBlazorCryptoOptions.HostEnvironment / SqliteWasmBlazorCryptoOptions.AssetRoot.");
+                "set SqliteWasmBlazorCryptoOptions.BaseHref / SqliteWasmBlazorCryptoOptions.AssetRoot.");
         }
 
         await InitSemaphore.WaitAsync();

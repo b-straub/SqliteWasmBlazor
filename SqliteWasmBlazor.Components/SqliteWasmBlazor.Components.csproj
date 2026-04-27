@@ -19,6 +19,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\SqliteWasmBlazor.Models\SqliteWasmBlazor.Models.csproj" />
+    <ProjectReference Include="..\SqliteWasmBlazor.Hosting\SqliteWasmBlazor.Hosting.csproj" />
   </ItemGroup>
 
   <!-- TypeScript Build Integration -->

@@ -83,10 +83,11 @@ builder.Services.AddDbContextFactory<PrfVfsTestContext>(options =>
 });
 
 // Register SqliteWasm database management service
-builder.Services.AddSqliteWasm(o => o.HostEnvironment = builder.HostEnvironment);
+var baseHref = new Uri(builder.HostEnvironment.BaseAddress).AbsolutePath;
+builder.Services.AddSqliteWasm(o => o.BaseHref = baseHref);
 
 // Register SqliteWasmBlazor.Crypto services (Noble.js + SubtleCrypto)
-builder.Services.AddSqliteWasmBlazorCrypto(configure: o => o.HostEnvironment = builder.HostEnvironment);
+builder.Services.AddSqliteWasmBlazorCrypto(configure: o => o.BaseHref = baseHref);
 
 var host = builder.Build();
 

@@ -50,7 +50,8 @@ The public API surface is intentionally kept minimal to reduce the risk of break
 
   Apps deployed on a **sub-path** must now opt in explicitly:
   ```csharp
-  builder.Services.AddSqliteWasm(o => o.HostEnvironment = builder.HostEnvironment);
+  builder.Services.AddSqliteWasm(o => o.BaseHref =
+      new Uri(builder.HostEnvironment.BaseAddress).AbsolutePath);
   ```
   This derives `BaseHref` from the runtime `<base href>` exactly as the old auto-probe did,
   but without the CSP-blocked `data:` import. Root-path (`/`) deployments need no change.

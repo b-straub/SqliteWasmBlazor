@@ -16,12 +16,13 @@ public static class SqliteWasmServiceCollectionExtensions
 {
     /// <summary>
     /// Registers SqliteWasm services and configuration. Call this in Program.cs before
-    /// <see cref="Microsoft.AspNetCore.Components.WebAssembly.Hosting.WebAssemblyHostBuilder.Build"/>.
+    /// <c>WebAssemblyHostBuilder.Build()</c>.
     /// </summary>
     /// <param name="services">The service collection.</param>
     /// <param name="configure">Optional configuration callback. For sub-path deployments
-    /// set <see cref="SqliteWasmOptions.HostEnvironment"/>; for browser-extension builds
-    /// override <see cref="SqliteWasmOptions.AssetRoot"/>.</param>
+    /// set <see cref="Hosting.SqliteWasmAssetOptions.BaseHref"/> (e.g.
+    /// <c>new Uri(builder.HostEnvironment.BaseAddress).AbsolutePath</c>); for
+    /// browser-extension builds override <see cref="Hosting.SqliteWasmAssetOptions.AssetRoot"/>.</param>
     /// <returns>The service collection for chaining.</returns>
     public static IServiceCollection AddSqliteWasm(
         this IServiceCollection services,

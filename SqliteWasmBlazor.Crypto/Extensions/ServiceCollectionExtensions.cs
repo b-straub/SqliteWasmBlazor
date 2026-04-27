@@ -21,11 +21,13 @@ public static class ServiceCollectionExtensions
     /// <param name="services">The service collection</param>
     /// <param name="configuration">Optional configuration for binding <see cref="PrfOptions"/> and
     /// <see cref="KeyCacheOptions"/>. <see cref="SqliteWasmBlazorCryptoOptions"/> (asset resolution) is configured
-    /// via the <paramref name="configure"/> callback because it requires runtime values
-    /// like <see cref="Microsoft.AspNetCore.Components.WebAssembly.Hosting.IWebAssemblyHostEnvironment"/>.</param>
-    /// <param name="configure">Optional callback to configure asset resolution
-    /// (<see cref="SqliteWasmBlazorCryptoOptions.HostEnvironment"/> for sub-path deployments,
-    /// <see cref="SqliteWasmBlazorCryptoOptions.AssetRoot"/> for browser-extension builds).</param>
+    /// via the <paramref name="configure"/> callback because it requires the runtime
+    /// <c>IWebAssemblyHostEnvironment.BaseAddress</c> for sub-path deployments (passed
+    /// from the consuming app, kept out of this library to avoid the WebAssembly dep).</param>
+    /// <param name="configure">Optional callback to configure asset resolution. For
+    /// sub-path deployments set <see cref="Hosting.SqliteWasmAssetOptions.BaseHref"/>
+    /// (e.g. <c>new Uri(builder.HostEnvironment.BaseAddress).AbsolutePath</c>); for
+    /// browser-extension builds override <see cref="Hosting.SqliteWasmAssetOptions.AssetRoot"/>.</param>
     /// <returns>The service collection for chaining</returns>
     public static IServiceCollection AddSqliteWasmBlazorCrypto(
         this IServiceCollection services,
@@ -44,8 +46,9 @@ public static class ServiceCollectionExtensions
             services.Configure<KeyCacheOptions>(_ => { });
         }
 
-        // Asset resolution — runtime-only (no appsettings binding because IWebAssemblyHostEnvironment
-        // can't be expressed in JSON).
+        // Asset resolution — runtime-only (no appsettings binding because the
+        // BaseHref is derived from IWebAssemblyHostEnvironment.BaseAddress in
+        // the consuming app, not expressible in JSON).
         if (configure is not null)
         {
             services.Configure(configure);
@@ -78,8 +81,9 @@ public static class ServiceCollectionExtensions
     /// <param name="services">The service collection</param>
     /// <param name="configurePrf">Action to configure PRF options</param>
     /// <param name="configureCache">Optional action to configure cache options</param>
-    /// <param name="configure">Optional callback to configure asset resolution
-    /// (<see cref="SqliteWasmBlazorCryptoOptions.HostEnvironment"/> for sub-path deployments).</param>
+    /// <param name="configure">Optional callback to configure asset resolution. For
+    /// sub-path deployments set <see cref="Hosting.SqliteWasmAssetOptions.BaseHref"/>
+    /// (e.g. <c>new Uri(builder.HostEnvironment.BaseAddress).AbsolutePath</c>).</param>
     /// <returns>The service collection for chaining</returns>
     public static IServiceCollection AddSqliteWasmBlazorCrypto(
         this IServiceCollection services,

@@ -11,4 +11,8 @@
         <PackageReference Include="Microsoft.AspNetCore.Components.Web" />
     </ItemGroup>
 
+    <ItemGroup>
+        <ProjectReference Include="..\SqliteWasmBlazor.Hosting\SqliteWasmBlazor.Hosting.csproj" />
+    </ItemGroup>
+
 </Project>

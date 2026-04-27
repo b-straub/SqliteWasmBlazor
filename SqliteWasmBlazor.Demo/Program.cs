@@ -56,7 +56,7 @@ builder.Services.AddDbContextFactory<NoteDbContext>(options =>
 });
 
 // Register SqliteWasm database management service (also registers IDbInitializationStatus / Reporter)
-builder.Services.AddSqliteWasm(o => o.HostEnvironment = builder.HostEnvironment);
+builder.Services.AddSqliteWasm(o => o.BaseHref = new Uri(builder.HostEnvironment.BaseAddress).AbsolutePath);
 
 // Initialize FileOperations JS module for import/export
 await FileOperationsInterop.InitializeAsync();

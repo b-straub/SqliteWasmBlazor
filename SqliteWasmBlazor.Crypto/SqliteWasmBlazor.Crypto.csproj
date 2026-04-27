@@ -35,10 +35,10 @@
 
   <ItemGroup>
     <ProjectReference Include="..\SqliteWasmBlazor.Crypto.Abstractions\SqliteWasmBlazor.Crypto.Abstractions.csproj" />
+    <ProjectReference Include="..\SqliteWasmBlazor.Hosting\SqliteWasmBlazor.Hosting.csproj" />
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly" />
     <PackageReference Include="Microsoft.Extensions.Options" />
     <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
