@@ -41,9 +41,9 @@ internal class WorkerEncryptedRoundTripTest(
             {
                 throw new InvalidOperationException("Admin contact not found in seed — SeedAdminBootstrap not applied?");
             }
-            if (!admin.IsTrusted)
+            if (admin.Status != ContactStatus.Verified && admin.Status != ContactStatus.Trusted)
             {
-                throw new InvalidOperationException("Admin contact is not trusted");
+                throw new InvalidOperationException($"Admin contact is not trusted (status: {admin.Status})");
             }
 
             var group = await ctx.ShareGroups.SingleOrDefaultAsync(g =>

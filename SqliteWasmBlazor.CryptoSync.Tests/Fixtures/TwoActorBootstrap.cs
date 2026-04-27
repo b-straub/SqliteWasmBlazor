@@ -115,7 +115,10 @@ public sealed class TwoActorBootstrap : IAsyncDisposable
             X25519PublicKey = adminContact.X25519PublicKey,
             Ed25519PublicKey = adminContact.Ed25519PublicKey,
             IsAdmin = adminContact.IsAdmin,
-            IsTrusted = adminContact.IsTrusted,
+            Status = adminContact.Status,
+            VerifiedAt = adminContact.VerifiedAt,
+            TrustedAt = adminContact.TrustedAt,
+            InvitedAt = adminContact.InvitedAt,
             UpdatedAt = adminContact.UpdatedAt,
             SharingScope = adminContact.SharingScope,
             SharingId = adminContact.SharingId
@@ -130,7 +133,10 @@ public sealed class TwoActorBootstrap : IAsyncDisposable
             X25519PublicKey = userContactOnAdmin.X25519PublicKey,
             Ed25519PublicKey = userContactOnAdmin.Ed25519PublicKey,
             IsAdmin = userContactOnAdmin.IsAdmin,
-            IsTrusted = userContactOnAdmin.IsTrusted,
+            Status = userContactOnAdmin.Status,
+            VerifiedAt = userContactOnAdmin.VerifiedAt,
+            TrustedAt = userContactOnAdmin.TrustedAt,
+            InvitedAt = userContactOnAdmin.InvitedAt,
             UpdatedAt = userContactOnAdmin.UpdatedAt,
             SharingScope = userContactOnAdmin.SharingScope,
             SharingId = userContactOnAdmin.SharingId

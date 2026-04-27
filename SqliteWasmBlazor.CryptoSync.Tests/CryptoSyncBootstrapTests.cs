@@ -41,7 +41,7 @@ public class CryptoSyncBootstrapTests
         Assert.Equal(keys.X25519PublicKey, seed.AdminContact.X25519PublicKey);
         Assert.Equal(keys.Ed25519PublicKey, seed.AdminContact.Ed25519PublicKey);
         Assert.True(seed.AdminContact.IsAdmin);
-        Assert.True(seed.AdminContact.IsTrusted);
+        Assert.Equal(ContactStatus.Verified, seed.AdminContact.Status);
         Assert.Equal(SharingScope.PUBLIC, seed.AdminContact.SharingScope);
         Assert.Equal(CryptoSyncBootstrap.SystemSharingId, seed.AdminContact.SharingId);
     }
@@ -108,7 +108,7 @@ public class CryptoSyncBootstrapTests
 
         var admin = await context.Contacts.SingleAsync(c => c.IsAdmin);
         Assert.Equal("TestAdmin", admin.Username);
-        Assert.True(admin.IsTrusted);
+        Assert.Equal(ContactStatus.Verified, admin.Status);
 
         // Bootstrap now seeds the system group AND the admin's self-group.
         var groups = await context.ShareGroups.OrderBy(g => g.GroupContext).ToListAsync();

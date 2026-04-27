@@ -179,7 +179,8 @@ public class ContactInvitationService(
             X25519PublicKey = payload.X25519PublicKey,
             Ed25519PublicKey = payload.Ed25519PublicKey,
             IsAdmin = false,
-            IsTrusted = true,
+            Status = ContactStatus.Verified,
+            VerifiedAt = now,
             UpdatedAt = now,
             SharingScope = SharingScope.PUBLIC,
             SharingId = CryptoSyncBootstrap.SystemSharingId

@@ -37,7 +37,7 @@ public class SyncGateTests : IDisposable
         _connection.Dispose();
     }
 
-    private async Task<TrustedContact> AddContactAsync(string name, bool isTrusted, string ed25519PublicKey)
+    private async Task<TrustedContact> AddContactAsync(string name, ContactStatus status, string ed25519PublicKey)
     {
         // Direct insert via the context — bypasses ContactInvitationService since
         // these tests are about SyncGate trust-resolution, not invitation flow.
@@ -49,7 +49,7 @@ public class SyncGateTests : IDisposable
             X25519PublicKey = Convert.ToBase64String(new byte[32]),
             Ed25519PublicKey = ed25519PublicKey,
             IsAdmin = false,
-            IsTrusted = isTrusted,
+            Status = status,
             UpdatedAt = DateTime.UtcNow,
             SharingScope = SharingScope.PUBLIC,
             SharingId = CryptoSyncBootstrap.SystemSharingId
@@ -63,13 +63,13 @@ public class SyncGateTests : IDisposable
     public async Task EnsureSenderTrustedAsync_ReturnsContact_ForTrustedSender()
     {
         var senderPk = Convert.ToBase64String(new byte[32] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32 });
-        var added = await AddContactAsync("Alice", isTrusted: true, senderPk);
+        var added = await AddContactAsync("Alice", ContactStatus.Verified, senderPk);
 
         var resolved = await _gate.EnsureSenderTrustedAsync(senderPk);
 
         Assert.Equal(added.Id, resolved.Id);
         Assert.Equal("Alice", resolved.Username);
-        Assert.True(resolved.IsTrusted);
+        Assert.Equal(ContactStatus.Verified, resolved.Status);
     }
 
     [Fact]
@@ -84,10 +84,22 @@ public class SyncGateTests : IDisposable
     }
 
     [Fact]
-    public async Task EnsureSenderTrustedAsync_Throws_ForUntrustedContact()
+    public async Task EnsureSenderTrustedAsync_Throws_ForInvitedContact()
     {
         var senderPk = Convert.ToBase64String(new byte[32] { 99, 98, 97, 96, 95, 94, 93, 92, 91, 90, 89, 88, 87, 86, 85, 84, 83, 82, 81, 80, 79, 78, 77, 76, 75, 74, 73, 72, 71, 70, 69, 68 });
-        await AddContactAsync("Untrusted", isTrusted: false, senderPk);
+        await AddContactAsync("Pending", ContactStatus.Invited, senderPk);
+
+        var ex = await Assert.ThrowsAsync<SyncRejectedException>(
+            () => _gate.EnsureSenderTrustedAsync(senderPk).AsTask());
+
+        Assert.Contains("not trusted", ex.Message);
+    }
+
+    [Fact]
+    public async Task EnsureSenderTrustedAsync_Throws_ForRevokedContact()
+    {
+        var senderPk = Convert.ToBase64String(new byte[32] { 50, 49, 48, 47, 46, 45, 44, 43, 42, 41, 40, 39, 38, 37, 36, 35, 34, 33, 32, 31, 30, 29, 28, 27, 26, 25, 24, 23, 22, 21, 20, 19 });
+        await AddContactAsync("Revoked", ContactStatus.Revoked, senderPk);
 
         var ex = await Assert.ThrowsAsync<SyncRejectedException>(
             () => _gate.EnsureSenderTrustedAsync(senderPk).AsTask());

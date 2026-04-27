@@ -121,7 +121,7 @@ public class GroupServiceTests : IAsyncLifetime
             X25519PublicKey = thirdActor.Keys.X25519PublicKey,
             Ed25519PublicKey = thirdActor.Keys.Ed25519PublicKey,
             IsAdmin = false,
-            IsTrusted = true,
+            Status = ContactStatus.Verified,
             UpdatedAt = DateTime.UtcNow,
             SharingScope = SharingScope.PUBLIC,
             SharingId = CryptoSyncBootstrap.SystemSharingId

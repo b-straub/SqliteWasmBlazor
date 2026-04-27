@@ -48,7 +48,7 @@ public class InvitationRoundtripTests
                 receivedPayload,
                 systemRole: SyncRole.EDITOR);
 
-            Assert.True(persisted.IsTrusted);
+            Assert.Equal(ContactStatus.Verified, persisted.Status);
             Assert.False(persisted.IsAdmin);
             Assert.Equal(contact.Keys.X25519PublicKey, persisted.X25519PublicKey);
 

@@ -11,19 +11,19 @@ namespace SqliteWasmBlazor.CryptoSync;
 public class ContactService(CryptoSyncContextBase context)
 {
     /// <summary>
-    /// Mark a previously trusted contact as untrusted. Does NOT rewrite
+    /// Revoke a previously verified/trusted contact. Does NOT rewrite
     /// <see cref="SyncableEntity.SharingId"/> or <see cref="SyncableEntity.SharingScope"/>
-    /// (the immutable-SharingId rule forbids it). Just flips
-    /// <see cref="TrustedContact.IsTrusted"/> = false and bumps
-    /// <see cref="SyncableEntity.UpdatedAt"/>. The interceptor handles the
-    /// timestamp bump automatically.
+    /// (the immutable-SharingId rule forbids it). Sets
+    /// <see cref="TrustedContact.Status"/> = <see cref="ContactStatus.Revoked"/>
+    /// and bumps <see cref="SyncableEntity.UpdatedAt"/>. The interceptor handles
+    /// the timestamp bump automatically.
     /// </summary>
     public async ValueTask UntrustAsync(Guid contactId)
     {
         var contact = await context.Contacts.FindAsync(contactId)
             ?? throw new InvalidOperationException($"Contact {contactId} not found");
 
-        contact.IsTrusted = false;
+        contact.Status = ContactStatus.Revoked;
         await context.SaveChangesAsync();
     }
 
@@ -40,7 +40,7 @@ public class ContactService(CryptoSyncContextBase context)
     public async ValueTask<string[]> GetRecipientPublicKeysAsync()
     {
         return await context.Contacts
-            .Where(c => c.IsTrusted)
+            .Where(c => c.Status == ContactStatus.Verified || c.Status == ContactStatus.Trusted)
             .Select(c => c.X25519PublicKey)
             .ToArrayAsync();
     }

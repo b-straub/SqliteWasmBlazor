@@ -123,7 +123,8 @@ public class CryptoSyncBootstrap(IGroupEncryption groupEncryption, DeclarationSi
                     X25519PublicKey = adminKeys.X25519PublicKey,
                     Ed25519PublicKey = adminKeys.Ed25519PublicKey,
                     IsAdmin = true,
-                    IsTrusted = true,
+                    Status = ContactStatus.Verified,
+                    VerifiedAt = now,
                     UpdatedAt = now,
                     SharingScope = SharingScope.PUBLIC,
                     SharingId = SystemSharingId

@@ -25,19 +25,19 @@ public class ContactServiceTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Untrust_FlipsIsTrustedFalse_WithoutMutatingSharingId()
+    public async Task Untrust_TransitionsToRevoked_WithoutMutatingSharingId()
     {
         var userContact = await _scenario.Admin.Contacts
             .GetByEd25519PublicKeyAsync(_scenario.User.Keys.Ed25519PublicKey);
         Assert.NotNull(userContact);
-        Assert.True(userContact.IsTrusted);
+        Assert.Equal(ContactStatus.Verified, userContact.Status);
         var originalSharingId = userContact.SharingId;
         var originalScope = userContact.SharingScope;
 
         await _scenario.Admin.Contacts.UntrustAsync(userContact.Id);
         await _scenario.Admin.Context.Entry(userContact).ReloadAsync();
 
-        Assert.False(userContact.IsTrusted);
+        Assert.Equal(ContactStatus.Revoked, userContact.Status);
         // Immutable: SharingId / SharingScope unchanged.
         Assert.Equal(originalSharingId, userContact.SharingId);
         Assert.Equal(originalScope, userContact.SharingScope);

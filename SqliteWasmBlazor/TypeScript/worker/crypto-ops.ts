@@ -288,11 +288,12 @@ function verifyShareTargetCredential(
 
 /**
  * Verify that a GroupAdmin's Ed25519 public key belongs to a TrustedContact (Step 2c).
- * Returns true if a trusted contact with this Ed25519 key exists.
+ * Returns true if a contact with this Ed25519 key exists in Verified (1) or
+ * Trusted (2) state. Mirrors ContactStatus enum in TrustedContact.cs.
  */
 function verifyGroupAdminIsTrusted(db: any, groupAdminEd25519PublicKeyBase64: string): boolean {
     const rows = db.exec({
-        sql: `SELECT Id FROM Contacts WHERE Ed25519PublicKey = ? AND IsTrusted = 1 AND IsDeleted = 0 LIMIT 1`,
+        sql: `SELECT Id FROM Contacts WHERE Ed25519PublicKey = ? AND Status IN (1, 2) AND IsDeleted = 0 LIMIT 1`,
         bind: [groupAdminEd25519PublicKeyBase64],
         returnValue: 'resultRows',
         rowMode: 'array'

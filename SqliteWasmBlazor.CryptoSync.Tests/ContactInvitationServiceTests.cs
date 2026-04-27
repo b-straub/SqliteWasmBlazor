@@ -109,7 +109,7 @@ public class ContactInvitationServiceTests : IAsyncLifetime
         // Assert the resulting rows exist exactly as spec'd.
         var userContact = await _scenario.Admin.Context.Contacts
             .SingleAsync(c => c.X25519PublicKey == _scenario.User.Keys.X25519PublicKey);
-        Assert.True(userContact.IsTrusted);
+        Assert.Equal(ContactStatus.Verified, userContact.Status);
         Assert.False(userContact.IsAdmin);
         Assert.Equal(SharingScope.PUBLIC, userContact.SharingScope);
         Assert.Equal(CryptoSyncBootstrap.SystemSharingId, userContact.SharingId);
