@@ -123,8 +123,12 @@ public class CryptoSyncBootstrap(IGroupEncryption groupEncryption, DeclarationSi
                     X25519PublicKey = adminKeys.X25519PublicKey,
                     Ed25519PublicKey = adminKeys.Ed25519PublicKey,
                     IsAdmin = true,
-                    Status = ContactStatus.Verified,
+                    // Admin trusts themselves implicitly — no F2F handshake
+                    // needed for the device's own keypair. Skip Verified;
+                    // start at Trusted directly.
+                    Status = ContactStatus.Trusted,
                     VerifiedAt = now,
+                    TrustedAt = now,
                     UpdatedAt = now,
                     SharingScope = SharingScope.PUBLIC,
                     SharingId = SystemSharingId

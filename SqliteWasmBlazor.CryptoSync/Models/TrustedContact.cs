@@ -46,22 +46,26 @@ public sealed class TrustedContact : SyncableEntity
     [MaxLength(128)]
     public required string Username { get; set; }
 
+    /// <summary>Display email. Null on placeholder rows where the admin
+    /// didn't supply one — the contact's response payload provides the
+    /// authoritative value at <see cref="ContactStatus.Verified"/> bind.</summary>
     [MaxLength(256)]
-    public required string Email { get; set; }
+    public string? Email { get; set; }
 
     [MaxLength(512)]
     public string? Comment { get; set; }
 
     /// <summary>X25519 public key (Base64) for asymmetric encryption / key agreement.
-    /// Empty until the contact responds to the invitation (placeholder rows
-    /// in <see cref="ContactStatus.Invited"/> have no pubkeys yet).</summary>
+    /// Null on placeholder rows in <see cref="ContactStatus.Invited"/> — bound
+    /// at the <see cref="ContactStatus.Verified"/> transition. SQLite UNIQUE
+    /// allows multiple null rows, so concurrent placeholders coexist safely.</summary>
     [MaxLength(64)]
-    public required string X25519PublicKey { get; set; }
+    public string? X25519PublicKey { get; set; }
 
     /// <summary>Ed25519 public key (Base64) for signature verification.
-    /// Empty until the contact responds to the invitation.</summary>
+    /// Null on placeholder rows; bound at <see cref="ContactStatus.Verified"/>.</summary>
     [MaxLength(64)]
-    public required string Ed25519PublicKey { get; set; }
+    public string? Ed25519PublicKey { get; set; }
 
     /// <summary>True if this contact is the instance admin (creator).</summary>
     public bool IsAdmin { get; set; }

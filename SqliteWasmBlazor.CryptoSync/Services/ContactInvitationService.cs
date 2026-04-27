@@ -208,6 +208,9 @@ public class ContactInvitationService(
             ?? throw new InvalidOperationException(
                 "ContactInvitationService: no admin TrustedContact found in local DB. " +
                 "AcceptInvitationResponseAsync must run on a fully bootstrapped admin device.");
+        var adminEd25519PublicKey = adminContact.Ed25519PublicKey
+            ?? throw new InvalidOperationException(
+                "ContactInvitationService: admin TrustedContact has null Ed25519PublicKey — bootstrap invariant violated.");
 
         var contactSelfTarget = new ShareTarget
         {
@@ -300,7 +303,7 @@ public class ContactInvitationService(
             WrappedContentKey = CryptoSyncBootstrap.SerializeWrappedCek(newMemberWrappedCek.WrappedContentKey),
             Role = systemRole,
             AdminSignature = systemTargetSig,
-            GroupAdminEd25519PublicKey = adminContact.Ed25519PublicKey,
+            GroupAdminEd25519PublicKey = adminEd25519PublicKey,
             GrantedByContactId = adminContact.Id,
             UpdatedAt = now,
             SharingScope = SharingScope.PUBLIC,
