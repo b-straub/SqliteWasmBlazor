@@ -37,8 +37,7 @@ public class GroupServiceTests : IAsyncLifetime
             .GetByEd25519PublicKeyAsync(_scenario.Admin.Keys.Ed25519PublicKey);
 
         var group = await _scenario.Admin.Groups.CreateGroupAsync(
-            AdminPrivateKey,
-            _scenario.Admin.Keys.X25519PublicKey,
+            _scenario.Admin.Keys,
             [
                 (_scenario.Admin.Keys.X25519PublicKey, SyncRole.OWNER, adminContact!.Id),
                 (_scenario.User.Keys.X25519PublicKey, SyncRole.EDITOR, adminContact.Id)
@@ -64,8 +63,7 @@ public class GroupServiceTests : IAsyncLifetime
             .GetByEd25519PublicKeyAsync(_scenario.Admin.Keys.Ed25519PublicKey);
 
         var group = await _scenario.Admin.Groups.CreateGroupAsync(
-            AdminPrivateKey,
-            _scenario.Admin.Keys.X25519PublicKey,
+            _scenario.Admin.Keys,
             [
                 (_scenario.Admin.Keys.X25519PublicKey, SyncRole.OWNER, adminContact!.Id),
                 (_scenario.User.Keys.X25519PublicKey, SyncRole.EDITOR, adminContact.Id)
@@ -133,7 +131,7 @@ public class GroupServiceTests : IAsyncLifetime
 
         await _scenario.Admin.Groups.AddMembersAsync(
             systemGroup.Id,
-            AdminPrivateKey,
+            _scenario.Admin.Keys,
             [(thirdActor.Keys.X25519PublicKey, SyncRole.VIEWER, adminContact!.Id)]);
 
         var members = await _scenario.Admin.Groups.GetMembersAsync(systemGroup.Id);
@@ -157,8 +155,7 @@ public class GroupServiceTests : IAsyncLifetime
         await using var charlie = await TestActor.CreateAsync("Charlie", false, 200, crypto);
 
         var group = await _scenario.Admin.Groups.CreateGroupAsync(
-            AdminPrivateKey,
-            _scenario.Admin.Keys.X25519PublicKey,
+            _scenario.Admin.Keys,
             [
                 (_scenario.Admin.Keys.X25519PublicKey, SyncRole.OWNER, adminContact!.Id),
                 (_scenario.User.Keys.X25519PublicKey, SyncRole.EDITOR, adminContact.Id),
@@ -170,7 +167,7 @@ public class GroupServiceTests : IAsyncLifetime
 
         // Remove Charlie
         var newVersion = await _scenario.Admin.Groups.RemoveMemberAsync(
-            group.Id, AdminPrivateKey, charlie.Keys.X25519PublicKey);
+            group.Id, _scenario.Admin.Keys, charlie.Keys.X25519PublicKey);
 
         Assert.Equal(2, newVersion);
 
@@ -198,8 +195,7 @@ public class GroupServiceTests : IAsyncLifetime
             .GetByEd25519PublicKeyAsync(_scenario.Admin.Keys.Ed25519PublicKey);
 
         var group = await _scenario.Admin.Groups.CreateGroupAsync(
-            AdminPrivateKey,
-            _scenario.Admin.Keys.X25519PublicKey,
+            _scenario.Admin.Keys,
             [
                 (_scenario.Admin.Keys.X25519PublicKey, SyncRole.OWNER, adminContact!.Id),
                 (_scenario.User.Keys.X25519PublicKey, SyncRole.EDITOR, adminContact.Id)
@@ -217,7 +213,7 @@ public class GroupServiceTests : IAsyncLifetime
 
         // Remove user → rotate
         await _scenario.Admin.Groups.RemoveMemberAsync(
-            group.Id, AdminPrivateKey, _scenario.User.Keys.X25519PublicKey);
+            group.Id, _scenario.Admin.Keys, _scenario.User.Keys.X25519PublicKey);
 
         // Get v2 CEK
         await _scenario.Admin.Context.Entry(group).ReloadAsync();
@@ -242,7 +238,7 @@ public class GroupServiceTests : IAsyncLifetime
 
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
             _scenario.Admin.Groups.RemoveMemberAsync(
-                systemGroup.Id, AdminPrivateKey, "nonexistent-key").AsTask());
+                systemGroup.Id, _scenario.Admin.Keys, "nonexistent-key").AsTask());
     }
 
     // ----------------------------------------------------------------
@@ -261,6 +257,141 @@ public class GroupServiceTests : IAsyncLifetime
         var members = await _scenario.Admin.Groups.GetMembersAsync(systemGroup.Id);
         var userTarget = members.Single(m => m.MemberPublicKey == _scenario.User.Keys.X25519PublicKey);
         Assert.Equal(SyncRole.EDITOR, userTarget.Role);
+    }
+
+    // ----------------------------------------------------------------
+    // SHARETARGET CREDENTIAL SIGNATURES
+    //
+    // Every ShareTarget written by GroupService must carry an AdminSignature
+    // verifiable against the admin's Ed25519 public key. The worker's
+    // resolveSenderPermissions hard-rejects ShareTargets with empty
+    // AdminSignature (crypto-ops.ts:471-481), so missing signatures here
+    // would silently break sync after rotation.
+    // ----------------------------------------------------------------
+
+    [Fact]
+    public async Task CreateGroup_NewTargetsCarryValidAdminSignature()
+    {
+        var adminContact = await _scenario.Admin.Contacts
+            .GetByEd25519PublicKeyAsync(_scenario.Admin.Keys.Ed25519PublicKey);
+
+        var group = await _scenario.Admin.Groups.CreateGroupAsync(
+            _scenario.Admin.Keys,
+            [
+                (_scenario.Admin.Keys.X25519PublicKey, SyncRole.OWNER, adminContact!.Id),
+                (_scenario.User.Keys.X25519PublicKey, SyncRole.EDITOR, adminContact.Id)
+            ],
+            "sig-create:v1");
+
+        var signer = new DeclarationSigner(_scenario.Crypto);
+        var members = await _scenario.Admin.Groups.GetMembersAsync(group.Id);
+
+        Assert.Equal(2, members.Count);
+        foreach (var target in members)
+        {
+            Assert.NotEmpty(target.AdminSignature);
+            Assert.Equal(_scenario.Admin.Keys.Ed25519PublicKey, target.GroupAdminEd25519PublicKey);
+
+            var ok = await signer.VerifyShareTargetAsync(
+                target.GroupAdminEd25519PublicKey,
+                target.MemberPublicKey,
+                target.Role,
+                group.GroupContext,
+                target.KeyVersion,
+                target.AdminSignature);
+            Assert.True(ok, $"AdminSignature on member {target.MemberPublicKey} did not verify");
+        }
+    }
+
+    [Fact]
+    public async Task AddMembers_NewTargetsCarryValidAdminSignature()
+    {
+        var systemGroup = await _scenario.Admin.Context.ShareGroups
+            .SingleAsync(g => g.GroupContext == CryptoSyncBootstrap.SystemGroupContext);
+
+        await using var charlie = await TestActor.CreateAsync("Charlie", false, 200, _scenario.Crypto);
+        var charlieContact = new TrustedContact
+        {
+            Id = Guid.NewGuid(),
+            Username = "Charlie",
+            Email = "charlie@test.com",
+            X25519PublicKey = charlie.Keys.X25519PublicKey,
+            Ed25519PublicKey = charlie.Keys.Ed25519PublicKey,
+            IsAdmin = false,
+            UpdatedAt = DateTime.UtcNow,
+            SharingScope = SharingScope.PUBLIC,
+            SharingId = CryptoSyncBootstrap.SystemSharingId
+        };
+        _scenario.Admin.Context.Contacts.Add(charlieContact);
+        await _scenario.Admin.Context.SaveChangesAsync();
+
+        var adminContact = await _scenario.Admin.Contacts
+            .GetByEd25519PublicKeyAsync(_scenario.Admin.Keys.Ed25519PublicKey);
+
+        await _scenario.Admin.Groups.AddMembersAsync(
+            systemGroup.Id,
+            _scenario.Admin.Keys,
+            [(charlie.Keys.X25519PublicKey, SyncRole.VIEWER, adminContact!.Id)]);
+
+        var charlieTarget = await _scenario.Admin.Context.ShareTargets
+            .SingleAsync(t => t.ShareGroupId == systemGroup.Id
+                && t.MemberPublicKey == charlie.Keys.X25519PublicKey
+                && t.KeyVersion == systemGroup.KeyVersion);
+
+        Assert.NotEmpty(charlieTarget.AdminSignature);
+        Assert.Equal(_scenario.Admin.Keys.Ed25519PublicKey, charlieTarget.GroupAdminEd25519PublicKey);
+
+        var signer = new DeclarationSigner(_scenario.Crypto);
+        var ok = await signer.VerifyShareTargetAsync(
+            charlieTarget.GroupAdminEd25519PublicKey,
+            charlieTarget.MemberPublicKey,
+            charlieTarget.Role,
+            systemGroup.GroupContext,
+            charlieTarget.KeyVersion,
+            charlieTarget.AdminSignature);
+        Assert.True(ok);
+    }
+
+    [Fact]
+    public async Task RemoveMember_NewTargetsCarryValidAdminSignature()
+    {
+        var adminContact = await _scenario.Admin.Contacts
+            .GetByEd25519PublicKeyAsync(_scenario.Admin.Keys.Ed25519PublicKey);
+        await using var charlie = await TestActor.CreateAsync("Charlie", false, 200, _scenario.Crypto);
+
+        var group = await _scenario.Admin.Groups.CreateGroupAsync(
+            _scenario.Admin.Keys,
+            [
+                (_scenario.Admin.Keys.X25519PublicKey, SyncRole.OWNER, adminContact!.Id),
+                (_scenario.User.Keys.X25519PublicKey, SyncRole.EDITOR, adminContact.Id),
+                (charlie.Keys.X25519PublicKey, SyncRole.VIEWER, adminContact.Id)
+            ],
+            "sig-rotate:v1");
+
+        var newVersion = await _scenario.Admin.Groups.RemoveMemberAsync(
+            group.Id, _scenario.Admin.Keys, charlie.Keys.X25519PublicKey);
+
+        await _scenario.Admin.Context.Entry(group).ReloadAsync();
+        var rotatedTargets = await _scenario.Admin.Context.ShareTargets
+            .Where(t => t.ShareGroupId == group.Id && t.KeyVersion == newVersion)
+            .ToListAsync();
+
+        Assert.Equal(2, rotatedTargets.Count);
+        var signer = new DeclarationSigner(_scenario.Crypto);
+        foreach (var target in rotatedTargets)
+        {
+            Assert.NotEmpty(target.AdminSignature);
+            Assert.Equal(_scenario.Admin.Keys.Ed25519PublicKey, target.GroupAdminEd25519PublicKey);
+
+            var ok = await signer.VerifyShareTargetAsync(
+                target.GroupAdminEd25519PublicKey,
+                target.MemberPublicKey,
+                target.Role,
+                group.GroupContext,
+                target.KeyVersion,
+                target.AdminSignature);
+            Assert.True(ok, $"Rotated AdminSignature on {target.MemberPublicKey} did not verify");
+        }
     }
 
     // ----------------------------------------------------------------

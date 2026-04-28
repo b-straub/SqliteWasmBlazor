@@ -1,3 +1,4 @@
+using SqliteWasmBlazor.Crypto.Abstractions.Models;
 using SqliteWasmBlazor.Crypto.Abstractions.Services;
 using Microsoft.EntityFrameworkCore;
 
@@ -8,77 +9,101 @@ namespace SqliteWasmBlazor.CryptoSync;
 /// <see cref="IGroupEncryption"/> crypto primitives with EF Core persistence.
 ///
 /// <para>
-/// All control-plane operations are admin-only. The admin's X25519 private key
-/// is required for every operation because the CEK wrapping key is derived via
-/// ECDH(adminPrivate, adminPublic) + HKDF(groupContext).
+/// All control-plane operations are admin-only. Every operation takes the
+/// admin's <see cref="DualKeyPairFull"/> because the CEK wrapping key is
+/// derived via ECDH(adminX25519Priv, adminX25519Pub) + HKDF(groupContext),
+/// AND every new <see cref="ShareTarget"/> row is signed with the admin's
+/// Ed25519 private key so receivers can verify the credential against the
+/// admin's public key (the worker rejects unsigned ShareTargets at
+/// <c>resolveSenderPermissions</c>).
 /// </para>
 /// </summary>
-public class GroupService(CryptoSyncContextBase context, IGroupEncryption groupEncryption)
+public class GroupService(
+    CryptoSyncContextBase context,
+    IGroupEncryption groupEncryption,
+    DeclarationSigner signer)
 {
     /// <summary>
     /// Create a new sharing group with a random CEK wrapped for each member.
-    /// Returns the persisted <see cref="ShareGroup"/> with its <see cref="ShareTarget"/> rows.
+    /// Each new <see cref="ShareTarget"/> carries an Ed25519 credential
+    /// signed by the admin so the receiver's permission resolver accepts it.
     /// </summary>
     public async ValueTask<ShareGroup> CreateGroupAsync(
-        ReadOnlyMemory<byte> adminPrivateKey,
-        string adminPublicKey,
+        DualKeyPairFull adminKeys,
         IReadOnlyList<(string X25519PublicKey, SyncRole Role, Guid ContactId)> members,
         string groupContext)
     {
-        var memberPubKeys = members.Select(m => m.X25519PublicKey).ToList();
-        var result = await groupEncryption.CreateGroupKeysAsync(
-            adminPrivateKey, adminPublicKey, memberPubKeys, groupContext);
-
-        if (!result.Success)
+        var x25519Priv = Convert.FromBase64String(adminKeys.X25519PrivateKey);
+        var ed25519Priv = Convert.FromBase64String(adminKeys.Ed25519PrivateKey);
+        try
         {
-            throw new InvalidOperationException($"CreateGroupKeys failed: {result.ErrorCode}");
-        }
+            var memberPubKeys = members.Select(m => m.X25519PublicKey).ToList();
+            var result = await groupEncryption.CreateGroupKeysAsync(
+                x25519Priv, adminKeys.X25519PublicKey, memberPubKeys, groupContext);
 
-        var bundle = result.Value!;
-        var group = new ShareGroup
-        {
-            Id = Guid.NewGuid(),
-            GroupContext = groupContext,
-            KeyVersion = 1,
-            GroupAdminPublicKey = adminPublicKey,
-            CreatedAt = DateTime.UtcNow,
-            UpdatedAt = DateTime.UtcNow,
-            SharingScope = SharingScope.PUBLIC,
-            SharingId = CryptoSyncBootstrap.SystemSharingId
-        };
+            if (!result.Success)
+            {
+                throw new InvalidOperationException($"CreateGroupKeys failed: {result.ErrorCode}");
+            }
 
-        context.ShareGroups.Add(group);
-
-        for (var i = 0; i < members.Count; i++)
-        {
-            var member = members[i];
-            var wrappedKey = bundle.MemberKeys[i];
-
-            context.ShareTargets.Add(new ShareTarget
+            var bundle = result.Value!;
+            var group = new ShareGroup
             {
                 Id = Guid.NewGuid(),
-                ShareGroupId = group.Id,
-                KeyVersion = group.KeyVersion,
-                MemberPublicKey = member.X25519PublicKey,
-                WrappedContentKey = CryptoSyncBootstrap.SerializeWrappedCek(wrappedKey.WrappedContentKey),
-                Role = member.Role,
-                GrantedByContactId = member.ContactId,
+                GroupContext = groupContext,
+                KeyVersion = 1,
+                GroupAdminPublicKey = adminKeys.X25519PublicKey,
+                CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow,
                 SharingScope = SharingScope.PUBLIC,
                 SharingId = CryptoSyncBootstrap.SystemSharingId
-            });
-        }
+            };
 
-        await context.SaveChangesAsync();
-        return group;
+            context.ShareGroups.Add(group);
+
+            for (var i = 0; i < members.Count; i++)
+            {
+                var member = members[i];
+                var wrappedKey = bundle.MemberKeys[i];
+                var credSig = await signer.SignShareTargetAsync(
+                    ed25519Priv, member.X25519PublicKey, member.Role,
+                    groupContext, group.KeyVersion);
+
+                context.ShareTargets.Add(new ShareTarget
+                {
+                    Id = Guid.NewGuid(),
+                    ShareGroupId = group.Id,
+                    KeyVersion = group.KeyVersion,
+                    MemberPublicKey = member.X25519PublicKey,
+                    WrappedContentKey = CryptoSyncBootstrap.SerializeWrappedCek(wrappedKey.WrappedContentKey),
+                    Role = member.Role,
+                    AdminSignature = credSig,
+                    GroupAdminEd25519PublicKey = adminKeys.Ed25519PublicKey,
+                    GrantedByContactId = member.ContactId,
+                    UpdatedAt = DateTime.UtcNow,
+                    SharingScope = SharingScope.PUBLIC,
+                    SharingId = CryptoSyncBootstrap.SystemSharingId
+                });
+            }
+
+            await context.SaveChangesAsync();
+            return group;
+        }
+        finally
+        {
+            System.Security.Cryptography.CryptographicOperations.ZeroMemory(x25519Priv);
+            System.Security.Cryptography.CryptographicOperations.ZeroMemory(ed25519Priv);
+        }
     }
 
     /// <summary>
-    /// Add new members to an existing group by wrapping the current CEK for them.
+    /// Add new members to an existing group by wrapping the current CEK for
+    /// them. Each new <see cref="ShareTarget"/> carries an Ed25519 credential
+    /// signed by the admin.
     /// </summary>
     public async ValueTask AddMembersAsync(
         Guid groupId,
-        ReadOnlyMemory<byte> adminPrivateKey,
+        DualKeyPairFull adminKeys,
         IReadOnlyList<(string X25519PublicKey, SyncRole Role, Guid ContactId)> newMembers)
     {
         var group = await context.ShareGroups.FindAsync(groupId)
@@ -93,46 +118,64 @@ public class GroupService(CryptoSyncContextBase context, IGroupEncryption groupE
         var adminWrappedCek = CryptoSyncBootstrap.DeserializeWrappedCek(adminTarget.WrappedContentKey);
         var newPubKeys = newMembers.Select(m => m.X25519PublicKey).ToList();
 
-        var result = await groupEncryption.AddGroupMembersAsync(
-            adminPrivateKey, group.GroupAdminPublicKey, adminWrappedCek, newPubKeys, group.GroupContext);
-
-        if (!result.Success)
+        var x25519Priv = Convert.FromBase64String(adminKeys.X25519PrivateKey);
+        var ed25519Priv = Convert.FromBase64String(adminKeys.Ed25519PrivateKey);
+        try
         {
-            throw new InvalidOperationException($"AddGroupMembers failed: {result.ErrorCode}");
-        }
+            var result = await groupEncryption.AddGroupMembersAsync(
+                x25519Priv, group.GroupAdminPublicKey, adminWrappedCek, newPubKeys, group.GroupContext);
 
-        var wrappedKeys = result.Value!;
-        for (var i = 0; i < newMembers.Count; i++)
-        {
-            var member = newMembers[i];
-            context.ShareTargets.Add(new ShareTarget
+            if (!result.Success)
             {
-                Id = Guid.NewGuid(),
-                ShareGroupId = groupId,
-                KeyVersion = group.KeyVersion,
-                MemberPublicKey = member.X25519PublicKey,
-                WrappedContentKey = CryptoSyncBootstrap.SerializeWrappedCek(wrappedKeys[i].WrappedContentKey),
-                Role = member.Role,
-                GrantedByContactId = member.ContactId,
-                UpdatedAt = DateTime.UtcNow,
-                SharingScope = SharingScope.PUBLIC,
-                SharingId = CryptoSyncBootstrap.SystemSharingId
-            });
-        }
+                throw new InvalidOperationException($"AddGroupMembers failed: {result.ErrorCode}");
+            }
 
-        group.UpdatedAt = DateTime.UtcNow;
-        await context.SaveChangesAsync();
+            var wrappedKeys = result.Value!;
+            for (var i = 0; i < newMembers.Count; i++)
+            {
+                var member = newMembers[i];
+                var credSig = await signer.SignShareTargetAsync(
+                    ed25519Priv, member.X25519PublicKey, member.Role,
+                    group.GroupContext, group.KeyVersion);
+
+                context.ShareTargets.Add(new ShareTarget
+                {
+                    Id = Guid.NewGuid(),
+                    ShareGroupId = groupId,
+                    KeyVersion = group.KeyVersion,
+                    MemberPublicKey = member.X25519PublicKey,
+                    WrappedContentKey = CryptoSyncBootstrap.SerializeWrappedCek(wrappedKeys[i].WrappedContentKey),
+                    Role = member.Role,
+                    AdminSignature = credSig,
+                    GroupAdminEd25519PublicKey = adminKeys.Ed25519PublicKey,
+                    GrantedByContactId = member.ContactId,
+                    UpdatedAt = DateTime.UtcNow,
+                    SharingScope = SharingScope.PUBLIC,
+                    SharingId = CryptoSyncBootstrap.SystemSharingId
+                });
+            }
+
+            group.UpdatedAt = DateTime.UtcNow;
+            await context.SaveChangesAsync();
+        }
+        finally
+        {
+            System.Security.Cryptography.CryptographicOperations.ZeroMemory(x25519Priv);
+            System.Security.Cryptography.CryptographicOperations.ZeroMemory(ed25519Priv);
+        }
     }
 
     /// <summary>
-    /// Remove a member from a group. Rotates the CEK (increments key version) and
-    /// re-wraps for remaining members. The removed member's old ShareTargets stay
-    /// (for historical decryption) but no new-version target is issued.
+    /// Remove a member from a group. Rotates the CEK (increments key version)
+    /// and re-wraps for remaining members. The removed member's old
+    /// ShareTargets stay (for historical decryption) but no new-version target
+    /// is issued. Each rotated <see cref="ShareTarget"/> carries an Ed25519
+    /// credential signed by the admin.
     /// </summary>
     /// <returns>The new key version after rotation.</returns>
     public async ValueTask<int> RemoveMemberAsync(
         Guid groupId,
-        ReadOnlyMemory<byte> adminPrivateKey,
+        DualKeyPairFull adminKeys,
         string memberToRemovePublicKey)
     {
         var group = await context.ShareGroups.FindAsync(groupId)
@@ -158,39 +201,55 @@ public class GroupService(CryptoSyncContextBase context, IGroupEncryption groupE
         var newKeyVersion = group.KeyVersion + 1;
         var newGroupContext = IncrementGroupContextVersion(group.GroupContext, newKeyVersion);
 
-        var result = await groupEncryption.RotateGroupKeyAsync(
-            adminPrivateKey, group.GroupAdminPublicKey, remainingPubKeys, newGroupContext);
-
-        if (!result.Success)
+        var x25519Priv = Convert.FromBase64String(adminKeys.X25519PrivateKey);
+        var ed25519Priv = Convert.FromBase64String(adminKeys.Ed25519PrivateKey);
+        try
         {
-            throw new InvalidOperationException($"RotateGroupKey failed: {result.ErrorCode}");
-        }
+            var result = await groupEncryption.RotateGroupKeyAsync(
+                x25519Priv, group.GroupAdminPublicKey, remainingPubKeys, newGroupContext);
 
-        var bundle = result.Value!;
-        group.KeyVersion = newKeyVersion;
-        group.GroupContext = newGroupContext;
-        group.UpdatedAt = DateTime.UtcNow;
-
-        for (var i = 0; i < remainingTargets.Count; i++)
-        {
-            var oldTarget = remainingTargets[i];
-            context.ShareTargets.Add(new ShareTarget
+            if (!result.Success)
             {
-                Id = Guid.NewGuid(),
-                ShareGroupId = groupId,
-                KeyVersion = newKeyVersion,
-                MemberPublicKey = oldTarget.MemberPublicKey,
-                WrappedContentKey = CryptoSyncBootstrap.SerializeWrappedCek(bundle.MemberKeys[i].WrappedContentKey),
-                Role = oldTarget.Role,
-                GrantedByContactId = oldTarget.GrantedByContactId,
-                UpdatedAt = DateTime.UtcNow,
-                SharingScope = SharingScope.PUBLIC,
-                SharingId = CryptoSyncBootstrap.SystemSharingId
-            });
-        }
+                throw new InvalidOperationException($"RotateGroupKey failed: {result.ErrorCode}");
+            }
 
-        await context.SaveChangesAsync();
-        return newKeyVersion;
+            var bundle = result.Value!;
+            group.KeyVersion = newKeyVersion;
+            group.GroupContext = newGroupContext;
+            group.UpdatedAt = DateTime.UtcNow;
+
+            for (var i = 0; i < remainingTargets.Count; i++)
+            {
+                var oldTarget = remainingTargets[i];
+                var credSig = await signer.SignShareTargetAsync(
+                    ed25519Priv, oldTarget.MemberPublicKey, oldTarget.Role,
+                    newGroupContext, newKeyVersion);
+
+                context.ShareTargets.Add(new ShareTarget
+                {
+                    Id = Guid.NewGuid(),
+                    ShareGroupId = groupId,
+                    KeyVersion = newKeyVersion,
+                    MemberPublicKey = oldTarget.MemberPublicKey,
+                    WrappedContentKey = CryptoSyncBootstrap.SerializeWrappedCek(bundle.MemberKeys[i].WrappedContentKey),
+                    Role = oldTarget.Role,
+                    AdminSignature = credSig,
+                    GroupAdminEd25519PublicKey = adminKeys.Ed25519PublicKey,
+                    GrantedByContactId = oldTarget.GrantedByContactId,
+                    UpdatedAt = DateTime.UtcNow,
+                    SharingScope = SharingScope.PUBLIC,
+                    SharingId = CryptoSyncBootstrap.SystemSharingId
+                });
+            }
+
+            await context.SaveChangesAsync();
+            return newKeyVersion;
+        }
+        finally
+        {
+            System.Security.Cryptography.CryptographicOperations.ZeroMemory(x25519Priv);
+            System.Security.Cryptography.CryptographicOperations.ZeroMemory(ed25519Priv);
+        }
     }
 
     /// <summary>

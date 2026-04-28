@@ -56,7 +56,7 @@ public sealed class TestActor : IAsyncDisposable
         var groupEncryption = new GroupEncryptionService(crypto);
         Invitations = new ContactInvitationService(context, groupEncryption, crypto, declarationSigner);
         Bootstrap = new CryptoSyncBootstrap(groupEncryption, declarationSigner);
-        Groups = new GroupService(context, groupEncryption);
+        Groups = new GroupService(context, groupEncryption, declarationSigner);
         Gate = new SyncGate(Contacts);
     }
 
