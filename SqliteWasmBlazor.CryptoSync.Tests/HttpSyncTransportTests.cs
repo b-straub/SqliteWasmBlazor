@@ -202,6 +202,48 @@ public class HttpSyncTransportTests
             async () => await transport.TryReceiveAsync());
     }
 
+    [Fact]
+    public async Task TryReceiveAsync_PersistsCursorThroughStore()
+    {
+        var store = new InMemoryReceiveCursorStore();
+        var handler = new StubHttpMessageHandler
+        {
+            Responder = _ => JsonOk($$"""
+                {
+                  "cursor": 42,
+                  "envelopes": [
+                    {"cursor": 42, "envelope": "{{Convert.ToBase64String([0xAA])}}"}
+                  ]
+                }
+                """)
+        };
+        using var client = new HttpClient(handler);
+        var transport = new HttpSyncTransport(client, RelayBase, NewSigner(), store);
+
+        await transport.TryReceiveAsync(); // drains 0xAA, advances cursor
+
+        Assert.Equal(42L, await store.LoadAsync());
+    }
+
+    [Fact]
+    public async Task TryReceiveAsync_ResumesFromPersistedCursor()
+    {
+        var store = new InMemoryReceiveCursorStore();
+        await store.SaveAsync(99);
+
+        var handler = new StubHttpMessageHandler
+        {
+            Responder = _ => JsonOk("""{"cursor":99,"envelopes":[]}""")
+        };
+        using var client = new HttpClient(handler);
+        var transport = new HttpSyncTransport(client, RelayBase, NewSigner(), store);
+
+        await transport.TryReceiveAsync();
+
+        var query = QueryOf(handler.Requests[0].RequestUri);
+        Assert.Equal("99", query["since"]);
+    }
+
     private static StubReceiveAuthSigner NewSigner() => new()
     {
         OwnEd25519PublicKeyBase64 = AlicePub,

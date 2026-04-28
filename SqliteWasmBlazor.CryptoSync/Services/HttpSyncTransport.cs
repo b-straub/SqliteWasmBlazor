@@ -27,19 +27,22 @@ namespace SqliteWasmBlazor.CryptoSync;
 /// </list>
 ///
 /// <para>
-/// <b>Cursor state.</b> <see cref="_lastCursor"/> is in-memory; refilled
-/// envelopes drain through <see cref="_buffer"/> one at a time per
-/// <see cref="ISyncTransport.TryReceiveAsync"/> call. TODO: persist the
-/// cursor (e.g. into a small OPFS row) so a reload doesn't replay.
+/// <b>Cursor state.</b> Persisted via <see cref="IReceiveCursorStore"/> —
+/// <see cref="InMemoryReceiveCursorStore"/> is the default (tests + dev);
+/// production hosts swap in an OPFS-backed impl so a reload doesn't
+/// replay envelopes. Refilled envelopes drain through <see cref="_buffer"/>
+/// one at a time per <see cref="ISyncTransport.TryReceiveAsync"/> call.
 /// </para>
 /// </summary>
 public sealed class HttpSyncTransport(
     HttpClient httpClient,
     Uri relayBaseUri,
-    IReceiveAuthSigner authSigner) : ISyncTransport
+    IReceiveAuthSigner authSigner,
+    IReceiveCursorStore? cursorStore = null) : ISyncTransport
 {
     private readonly Queue<byte[]> _buffer = new();
-    private long _lastCursor;
+    private readonly IReceiveCursorStore _cursorStore = cursorStore ?? new InMemoryReceiveCursorStore();
+    private long? _cachedCursor;
 
     public async ValueTask SendAsync(
         byte[] envelope,
@@ -92,10 +95,12 @@ public sealed class HttpSyncTransport(
             .SignReceiveChallengeAsync($"{timestamp}|{pubKey}", cancellationToken)
             .ConfigureAwait(false);
 
+        var cursor = _cachedCursor ??= await _cursorStore.LoadAsync(cancellationToken).ConfigureAwait(false);
+
         var endpoint = new Uri(
             relayBaseUri,
             $"api/delta?recipient={Uri.EscapeDataString(pubKey)}"
-            + $"&since={_lastCursor.ToString(CultureInfo.InvariantCulture)}");
+            + $"&since={cursor.ToString(CultureInfo.InvariantCulture)}");
 
         using var request = new HttpRequestMessage(HttpMethod.Get, endpoint);
         request.Headers.Add("X-Timestamp", timestamp);
@@ -114,18 +119,25 @@ public sealed class HttpSyncTransport(
             ?? throw new InvalidOperationException(
                 "HttpSyncTransport: empty response body from delta relay");
 
+        var newCursor = cursor;
         foreach (var item in dto.Envelopes)
         {
             _buffer.Enqueue(Convert.FromBase64String(item.Envelope));
-            if (item.Cursor > _lastCursor)
+            if (item.Cursor > newCursor)
             {
-                _lastCursor = item.Cursor;
+                newCursor = item.Cursor;
             }
         }
 
-        if (dto.Cursor > _lastCursor)
+        if (dto.Cursor > newCursor)
         {
-            _lastCursor = dto.Cursor;
+            newCursor = dto.Cursor;
+        }
+
+        if (newCursor != cursor)
+        {
+            _cachedCursor = newCursor;
+            await _cursorStore.SaveAsync(newCursor, cancellationToken).ConfigureAwait(false);
         }
     }
 }
