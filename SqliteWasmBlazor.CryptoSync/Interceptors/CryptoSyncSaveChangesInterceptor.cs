@@ -125,10 +125,13 @@ public sealed class CryptoSyncSaveChangesInterceptor : SaveChangesInterceptor
 
         entity.UpdatedAt = now;
 
-        // STEP 1 — system-table short-circuit. [SystemTable] entities always
-        // route via the system CEK, regardless of SharingScope. This closes
+        // STEP 1 — system-table short-circuit. [SystemTable] entities default
+        // to riding the system CEK regardless of SharingScope. This closes
         // the circular dep where a self-group's own ShareGroup row would
         // otherwise need the self-CEK to encrypt its own transport shadow.
+        // Caller may opt out by pre-assigning SharingId before SaveChanges
+        // (Invitation rows ride the invitation share group's CEK, so they
+        // need that override).
         var clrType = entity.GetType();
         if (HasSystemTableAttribute(clrType))
         {
@@ -142,7 +145,10 @@ public sealed class CryptoSyncSaveChangesInterceptor : SaveChangesInterceptor
                     $"exclusive — system tables route via the system CEK, parent-inherited " +
                     $"entities route via their parent's group.");
             }
-            entity.SharingId = CryptoSyncBootstrap.SystemSharingId;
+            if (string.IsNullOrEmpty(entity.SharingId))
+            {
+                entity.SharingId = CryptoSyncBootstrap.SystemSharingId;
+            }
             return;
         }
 

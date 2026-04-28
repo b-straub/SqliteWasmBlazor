@@ -27,6 +27,7 @@ public sealed class TestActor : IAsyncDisposable
     public TestSyncContext Context { get; }
 
     public ContactService Contacts { get; }
+    public ContactInvitationService Invitations { get; }
     public DeviceIdentityService DeviceIdentity { get; }
     public CryptoSyncBootstrap Bootstrap { get; }
     public GroupService Groups { get; }
@@ -52,8 +53,10 @@ public sealed class TestActor : IAsyncDisposable
         DeviceIdentity = new DeviceIdentityService(context);
         Contacts = new ContactService(context);
         var declarationSigner = new DeclarationSigner(crypto);
-        Bootstrap = new CryptoSyncBootstrap(new GroupEncryptionService(crypto), declarationSigner);
-        Groups = new GroupService(context, new GroupEncryptionService(crypto));
+        var groupEncryption = new GroupEncryptionService(crypto);
+        Invitations = new ContactInvitationService(context, groupEncryption, crypto, declarationSigner);
+        Bootstrap = new CryptoSyncBootstrap(groupEncryption, declarationSigner);
+        Groups = new GroupService(context, groupEncryption);
         Gate = new SyncGate(Contacts);
     }
 

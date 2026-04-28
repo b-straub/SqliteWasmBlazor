@@ -141,6 +141,242 @@ public class ContactInvitationService(
     }
 
     /// <summary>
+    /// Default invitation TTL. Bundles past <c>UtcNow + DefaultInvitationTtl</c>
+    /// from <see cref="CreateInvitationAsync"/> are rejected on response.
+    /// </summary>
+    public static readonly TimeSpan DefaultInvitationTtl = TimeSpan.FromHours(24);
+
+    /// <summary>
+    /// Admin-side: create an invitation channel for a new contact. Generates
+    /// a 32-byte transport secret, derives the transport keypair, builds a
+    /// <see cref="ShareGroup"/> with admin + transport pubkey as members, and
+    /// inserts an <see cref="Invitation"/> row that rides that group's CEK.
+    /// Returns the <see cref="InvitationBundle"/> the admin ships out-of-band.
+    ///
+    /// <para>
+    /// The transport secret IS the invitee's X25519 private key for the
+    /// duration of the bootstrap channel — that's intrinsic to OOB delivery.
+    /// On the wire the row's contents are opaque to anyone outside the
+    /// invitation share group.
+    /// </para>
+    /// </summary>
+    public async ValueTask<InvitationBundle> CreateInvitationAsync(
+        DualKeyPairFull adminKeys,
+        string username,
+        string? email = null,
+        string? comment = null,
+        string? relayHint = null,
+        TimeSpan? ttl = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(username);
+
+        var now = DateTime.UtcNow;
+        var expiresAt = now + (ttl ?? DefaultInvitationTtl);
+        var groupId = Guid.NewGuid();
+        var groupContext = $"invitation-{groupId:N}:v1";
+
+        // Generate transport secret + derive transport keypair.
+        var transportSecret = System.Security.Cryptography.RandomNumberGenerator.GetBytes(32);
+        var transportKeyPair = await crypto.DeriveX25519KeyPairAsync(transportSecret).ConfigureAwait(false);
+        var transportPub = transportKeyPair.PublicKeyBase64;
+
+        // Create the invitation share group with admin + transportPub as members.
+        var adminPriv = Convert.FromBase64String(adminKeys.X25519PrivateKey);
+        IReadOnlyList<WrappedKey> wrappedKeys;
+        int keyVersion;
+        try
+        {
+            var bundleResult = await groupEncryption.CreateGroupKeysAsync(
+                adminPriv, adminKeys.X25519PublicKey,
+                [adminKeys.X25519PublicKey, transportPub],
+                groupContext);
+            if (!bundleResult.Success)
+            {
+                throw new InvalidOperationException(
+                    $"ContactInvitationService.CreateInvitationAsync: CreateGroupKeysAsync failed: {bundleResult.ErrorCode}");
+            }
+            var bundle = bundleResult.Value
+                ?? throw new InvalidOperationException(
+                    "ContactInvitationService.CreateInvitationAsync: CreateGroupKeysAsync returned null bundle");
+            wrappedKeys = bundle.MemberKeys;
+            keyVersion = bundle.KeyVersion;
+        }
+        finally
+        {
+            System.Security.Cryptography.CryptographicOperations.ZeroMemory(adminPriv);
+        }
+
+        var adminWrapped = wrappedKeys.Single(k => k.MemberPublicKey == adminKeys.X25519PublicKey);
+        var transportWrapped = wrappedKeys.Single(k => k.MemberPublicKey == transportPub);
+
+        // Sign ShareTarget credentials with admin's Ed25519 key.
+        var adminEd25519Priv = Convert.FromBase64String(adminKeys.Ed25519PrivateKey);
+        byte[] adminTargetSig;
+        byte[] transportTargetSig;
+        byte[] bundleSignatureBytes;
+        try
+        {
+            adminTargetSig = await signer.SignShareTargetAsync(
+                adminEd25519Priv, adminKeys.X25519PublicKey, SyncRole.OWNER,
+                groupContext, keyVersion).ConfigureAwait(false);
+            transportTargetSig = await signer.SignShareTargetAsync(
+                adminEd25519Priv, transportPub, SyncRole.OWNER,
+                groupContext, keyVersion).ConfigureAwait(false);
+
+            // Sign bundle canonical: transportPub || GroupId.ToByteArray() || ExpiresAt.Ticks.
+            var canonicalBase64 = BuildBundleCanonical(transportPub, groupId, expiresAt);
+            var sigResult = await crypto.SignAsync(canonicalBase64, adminEd25519Priv).ConfigureAwait(false);
+            if (!sigResult.Success || sigResult.Value is null)
+            {
+                throw new InvalidOperationException(
+                    $"ContactInvitationService.CreateInvitationAsync: SignAsync failed: {sigResult.ErrorCode}");
+            }
+            bundleSignatureBytes = Convert.FromBase64String(sigResult.Value);
+        }
+        finally
+        {
+            System.Security.Cryptography.CryptographicOperations.ZeroMemory(adminEd25519Priv);
+        }
+
+        // Look up admin's contact id (for ShareTarget.GrantedByContactId).
+        var adminContact = await context.Contacts
+            .AsNoTracking()
+            .FirstOrDefaultAsync(c => c.IsAdmin, cancellationToken)
+            .ConfigureAwait(false)
+            ?? throw new InvalidOperationException(
+                "ContactInvitationService.CreateInvitationAsync: no admin TrustedContact found in local DB.");
+
+        // Persist ShareGroup + 2 ShareTargets + Invitation row in one transaction.
+        await using var tx = await context.Database
+            .BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+
+        context.ShareGroups.Add(new ShareGroup
+        {
+            Id = groupId,
+            GroupContext = groupContext,
+            KeyVersion = keyVersion,
+            GroupAdminPublicKey = adminKeys.X25519PublicKey,
+            CreatedAt = now,
+            UpdatedAt = now,
+            SharingScope = SharingScope.PUBLIC,
+            SharingId = CryptoSyncBootstrap.SystemSharingId
+        });
+
+        context.ShareTargets.Add(new ShareTarget
+        {
+            Id = Guid.NewGuid(),
+            ShareGroupId = groupId,
+            KeyVersion = keyVersion,
+            MemberPublicKey = adminKeys.X25519PublicKey,
+            WrappedContentKey = CryptoSyncBootstrap.SerializeWrappedCek(adminWrapped.WrappedContentKey),
+            Role = SyncRole.OWNER,
+            AdminSignature = adminTargetSig,
+            GroupAdminEd25519PublicKey = adminKeys.Ed25519PublicKey,
+            GrantedByContactId = adminContact.Id,
+            UpdatedAt = now,
+            SharingScope = SharingScope.PUBLIC,
+            SharingId = CryptoSyncBootstrap.SystemSharingId
+        });
+
+        context.ShareTargets.Add(new ShareTarget
+        {
+            Id = Guid.NewGuid(),
+            ShareGroupId = groupId,
+            KeyVersion = keyVersion,
+            MemberPublicKey = transportPub,
+            WrappedContentKey = CryptoSyncBootstrap.SerializeWrappedCek(transportWrapped.WrappedContentKey),
+            Role = SyncRole.OWNER,
+            AdminSignature = transportTargetSig,
+            GroupAdminEd25519PublicKey = adminKeys.Ed25519PublicKey,
+            GrantedByContactId = adminContact.Id,
+            UpdatedAt = now,
+            SharingScope = SharingScope.PUBLIC,
+            SharingId = CryptoSyncBootstrap.SystemSharingId
+        });
+
+        context.Invitations.Add(new Invitation
+        {
+            Id = Guid.NewGuid(),
+            Username = username,
+            Email = email,
+            Comment = comment,
+            CreatedAt = now,
+            ExpiresAt = expiresAt,
+            UpdatedAt = now,
+            SharingScope = SharingScope.SHARED,
+            SharingId = groupContext
+        });
+
+        await context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        await tx.CommitAsync(cancellationToken).ConfigureAwait(false);
+
+        return new InvitationBundle
+        {
+            TransportSecret = transportSecret,
+            GroupId = groupId,
+            ExpiresAt = expiresAt,
+            AdminSignature = bundleSignatureBytes,
+            AdminEd25519PublicKey = adminKeys.Ed25519PublicKey,
+            RelayHint = relayHint
+        };
+    }
+
+    /// <summary>
+    /// Hard-delete invitations whose <see cref="Invitation.ExpiresAt"/> is in
+    /// the past. Cleans up the invitation share group + ShareTargets too.
+    /// </summary>
+    public async ValueTask DeleteExpiredInvitationsAsync(CancellationToken cancellationToken = default)
+    {
+        var now = DateTime.UtcNow;
+        var expired = await context.Invitations
+            .Where(i => i.ExpiresAt <= now)
+            .ToListAsync(cancellationToken).ConfigureAwait(false);
+
+        if (expired.Count == 0)
+        {
+            return;
+        }
+
+        foreach (var invitation in expired)
+        {
+            await DeleteInvitationChannelAsync(invitation, cancellationToken).ConfigureAwait(false);
+        }
+        await context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Hard-delete a single invitation by id (admin revoke). Removes the
+    /// invitation share group + both ShareTargets + the Invitation row.
+    /// </summary>
+    public async ValueTask RevokeInvitationAsync(Guid invitationId, CancellationToken cancellationToken = default)
+    {
+        var invitation = await context.Invitations
+            .FirstOrDefaultAsync(i => i.Id == invitationId, cancellationToken).ConfigureAwait(false)
+            ?? throw new InvalidOperationException(
+                $"ContactInvitationService.RevokeInvitationAsync: invitation {invitationId} not found.");
+        await DeleteInvitationChannelAsync(invitation, cancellationToken).ConfigureAwait(false);
+        await context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Build the canonical bytes the admin signs for the bundle:
+    /// <c>transportPub || GroupId.ToByteArray() || ExpiresAt.Ticks</c>,
+    /// returned as Base64 for the string-based crypto API.
+    /// </summary>
+    internal static string BuildBundleCanonical(string transportPub, Guid groupId, DateTime expiresAt)
+    {
+        var transportPubBytes = Convert.FromBase64String(transportPub);
+        var groupIdBytes = groupId.ToByteArray();
+        var ticks = BitConverter.GetBytes(expiresAt.Ticks);
+        var canonical = new byte[transportPubBytes.Length + groupIdBytes.Length + ticks.Length];
+        Buffer.BlockCopy(transportPubBytes, 0, canonical, 0, transportPubBytes.Length);
+        Buffer.BlockCopy(groupIdBytes, 0, canonical, transportPubBytes.Length, groupIdBytes.Length);
+        Buffer.BlockCopy(ticks, 0, canonical, transportPubBytes.Length + groupIdBytes.Length, ticks.Length);
+        return Convert.ToBase64String(canonical);
+    }
+
+    /// <summary>
     /// Contact-side: respond to an admin invitation by pulling the channel
     /// rows, filling in the Invitation row with the contact's identity, and
     /// pushing the modified row back through standard sync. Rewritten in
@@ -155,6 +391,23 @@ public class ContactInvitationService(
         CancellationToken cancellationToken = default)
     {
         throw new NotImplementedException("RespondToInvitationAsync is rewritten in commit 3 of the invitation pivot.");
+    }
+
+    private async ValueTask DeleteInvitationChannelAsync(Invitation invitation, CancellationToken cancellationToken)
+    {
+        var groupContext = invitation.SharingId;
+        var group = await context.ShareGroups
+            .FirstOrDefaultAsync(g => g.GroupContext == groupContext, cancellationToken)
+            .ConfigureAwait(false);
+        if (group is not null)
+        {
+            var targets = await context.ShareTargets
+                .Where(t => t.ShareGroupId == group.Id)
+                .ToListAsync(cancellationToken).ConfigureAwait(false);
+            context.ShareTargets.RemoveRange(targets);
+            context.ShareGroups.Remove(group);
+        }
+        context.Invitations.Remove(invitation);
     }
 
     /// <summary>

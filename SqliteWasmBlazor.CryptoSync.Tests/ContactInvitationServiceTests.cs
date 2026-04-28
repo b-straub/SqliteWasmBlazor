@@ -1,4 +1,5 @@
 using System.Reflection;
+using SqliteWasmBlazor.Crypto.Abstractions.Models;
 using SqliteWasmBlazor.Crypto.Abstractions.Services;
 using SqliteWasmBlazor.Crypto.Testing;
 using MessagePack;
@@ -283,6 +284,150 @@ public class ContactInvitationServiceTests : IAsyncLifetime
         {
             await newUser.DisposeAsync();
         }
+    }
+
+    // ----------------------------------------------------------------
+    // CreateInvitationAsync — admin-initiated invitation channel
+    // ----------------------------------------------------------------
+
+    [Fact]
+    public async Task CreateInvitationAsync_PersistsShareGroupAndTwoShareTargets()
+    {
+        var bundle = await _scenario.Admin.Invitations.CreateInvitationAsync(
+            _scenario.Admin.Keys, "Bob", "bob@test.com");
+
+        var groupContext = $"invitation-{bundle.GroupId:N}:v1";
+        var group = await _scenario.Admin.Context.ShareGroups
+            .SingleAsync(g => g.GroupContext == groupContext);
+        Assert.Equal(bundle.GroupId, group.Id);
+        Assert.Equal(_scenario.Admin.Keys.X25519PublicKey, group.GroupAdminPublicKey);
+
+        var targets = await _scenario.Admin.Context.ShareTargets
+            .Where(t => t.ShareGroupId == group.Id)
+            .ToListAsync();
+        Assert.Equal(2, targets.Count);
+        Assert.Contains(targets, t => t.MemberPublicKey == _scenario.Admin.Keys.X25519PublicKey);
+        // Other ShareTarget is for the transport pubkey, not yet known by name.
+        Assert.Single(targets, t => t.MemberPublicKey != _scenario.Admin.Keys.X25519PublicKey);
+    }
+
+    [Fact]
+    public async Task CreateInvitationAsync_PersistsInvitationRow_PendingState()
+    {
+        var bundle = await _scenario.Admin.Invitations.CreateInvitationAsync(
+            _scenario.Admin.Keys, "Bob", "bob@test.com", "Bob from accounting");
+
+        var groupContext = $"invitation-{bundle.GroupId:N}:v1";
+        var invitation = await _scenario.Admin.Context.Invitations
+            .SingleAsync(i => i.SharingId == groupContext);
+        Assert.Equal("Bob", invitation.Username);
+        Assert.Equal("bob@test.com", invitation.Email);
+        Assert.Equal("Bob from accounting", invitation.Comment);
+        Assert.Null(invitation.ContactX25519PublicKey);
+        Assert.Null(invitation.ContactEd25519PublicKey);
+        Assert.Null(invitation.ContactSignature);
+        Assert.Null(invitation.SelfGroupId);
+        Assert.Equal(SharingScope.SHARED, invitation.SharingScope);
+        Assert.Equal(bundle.ExpiresAt, invitation.ExpiresAt);
+    }
+
+    [Fact]
+    public async Task CreateInvitationAsync_TransportSecret_DerivesSameKeypairOnBothSides()
+    {
+        var bundle = await _scenario.Admin.Invitations.CreateInvitationAsync(
+            _scenario.Admin.Keys, "Bob");
+
+        // Admin re-derives the transport pubkey from the secret — must match
+        // the ShareTarget the admin just persisted.
+        var derived = await _scenario.Crypto.DeriveX25519KeyPairAsync(bundle.TransportSecret);
+
+        var groupContext = $"invitation-{bundle.GroupId:N}:v1";
+        var group = await _scenario.Admin.Context.ShareGroups
+            .SingleAsync(g => g.GroupContext == groupContext);
+        Assert.Contains(_scenario.Admin.Context.ShareTargets,
+            t => t.ShareGroupId == group.Id && t.MemberPublicKey == derived.PublicKeyBase64);
+    }
+
+    [Fact]
+    public async Task CreateInvitationAsync_BundleSignatureVerifiesAgainstAdminPubKey()
+    {
+        var bundle = await _scenario.Admin.Invitations.CreateInvitationAsync(
+            _scenario.Admin.Keys, "Bob");
+
+        var derived = await _scenario.Crypto.DeriveX25519KeyPairAsync(bundle.TransportSecret);
+        var canonical = ContactInvitationService.BuildBundleCanonical(
+            derived.PublicKeyBase64, bundle.GroupId, bundle.ExpiresAt);
+
+        var ok = await _scenario.Crypto.VerifyAsync(
+            canonical,
+            Convert.ToBase64String(bundle.AdminSignature),
+            bundle.AdminEd25519PublicKey);
+        Assert.True(ok);
+    }
+
+    [Fact]
+    public async Task CreateInvitationAsync_DefaultTtl_TwentyFourHours()
+    {
+        var before = DateTime.UtcNow;
+        var bundle = await _scenario.Admin.Invitations.CreateInvitationAsync(
+            _scenario.Admin.Keys, "Bob");
+        var after = DateTime.UtcNow;
+
+        var minExpected = before + TimeSpan.FromHours(24) - TimeSpan.FromSeconds(1);
+        var maxExpected = after + TimeSpan.FromHours(24) + TimeSpan.FromSeconds(1);
+        Assert.InRange(bundle.ExpiresAt, minExpected, maxExpected);
+    }
+
+    [Fact]
+    public async Task CreateInvitationAsync_BlankUsername_Throws()
+    {
+        await Assert.ThrowsAsync<ArgumentException>(
+            () => _scenario.Admin.Invitations.CreateInvitationAsync(_scenario.Admin.Keys, "  ").AsTask());
+    }
+
+    [Fact]
+    public async Task RevokeInvitationAsync_DeletesShareGroupAndRow()
+    {
+        var bundle = await _scenario.Admin.Invitations.CreateInvitationAsync(
+            _scenario.Admin.Keys, "Bob");
+        var groupContext = $"invitation-{bundle.GroupId:N}:v1";
+        var invitationId = (await _scenario.Admin.Context.Invitations
+            .SingleAsync(i => i.SharingId == groupContext)).Id;
+
+        await _scenario.Admin.Invitations.RevokeInvitationAsync(invitationId);
+
+        Assert.Empty(await _scenario.Admin.Context.Invitations
+            .Where(i => i.SharingId == groupContext).ToListAsync());
+        Assert.Empty(await _scenario.Admin.Context.ShareGroups
+            .Where(g => g.GroupContext == groupContext).ToListAsync());
+        Assert.Empty(await _scenario.Admin.Context.ShareTargets
+            .Where(t => t.ShareGroupId == bundle.GroupId).ToListAsync());
+    }
+
+    [Fact]
+    public async Task DeleteExpiredInvitationsAsync_RemovesOnlyExpired()
+    {
+        var fresh = await _scenario.Admin.Invitations.CreateInvitationAsync(
+            _scenario.Admin.Keys, "Fresh");
+        var stale = await _scenario.Admin.Invitations.CreateInvitationAsync(
+            _scenario.Admin.Keys, "Stale", ttl: TimeSpan.FromMilliseconds(1));
+
+        // Force the stale row's ExpiresAt into the past.
+        var staleRow = await _scenario.Admin.Context.Invitations
+            .SingleAsync(i => i.SharingId == $"invitation-{stale.GroupId:N}:v1");
+        staleRow.ExpiresAt = DateTime.UtcNow.AddSeconds(-1);
+        await _scenario.Admin.Context.SaveChangesAsync();
+
+        await _scenario.Admin.Invitations.DeleteExpiredInvitationsAsync();
+
+        var remaining = await _scenario.Admin.Context.Invitations.ToListAsync();
+        Assert.Single(remaining);
+        Assert.Equal("Fresh", remaining[0].Username);
+
+        Assert.Empty(await _scenario.Admin.Context.ShareGroups
+            .Where(g => g.GroupContext == $"invitation-{stale.GroupId:N}:v1").ToListAsync());
+        Assert.NotEmpty(await _scenario.Admin.Context.ShareGroups
+            .Where(g => g.GroupContext == $"invitation-{fresh.GroupId:N}:v1").ToListAsync());
     }
 
     // ----------------------------------------------------------------

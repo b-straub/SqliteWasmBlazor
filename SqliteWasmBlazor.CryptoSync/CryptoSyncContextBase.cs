@@ -43,6 +43,9 @@ public abstract class CryptoSyncContextBase : DbContext
     // Contacts
     public DbSet<TrustedContact> Contacts => Set<TrustedContact>();
 
+    // Pending admin-initiated invitations
+    public DbSet<Invitation> Invitations => Set<Invitation>();
+
     // Group encryption & key distribution
     public DbSet<ShareGroup> ShareGroups => Set<ShareGroup>();
     public DbSet<ShareTarget> ShareTargets => Set<ShareTarget>();
@@ -71,6 +74,12 @@ public abstract class CryptoSyncContextBase : DbContext
             entity.HasKey(e => e.Id);
             entity.HasIndex(e => e.Ed25519PublicKey).IsUnique();
             entity.HasIndex(e => e.X25519PublicKey).IsUnique();
+            entity.HasQueryFilter(e => !e.IsDeleted);
+        });
+
+        modelBuilder.Entity<Invitation>(entity =>
+        {
+            entity.HasKey(e => e.Id);
             entity.HasQueryFilter(e => !e.IsDeleted);
         });
 
@@ -154,7 +163,7 @@ public abstract class CryptoSyncContextBase : DbContext
     /// </summary>
     public static SyncPermission[] GetSystemPermissions()
     {
-        var systemTables = new[] { "Contacts", "ShareGroups", "ShareTargets" };
+        var systemTables = new[] { "Contacts", "ShareGroups", "ShareTargets", "Invitations" };
         var seeds = new List<SyncPermission>();
 
         foreach (var table in systemTables)
