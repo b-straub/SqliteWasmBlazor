@@ -20,9 +20,9 @@ namespace SqliteWasmBlazor.CryptoSync.Tests;
 /// directory.
 ///
 /// <para>
-/// Opt-in via <c>dotnet test --filter "Category=LiveRelay"</c>. The default
-/// <c>dotnet test</c> run skips this category so CI without Herd doesn't
-/// break.
+/// Opt-in via <c>RUN_LIVE_RELAY_TESTS=1 dotnet test --filter
+/// "Category=LiveRelay"</c>. Without the environment variable the tests are
+/// reported as skipped, so CI without Herd does not touch the relay directory.
 /// </para>
 ///
 /// <para>
@@ -77,7 +77,7 @@ public sealed class HttpSyncTransportLiveRelayTests : IAsyncLifetime
 
     public Task DisposeAsync() => Task.CompletedTask;
 
-    [Fact]
+    [LiveRelayFact]
     public async Task PostEnvelope_RoundTripsThroughLivePhpRelay()
     {
         using var http = new HttpClient();
@@ -93,7 +93,7 @@ public sealed class HttpSyncTransportLiveRelayTests : IAsyncLifetime
         Assert.Null(await transport.TryReceiveAsync());
     }
 
-    [Fact]
+    [LiveRelayFact]
     public async Task WhitelistPush_AddSecondMember_BothCanPostAndPullThroughTransport()
     {
         // Add a second sender via an incremental Add op at v2. Sender from
@@ -132,7 +132,7 @@ public sealed class HttpSyncTransportLiveRelayTests : IAsyncLifetime
         Assert.Null(await secondTransport.TryReceiveAsync());
     }
 
-    [Fact]
+    [LiveRelayFact]
     public async Task WhitelistPush_ReplayVersion_ThrowsWhitelistVersionConflict()
     {
         // Baseline (v1) was pushed in InitializeAsync. Pushing v1 again must
@@ -149,7 +149,7 @@ public sealed class HttpSyncTransportLiveRelayTests : IAsyncLifetime
         Assert.Equal(1L, ex.CurrentVersion);
     }
 
-    [Fact]
+    [LiveRelayFact]
     public async Task WhitelistPush_RevokeFlipsActiveSenderTo403()
     {
         // Sender is active on the baseline. Revoke at v2; subsequent POSTs
@@ -172,7 +172,7 @@ public sealed class HttpSyncTransportLiveRelayTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.Forbidden, ex.StatusCode);
     }
 
-    [Fact]
+    [LiveRelayFact]
     public async Task PostEnvelope_NonWhitelistedSender_Returns403()
     {
         // Generate a third sender NOT on the whitelist.
@@ -187,7 +187,7 @@ public sealed class HttpSyncTransportLiveRelayTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.Forbidden, ex.StatusCode);
     }
 
-    [Fact]
+    [LiveRelayFact]
     public async Task ThreeActors_AdminUser1User2_AllPostAndPullAllEnvelopes()
     {
         // Stage A's canonical "everyone broadcasts" coverage. Baseline (v1) has
@@ -234,7 +234,7 @@ public sealed class HttpSyncTransportLiveRelayTests : IAsyncLifetime
         }
     }
 
-    [Fact]
+    [LiveRelayFact]
     public async Task WhitelistPush_NonAdminSigner_Returns401()
     {
         // A "rogue admin" — valid Ed25519 keypair but NOT matching the
@@ -257,7 +257,7 @@ public sealed class HttpSyncTransportLiveRelayTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.Unauthorized, ex.StatusCode);
     }
 
-    [Fact]
+    [LiveRelayFact]
     public async Task RevokedSender_GraceWindowExpired_GetReturns403()
     {
         // Tighten the grace window, then revoke with a backdated revoked_at
@@ -285,7 +285,7 @@ public sealed class HttpSyncTransportLiveRelayTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.Forbidden, ex.StatusCode);
     }
 
-    [Fact]
+    [LiveRelayFact]
     public async Task RevokedSender_WithinGraceWindow_GetStillSucceeds()
     {
         // Friendly handoff: a member who's been revoked seconds ago can still
@@ -315,7 +315,7 @@ public sealed class HttpSyncTransportLiveRelayTests : IAsyncLifetime
         Assert.Equal(new byte[] { 0x42 }, pulled!);
     }
 
-    [Fact]
+    [LiveRelayFact]
     public async Task PostEnvelope_ExceedsBodyCap_Returns413()
     {
         // C-2 audit fix verified end-to-end: relay enforces max_body_bytes
@@ -334,7 +334,7 @@ public sealed class HttpSyncTransportLiveRelayTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.RequestEntityTooLarge, ex.StatusCode);
     }
 
-    [Fact]
+    [LiveRelayFact]
     public async Task PostEnvelope_StaleTimestamp_Returns401()
     {
         // RECEIVE_WINDOW_SECONDS = 300 in the relay, so 600s in the past is
@@ -368,7 +368,7 @@ public sealed class HttpSyncTransportLiveRelayTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }
 
-    [Fact]
+    [LiveRelayFact]
     public async Task SeedReseed_GcSignalDrivesAdminCompaction_OperationalRoundTrip()
     {
         // Operational lifecycle for the admin-only-purge model:
@@ -500,7 +500,7 @@ public sealed class HttpSyncTransportLiveRelayTests : IAsyncLifetime
             r.PubkeyHash == HashHex(_deploymentSalt, _adminPub) && r.Status == "active");
     }
 
-    [Fact]
+    [LiveRelayFact]
     public async Task Pin_NonAdminSender_Returns403()
     {
         // A regular whitelisted sender (not the deployment admin) attaches
@@ -712,6 +712,20 @@ public sealed class HttpSyncTransportLiveRelayTests : IAsyncLifetime
         {
             var sig = SignEd25519(seed, Encoding.UTF8.GetBytes(message));
             return ValueTask.FromResult(Convert.ToBase64String(sig));
+        }
+    }
+}
+
+internal sealed class LiveRelayFactAttribute : FactAttribute
+{
+    public LiveRelayFactAttribute()
+    {
+        if (!string.Equals(
+                Environment.GetEnvironmentVariable("RUN_LIVE_RELAY_TESTS"),
+                "1",
+                StringComparison.Ordinal))
+        {
+            Skip = "Set RUN_LIVE_RELAY_TESTS=1 and link http://delta-relay.test/ to run LiveRelay tests.";
         }
     }
 }

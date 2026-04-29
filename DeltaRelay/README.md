@@ -85,6 +85,37 @@ This is **purely informational** — the relay never deletes on its own. The adm
 
 ## Integration test workflow
 
+### Self-contained PHP relay test
+
+For a quick endpoint-level check that does not require Herd/Valet and does not
+touch the live `DeltaRelay/relay.db`, run:
+
+```sh
+XDEBUG_MODE=off php DeltaRelay/tests/relay-integration.php
+```
+
+The harness copies the relay into a temporary directory, writes a synthetic
+`relay-config.php`, starts PHP's built-in server on `127.0.0.1`, signs real
+Ed25519 whitelist/delta requests with sodium, and tears the temp deployment
+down after success. Set `DELTA_RELAY_KEEP_TEST_DIR=1` to keep the temp relay
+directory for inspection.
+
+Covered behaviors:
+
+- `cryptosync-relay-init.php` config generation, admin hash, overwrite refusal,
+  `--force`, and `0600` mode;
+- `.htaccess` / Valet deny-rule drift checks for private relay files;
+- direct access to private relay files is denied;
+- admin whitelist pushes, forged admin signatures, and version replay rejection;
+- active sender POST, signed broadcast GET, and `since` cursor filtering;
+- forged sender and receiver signatures;
+- non-whitelisted and revoked POST rejection;
+- revoked read grace and expired-grace rejection;
+- `max_body_bytes` rejection;
+- admin-only pinned reseed purge and non-admin pin rejection.
+
+### Live C# transport suite
+
 The Stage A integration suite (xUnit, grows incrementally over Steps 2-6) drives a live Herd-served PHP relay with a known synthetic admin keypair.
 
 **One-time Herd link** (single command, reversible via `herd unlink delta-relay`):
@@ -100,11 +131,13 @@ herd link delta-relay
 **Run the suite**:
 
 ```sh
+RUN_LIVE_RELAY_TESTS=1 \
 dotnet test SqliteWasmBlazor.CryptoSync.Tests/SqliteWasmBlazor.CryptoSync.Tests.csproj \
     -p:SkipVitest=true --filter "Category=LiveRelay"
 ```
 
-The category trait keeps these tests out of the default `dotnet test` run, so CI without Herd doesn't break.
+Without `RUN_LIVE_RELAY_TESTS=1`, these facts are reported as skipped. The
+category filter selects only the live relay suite when you do opt in.
 
 **Per-test setup pattern** (handled by `HttpSyncTransportLiveRelayTests.InitializeAsync`):
 

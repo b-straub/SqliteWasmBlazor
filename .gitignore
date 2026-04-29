@@ -88,3 +88,4 @@ DeltaRelay/relay-config.php
 DeltaRelay/relay.db
 DeltaRelay/relay.db-wal
 DeltaRelay/relay.db-shm
+*.lscache
