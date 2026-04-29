@@ -58,7 +58,7 @@ public sealed class TwoActorBootstrap : IAsyncDisposable
         var contactTransport = new InMemorySyncTransport(relay);
 
         var bundle = await admin.Invitations.CreateInvitationAsync(
-            admin.Keys, userName, $"{userName.ToLowerInvariant()}@test.com");
+            admin.Keys, InvitationTestSalt.Default, userName, $"{userName.ToLowerInvariant()}@test.com");
 
         await user.Invitations.RespondToInvitationAsync(
             bundle,

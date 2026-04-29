@@ -45,4 +45,13 @@ public sealed class SyncState
 
     /// <summary>Reserved for future delta-hash tracking. Currently unused.</summary>
     public string? LastDeltaHash { get; set; }
+
+    /// <summary>
+    /// Highest whitelist version this admin device has successfully pushed to
+    /// the relay. The next push is at <c>LastWhitelistVersion + 1</c>; on a
+    /// 409 from the relay (concurrent admin push, multi-admin recovery) the
+    /// caller updates this to the relay-reported <c>current_version</c> and
+    /// retries. Non-admin devices never write this column — it stays 0.
+    /// </summary>
+    public long LastWhitelistVersion { get; set; }
 }

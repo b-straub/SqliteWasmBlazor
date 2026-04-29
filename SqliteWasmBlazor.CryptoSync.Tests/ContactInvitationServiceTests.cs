@@ -34,7 +34,7 @@ public class ContactInvitationServiceTests : IAsyncLifetime
     public async Task CreateInvitationAsync_PersistsShareGroupAndTwoShareTargets()
     {
         var bundle = await _scenario.Admin.Invitations.CreateInvitationAsync(
-            _scenario.Admin.Keys, "Bob", "bob@test.com");
+            _scenario.Admin.Keys, InvitationTestSalt.Default, "Bob", "bob@test.com");
 
         var groupContext = $"invitation-{bundle.GroupId:N}:v1";
         var group = await _scenario.Admin.Context.ShareGroups
@@ -54,7 +54,7 @@ public class ContactInvitationServiceTests : IAsyncLifetime
     public async Task CreateInvitationAsync_PersistsInvitationRow_PendingState()
     {
         var bundle = await _scenario.Admin.Invitations.CreateInvitationAsync(
-            _scenario.Admin.Keys, "Bob", "bob@test.com", "Bob from accounting");
+            _scenario.Admin.Keys, InvitationTestSalt.Default, "Bob", "bob@test.com", "Bob from accounting");
 
         var groupContext = $"invitation-{bundle.GroupId:N}:v1";
         var invitation = await _scenario.Admin.Context.Invitations
@@ -74,26 +74,26 @@ public class ContactInvitationServiceTests : IAsyncLifetime
     public async Task CreateInvitationAsync_TransportSecret_DerivesSameKeypairOnBothSides()
     {
         var bundle = await _scenario.Admin.Invitations.CreateInvitationAsync(
-            _scenario.Admin.Keys, "Bob");
+            _scenario.Admin.Keys, InvitationTestSalt.Default, "Bob");
 
-        var derived = await _scenario.Crypto.DeriveX25519KeyPairAsync(bundle.TransportSecret);
+        var derived = await _scenario.Crypto.DeriveDualKeyPairAsync(bundle.TransportSecret);
 
         var groupContext = $"invitation-{bundle.GroupId:N}:v1";
         var group = await _scenario.Admin.Context.ShareGroups
             .SingleAsync(g => g.GroupContext == groupContext);
         Assert.Contains(_scenario.Admin.Context.ShareTargets,
-            t => t.ShareGroupId == group.Id && t.MemberPublicKey == derived.PublicKeyBase64);
+            t => t.ShareGroupId == group.Id && t.MemberPublicKey == derived.X25519PublicKey);
     }
 
     [Fact]
     public async Task CreateInvitationAsync_BundleSignatureVerifiesAgainstAdminPubKey()
     {
         var bundle = await _scenario.Admin.Invitations.CreateInvitationAsync(
-            _scenario.Admin.Keys, "Bob");
+            _scenario.Admin.Keys, InvitationTestSalt.Default, "Bob");
 
-        var derived = await _scenario.Crypto.DeriveX25519KeyPairAsync(bundle.TransportSecret);
+        var derived = await _scenario.Crypto.DeriveDualKeyPairAsync(bundle.TransportSecret);
         var canonical = ContactInvitationService.BuildBundleCanonical(
-            derived.PublicKeyBase64, bundle.GroupId, bundle.ExpiresAt);
+            derived.X25519PublicKey, bundle.GroupId, bundle.ExpiresAt);
 
         var ok = await _scenario.Crypto.VerifyAsync(
             canonical,
@@ -107,7 +107,7 @@ public class ContactInvitationServiceTests : IAsyncLifetime
     {
         var before = DateTime.UtcNow;
         var bundle = await _scenario.Admin.Invitations.CreateInvitationAsync(
-            _scenario.Admin.Keys, "Bob");
+            _scenario.Admin.Keys, InvitationTestSalt.Default, "Bob");
         var after = DateTime.UtcNow;
 
         var minExpected = before + TimeSpan.FromHours(24) - TimeSpan.FromSeconds(1);
@@ -116,17 +116,49 @@ public class ContactInvitationServiceTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task CreateInvitationAsync_PushesTransportEd25519HashToWhitelist()
+    {
+        // The recording push service captures the exact ops the hook emits.
+        // CreateInvitation must push exactly one Add op for the transport's
+        // Ed25519 hash, advancing LastWhitelistVersion by 1.
+        var pushesBefore = _scenario.Admin.WhitelistPush.Pushes.Count;
+        var versionBefore = (await _scenario.Admin.Context.SyncStates
+            .FirstOrDefaultAsync(s => s.Id == SyncState.EngineCursorId))?.LastWhitelistVersion ?? 0;
+
+        var bundle = await _scenario.Admin.Invitations.CreateInvitationAsync(
+            _scenario.Admin.Keys, InvitationTestSalt.Default, "Bob");
+
+        var pushes = _scenario.Admin.WhitelistPush.Pushes;
+        Assert.Equal(pushesBefore + 1, pushes.Count);
+        var lastPush = pushes[^1];
+        Assert.Equal(versionBefore + 1, lastPush.Version);
+        var op = Assert.Single(lastPush.Operations);
+        var add = Assert.IsType<WhitelistOp.AddOp>(op);
+
+        // The hash is sha256(salt || transport.Ed25519PublicKey).
+        var transportDual = await _scenario.Crypto.DeriveDualKeyPairAsync(bundle.TransportSecret);
+        var expectedHash = WhitelistPushService.HashPubkey(
+            InvitationTestSalt.Default, transportDual.Ed25519PublicKey);
+        Assert.Equal(expectedHash, add.PubkeyHash);
+
+        // SyncState.LastWhitelistVersion advanced.
+        var state = await _scenario.Admin.Context.SyncStates
+            .SingleAsync(s => s.Id == SyncState.EngineCursorId);
+        Assert.Equal(versionBefore + 1, state.LastWhitelistVersion);
+    }
+
+    [Fact]
     public async Task CreateInvitationAsync_BlankUsername_Throws()
     {
         await Assert.ThrowsAsync<ArgumentException>(
-            () => _scenario.Admin.Invitations.CreateInvitationAsync(_scenario.Admin.Keys, "  ").AsTask());
+            () => _scenario.Admin.Invitations.CreateInvitationAsync(_scenario.Admin.Keys, InvitationTestSalt.Default, "  ").AsTask());
     }
 
     [Fact]
     public async Task RevokeInvitationAsync_DeletesShareGroupAndRow()
     {
         var bundle = await _scenario.Admin.Invitations.CreateInvitationAsync(
-            _scenario.Admin.Keys, "Bob");
+            _scenario.Admin.Keys, InvitationTestSalt.Default, "Bob");
         var groupContext = $"invitation-{bundle.GroupId:N}:v1";
         var invitationId = (await _scenario.Admin.Context.Invitations
             .SingleAsync(i => i.SharingId == groupContext)).Id;
@@ -145,9 +177,9 @@ public class ContactInvitationServiceTests : IAsyncLifetime
     public async Task DeleteExpiredInvitationsAsync_RemovesOnlyExpired()
     {
         var fresh = await _scenario.Admin.Invitations.CreateInvitationAsync(
-            _scenario.Admin.Keys, "Fresh");
+            _scenario.Admin.Keys, InvitationTestSalt.Default, "Fresh");
         var stale = await _scenario.Admin.Invitations.CreateInvitationAsync(
-            _scenario.Admin.Keys, "Stale", ttl: TimeSpan.FromMilliseconds(1));
+            _scenario.Admin.Keys, InvitationTestSalt.Default, "Stale", ttl: TimeSpan.FromMilliseconds(1));
 
         var staleRow = await _scenario.Admin.Context.Invitations
             .SingleAsync(i => i.SharingId == $"invitation-{stale.GroupId:N}:v1");
@@ -277,7 +309,7 @@ public class ContactInvitationServiceTests : IAsyncLifetime
     {
         // Create a fresh invitation but don't respond.
         var bundle = await _scenario.Admin.Invitations.CreateInvitationAsync(
-            _scenario.Admin.Keys, "Bob");
+            _scenario.Admin.Keys, InvitationTestSalt.Default, "Bob");
 
         await Assert.ThrowsAsync<InvitationNotRespondedException>(
             () => _scenario.Admin.Invitations.PromoteInvitationAsync(
@@ -288,7 +320,7 @@ public class ContactInvitationServiceTests : IAsyncLifetime
     public async Task Promote_ExpiredInvitation_Throws()
     {
         var bundle = await _scenario.Admin.Invitations.CreateInvitationAsync(
-            _scenario.Admin.Keys, "Carol");
+            _scenario.Admin.Keys, InvitationTestSalt.Default, "Carol");
 
         // Force expiry into the past in the local DB without going through SaveChanges
         // (the row's UpdatedAt would otherwise be touched by the interceptor).
@@ -312,7 +344,7 @@ public class ContactInvitationServiceTests : IAsyncLifetime
             var adminTransport = new InMemorySyncTransport(relay);
             var contactTransport = new InMemorySyncTransport(relay);
 
-            var bundle = await _scenario.Admin.Invitations.CreateInvitationAsync(_scenario.Admin.Keys, "Dave");
+            var bundle = await _scenario.Admin.Invitations.CreateInvitationAsync(_scenario.Admin.Keys, InvitationTestSalt.Default, "Dave");
             await newbie.Invitations.RespondToInvitationAsync(
                 bundle, newbie.Keys,
                 new ContactUserData { Username = "Dave", Email = "dave@test.com" },
@@ -335,7 +367,7 @@ public class ContactInvitationServiceTests : IAsyncLifetime
     public async Task Promote_TamperedSignature_Throws()
     {
         var bundle = await _scenario.Admin.Invitations.CreateInvitationAsync(
-            _scenario.Admin.Keys, "Eve");
+            _scenario.Admin.Keys, InvitationTestSalt.Default, "Eve");
 
         var relay = new InMemorySyncRelay();
         var adminTransport = new InMemorySyncTransport(relay);
@@ -398,7 +430,7 @@ public class ContactInvitationServiceTests : IAsyncLifetime
             var contactTransport = new InMemorySyncTransport(relay);
 
             var bundle = await _scenario.Admin.Invitations.CreateInvitationAsync(
-                _scenario.Admin.Keys, "Frank");
+                _scenario.Admin.Keys, InvitationTestSalt.Default, "Frank");
             await newbie.Invitations.RespondToInvitationAsync(
                 bundle, newbie.Keys,
                 new ContactUserData { Username = "Frank", Email = "frank@test.com" },

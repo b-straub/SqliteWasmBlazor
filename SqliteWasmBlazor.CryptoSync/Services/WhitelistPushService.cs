@@ -44,10 +44,26 @@ namespace SqliteWasmBlazor.CryptoSync;
 /// <c>current + 1</c>.
 /// </para>
 /// </summary>
+public interface IWhitelistPushService
+{
+    /// <summary>
+    /// Push <paramref name="operations"/> to the relay's whitelist, signed
+    /// by the admin's Ed25519 priv. Returns the relay's accepted version +
+    /// op count, or throws <see cref="WhitelistVersionConflictException"/>
+    /// on 409 (replay).
+    /// </summary>
+    ValueTask<WhitelistPushResult> PushAsync(
+        IReadOnlyList<WhitelistOp> operations,
+        string adminEd25519PublicKeyBase64,
+        ReadOnlyMemory<byte> adminEd25519PrivateKey,
+        long version,
+        CancellationToken cancellationToken = default);
+}
+
 public sealed class WhitelistPushService(
     HttpClient httpClient,
     Uri relayBaseUri,
-    DeclarationSigner signer)
+    DeclarationSigner signer) : IWhitelistPushService
 {
     public async ValueTask<WhitelistPushResult> PushAsync(
         IReadOnlyList<WhitelistOp> operations,

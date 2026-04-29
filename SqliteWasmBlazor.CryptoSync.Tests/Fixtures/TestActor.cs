@@ -28,6 +28,7 @@ public sealed class TestActor : IAsyncDisposable
 
     public ContactService Contacts { get; }
     public ContactInvitationService Invitations { get; }
+    public RecordingWhitelistPushService WhitelistPush { get; }
     public DeviceIdentityService DeviceIdentity { get; }
     public CryptoSyncBootstrap Bootstrap { get; }
     public GroupService Groups { get; }
@@ -54,7 +55,9 @@ public sealed class TestActor : IAsyncDisposable
         Contacts = new ContactService(context);
         var declarationSigner = new DeclarationSigner(crypto);
         var groupEncryption = new GroupEncryptionService(crypto);
-        Invitations = new ContactInvitationService(context, groupEncryption, crypto, declarationSigner);
+        WhitelistPush = new RecordingWhitelistPushService();
+        Invitations = new ContactInvitationService(
+            context, groupEncryption, crypto, declarationSigner, WhitelistPush);
         Bootstrap = new CryptoSyncBootstrap(groupEncryption, declarationSigner);
         Groups = new GroupService(context, groupEncryption, declarationSigner);
         Gate = new SyncGate(Contacts);

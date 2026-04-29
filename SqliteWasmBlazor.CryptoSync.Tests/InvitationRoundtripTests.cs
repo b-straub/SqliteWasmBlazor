@@ -24,7 +24,7 @@ public class InvitationRoundtripTests
         var contactTransport = new InMemorySyncTransport(relay);
 
         var bundle = await scenario.Admin.Invitations.CreateInvitationAsync(
-            scenario.Admin.Keys, "Helen", "helen@test.com");
+            scenario.Admin.Keys, InvitationTestSalt.Default, "Helen", "helen@test.com");
         bundle.AdminSignature[0] ^= 0xFF;
 
         await Assert.ThrowsAsync<InvalidInvitationBundleException>(
@@ -46,11 +46,11 @@ public class InvitationRoundtripTests
         // ExpiresAt — using the real signing path so the only failure is the
         // expiry check, not the signature.
         var transportSecret = System.Security.Cryptography.RandomNumberGenerator.GetBytes(32);
-        var transportKp = await scenario.Crypto.DeriveX25519KeyPairAsync(transportSecret);
+        var transportDual = await scenario.Crypto.DeriveDualKeyPairAsync(transportSecret);
         var groupId = Guid.NewGuid();
         var pastExpiry = DateTime.UtcNow.AddSeconds(-5);
         var canonical = ContactInvitationService.BuildBundleCanonical(
-            transportKp.PublicKeyBase64, groupId, pastExpiry);
+            transportDual.X25519PublicKey, groupId, pastExpiry);
         var adminEdPriv = Convert.FromBase64String(scenario.Admin.Keys.Ed25519PrivateKey);
         var sig = await scenario.Crypto.SignAsync(canonical, adminEdPriv);
         Assert.True(sig.Success);
@@ -82,7 +82,7 @@ public class InvitationRoundtripTests
         var adminTransport = new InMemorySyncTransport(relay);
 
         var bundle = await scenario.Admin.Invitations.CreateInvitationAsync(
-            scenario.Admin.Keys, "Helen", "helen@test.com");
+            scenario.Admin.Keys, InvitationTestSalt.Default, "Helen", "helen@test.com");
 
         await scenario.User.Invitations.RespondToInvitationAsync(
             bundle,
@@ -107,7 +107,7 @@ public class InvitationRoundtripTests
         var adminTransport = new InMemorySyncTransport(relay);
 
         var bundle = await scenario.Admin.Invitations.CreateInvitationAsync(
-            scenario.Admin.Keys, "Helen", "helen@test.com");
+            scenario.Admin.Keys, InvitationTestSalt.Default, "Helen", "helen@test.com");
 
         await scenario.User.Invitations.RespondToInvitationAsync(
             bundle,
@@ -131,7 +131,7 @@ public class InvitationRoundtripTests
         var adminTransport = new InMemorySyncTransport(relay);
 
         var bundle = await scenario.Admin.Invitations.CreateInvitationAsync(
-            scenario.Admin.Keys, "Helen", "helen@test.com");
+            scenario.Admin.Keys, InvitationTestSalt.Default, "Helen", "helen@test.com");
 
         await scenario.User.Invitations.RespondToInvitationAsync(
             bundle,
@@ -144,8 +144,8 @@ public class InvitationRoundtripTests
         var envelope = MessagePackSerializer.Deserialize<InvitationResponseEnvelope>(wireBytes);
 
         // Admin re-derives the wrapping key with their priv + transport pub.
-        var transportPub = (await scenario.Crypto.DeriveX25519KeyPairAsync(bundle.TransportSecret))
-            .PublicKeyBase64;
+        var transportPub = (await scenario.Crypto.DeriveDualKeyPairAsync(bundle.TransportSecret))
+            .X25519PublicKey;
         var groupContext = $"invitation-{bundle.GroupId:N}:v1";
         var adminPriv = Convert.FromBase64String(scenario.Admin.Keys.X25519PrivateKey);
         var wkResult = await scenario.Crypto.DeriveWrappingKeyAsync(adminPriv, transportPub, groupContext);
@@ -187,7 +187,7 @@ public class InvitationRoundtripTests
 
             // 1. Admin creates the invitation channel.
             var bundle = await admin.Invitations.CreateInvitationAsync(
-                admin.Keys, "Helen", "helen@test.com");
+                admin.Keys, InvitationTestSalt.Default, "Helen", "helen@test.com");
 
             // 2. Helen responds (bundle delivered out-of-band).
             await helen.Invitations.RespondToInvitationAsync(

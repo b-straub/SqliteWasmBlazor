@@ -28,7 +28,8 @@ public class ContactInvitationService(
     CryptoSyncContextBase context,
     IGroupEncryption groupEncryption,
     ICryptoProvider crypto,
-    DeclarationSigner signer)
+    DeclarationSigner signer,
+    IWhitelistPushService whitelistPush)
 {
     /// <summary>
     /// Build the contact's privacy-preserving self-group rows: random CEK
@@ -115,6 +116,7 @@ public class ContactInvitationService(
     /// </summary>
     public async ValueTask<InvitationBundle> CreateInvitationAsync(
         DualKeyPairFull adminKeys,
+        string deploymentSaltBase64,
         string username,
         string? email = null,
         string? comment = null,
@@ -123,16 +125,19 @@ public class ContactInvitationService(
         CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(username);
+        ArgumentException.ThrowIfNullOrWhiteSpace(deploymentSaltBase64);
 
         var now = DateTime.UtcNow;
         var expiresAt = now + (ttl ?? DefaultInvitationTtl);
         var groupId = Guid.NewGuid();
         var groupContext = $"invitation-{groupId:N}:v1";
 
-        // Generate transport secret + derive transport keypair.
+        // Generate transport secret + derive both transport keypairs (X25519
+        // for ECDH, Ed25519 for relay POST auth via the whitelist).
         var transportSecret = System.Security.Cryptography.RandomNumberGenerator.GetBytes(32);
-        var transportKeyPair = await crypto.DeriveX25519KeyPairAsync(transportSecret).ConfigureAwait(false);
-        var transportPub = transportKeyPair.PublicKeyBase64;
+        var transportDual = await crypto.DeriveDualKeyPairAsync(transportSecret).ConfigureAwait(false);
+        var transportPub = transportDual.X25519PublicKey;
+        var transportEd25519Pub = transportDual.Ed25519PublicKey;
 
         // Create the invitation share group with admin + transportPub as members.
         var adminPriv = Convert.FromBase64String(adminKeys.X25519PrivateKey);
@@ -267,6 +272,18 @@ public class ContactInvitationService(
         await context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
         await tx.CommitAsync(cancellationToken).ConfigureAwait(false);
 
+        // Whitelist the transport Ed25519 pubkey so the invitee's POSTs hit
+        // the relay during the bootstrap window. Pushed at LastWhitelistVersion+1;
+        // on 409 (concurrent admin push), align local cursor to the relay's
+        // current_version and retry. Local invitation rows are already
+        // committed — caller can `RevokeInvitationAsync` to clean up if push
+        // ultimately fails.
+        var transportHash = WhitelistPushService.HashPubkey(deploymentSaltBase64, transportEd25519Pub);
+        await PushWhitelistOpsAsync(
+            adminKeys,
+            [WhitelistOp.Add(transportHash)],
+            cancellationToken).ConfigureAwait(false);
+
         return new InvitationBundle
         {
             TransportSecret = transportSecret,
@@ -277,6 +294,64 @@ public class ContactInvitationService(
             AdminX25519PublicKey = adminKeys.X25519PublicKey,
             RelayHint = relayHint
         };
+    }
+
+    /// <summary>
+    /// Push <paramref name="ops"/> to the relay's whitelist using the admin's
+    /// keys, advancing <see cref="SyncState.LastWhitelistVersion"/> on success.
+    /// Retries once on <see cref="WhitelistVersionConflictException"/> after
+    /// re-aligning to the relay's reported <c>current_version</c>; a second
+    /// 409 propagates to the caller (real concurrent-admin contention).
+    /// </summary>
+    private async ValueTask PushWhitelistOpsAsync(
+        DualKeyPairFull adminKeys,
+        IReadOnlyList<WhitelistOp> ops,
+        CancellationToken cancellationToken)
+    {
+        var adminEdPriv = Convert.FromBase64String(adminKeys.Ed25519PrivateKey);
+        try
+        {
+            var state = await GetOrCreateSyncStateAsync(cancellationToken).ConfigureAwait(false);
+            var attempts = 0;
+            while (true)
+            {
+                var nextVersion = state.LastWhitelistVersion + 1;
+                try
+                {
+                    var result = await whitelistPush.PushAsync(
+                        ops,
+                        adminKeys.Ed25519PublicKey,
+                        adminEdPriv,
+                        nextVersion,
+                        cancellationToken).ConfigureAwait(false);
+                    state.LastWhitelistVersion = result.Version;
+                    await context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+                    return;
+                }
+                catch (WhitelistVersionConflictException ex) when (attempts == 0)
+                {
+                    state.LastWhitelistVersion = ex.CurrentVersion;
+                    attempts++;
+                }
+            }
+        }
+        finally
+        {
+            System.Security.Cryptography.CryptographicOperations.ZeroMemory(adminEdPriv);
+        }
+    }
+
+    private async ValueTask<SyncState> GetOrCreateSyncStateAsync(CancellationToken cancellationToken)
+    {
+        var row = await context.SyncStates
+            .FirstOrDefaultAsync(s => s.Id == SyncState.EngineCursorId, cancellationToken)
+            .ConfigureAwait(false);
+        if (row is null)
+        {
+            row = new SyncState { Id = SyncState.EngineCursorId };
+            context.SyncStates.Add(row);
+        }
+        return row;
     }
 
     /// <summary>
@@ -357,9 +432,12 @@ public class ContactInvitationService(
         ArgumentNullException.ThrowIfNull(contactKeys);
         ArgumentNullException.ThrowIfNull(syncTransport);
 
-        // 1. Derive transport keypair from the shared secret.
-        var transportKeyPair = await crypto.DeriveX25519KeyPairAsync(bundle.TransportSecret).ConfigureAwait(false);
-        var transportPub = transportKeyPair.PublicKeyBase64;
+        // 1. Derive both transport keypairs from the shared secret. The
+        // X25519 part drives the ECDH for AES-GCM-encrypting the response
+        // payload; the Ed25519 part is what the invitee's relay POST signer
+        // will use during the bootstrap window (whitelisted by admin).
+        var transportDual = await crypto.DeriveDualKeyPairAsync(bundle.TransportSecret).ConfigureAwait(false);
+        var transportPub = transportDual.X25519PublicKey;
 
         // 2. Verify admin's signature on the bundle.
         var canonicalBundle = BuildBundleCanonical(transportPub, bundle.GroupId, bundle.ExpiresAt);
@@ -420,7 +498,7 @@ public class ContactInvitationService(
 
         // 6. AES-GCM under HKDF(ECDH(transportPriv, adminPub), info=invitationGroupContext).
         var groupContext = $"invitation-{bundle.GroupId:N}:v1";
-        var transportPriv = Convert.FromBase64String(transportKeyPair.PrivateKeyBase64);
+        var transportPriv = Convert.FromBase64String(transportDual.X25519PrivateKey);
         SymmetricEncryptedData encrypted;
         try
         {
