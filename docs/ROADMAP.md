@@ -1,6 +1,6 @@
 # SqliteWasmBlazor Roadmap
 
-_Single source of truth for "where are we." Last updated 2026-04-29 against branch `crypto-sync` HEAD (Step 2 commit pending)._
+_Single source of truth for "where are we." Last updated 2026-04-29 against branch `crypto-sync` HEAD `3952967`._
 
 This document supersedes the multiple parallel numbering systems (Stage / Phase A / Phase B / Audit Phase 1-3) that were used while individual workstreams were in flight. Going forward, work is grouped only as **Active**, **Postponed**, **Done**, **Deferred**.
 
@@ -29,7 +29,7 @@ Replaces the per-recipient pubkey-bound delivery model (Stage 3b code, currently
 
 **Steps:**
 1. ✅ **DONE** (`95d0ea2`) — PHP relay rewrite: new schema (whitelist + whitelist_meta + deltas), 3 endpoints (POST whitelist/admin-signed, POST delta/sender-signed, GET delta/pubkey-signed), `cryptosync-relay-init` CLI, `relay-config.example.php`, deny rules in Valet driver + `.htaccess`, W-1 + W-3 + C-2 + C-3 closed in this commit. Verification deferred to Step 2's first integration test by design.
-2. ✅ **DONE** (Step 2 commit pending) — `ISyncTransport` interface change (drop `recipientPublicKeys[]`) + `ISenderAuthSigner` seam + `HttpSyncTransport` rewrite (POST `{envelope}` + `X-Timestamp`/`X-Sender-PubKey`/`X-Sender-Sig`, GET renamed to `pubkey`/versioned signing strings) + `InMemorySyncRelay/Transport` simplified to FIFO broadcast + all callers (`SyncEngine.PushChangesAsync`, `ContactInvitationService.RespondToInvitationAsync`) migrated + first live-relay integration test (`HttpSyncTransportLiveRelayTests`, `[Trait("Category","LiveRelay")]`) green against Herd-served PHP. 196 xUnit tests pass (195 unit + 1 live).
+2. ✅ **DONE** (`3952967`) — `ISyncTransport` interface change (drop `recipientPublicKeys[]`) + `ISenderAuthSigner` seam + `HttpSyncTransport` rewrite (POST `{envelope}` + `X-Timestamp`/`X-Sender-PubKey`/`X-Sender-Sig`, GET renamed to `pubkey`/versioned signing strings) + `InMemorySyncRelay/Transport` simplified to FIFO broadcast + all callers (`SyncEngine.PushChangesAsync`, `ContactInvitationService.RespondToInvitationAsync`) migrated + first live-relay integration test (`HttpSyncTransportLiveRelayTests`, `[Trait("Category","LiveRelay")]`) green against Herd-served PHP. 196 xUnit tests pass (195 unit + 1 live).
 3. ⏭ **NEXT** — `WhitelistPushService` (admin-signed pubkey-hash list push) + integration scenario.
 4. Hooks into `ContactInvitationService.{Create,Promote}InvitationAsync`, system-admin revocation flow (TBD where it lives — open question in plan).
 5. DI wiring + scenario-completeness sweep with test seeds (three-actor sync, replay defense, grace-window, body cap, timestamp window).
