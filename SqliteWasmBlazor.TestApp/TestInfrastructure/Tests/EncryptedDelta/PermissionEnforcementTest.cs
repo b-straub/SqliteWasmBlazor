@@ -81,9 +81,11 @@ internal class PermissionEnforcementTest(
             var openCount = await CountOpenTableAsync();
             AssertEqual(0, openCount, "open table after Viewer insert+delete");
 
-            // Denied rows must also leave NO shadow entry
+            // Sender-denied mutations must also leave no shadow entry. This assertion is
+            // about write authorization, not receiver read permission; CanRead is not a
+            // materialization gate in the current full-snapshot design.
             var shadowCount = await CountShadowTableAsync();
-            AssertEqual(0, shadowCount, "shadow table after Viewer denial");
+            AssertEqual(0, shadowCount, "shadow table after Viewer sender-denial");
 
             Console.WriteLine($"[{Name}] Step A+B OK: Viewer insert + delete denied (0 imported, 0 shadow)");
         }
@@ -112,7 +114,7 @@ internal class PermissionEnforcementTest(
             AssertEqual(1, report.Errors.Count, "Editor delete errors");
 
             var shadowCount = await CountShadowTableAsync();
-            AssertEqual(0, shadowCount, "shadow table after Editor delete denial");
+            AssertEqual(0, shadowCount, "shadow table after Editor sender-denial");
 
             Console.WriteLine($"[{Name}] Step C OK: Editor delete denied (0 shadow)");
         }

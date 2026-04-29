@@ -946,9 +946,12 @@ async function applyShadowRowGroup(
             verifiedRows.push({ sr, row });
         }
 
-        // Phase 2: Permission check + write shadow + open table.
-        // Only rows that pass permission checks are written to BOTH tables.
-        // Denied rows are rejected entirely — no shadow, no open table.
+        // Phase 2: Sender mutation authorization + write shadow + open table.
+        // These checks decide whether the sender was allowed to create/update/delete
+        // this mutation. They are not receiver read-authorization checks. Under
+        // the current full-snapshot policy, a client holding the group CEK may
+        // carry/apply the group snapshot; receiver read filtering is not
+        // enforced in this import path.
         const isSystemTable = !!group[1];
         if (verifiedRows.length > 0) {
             const colRows = db.exec({
@@ -1096,7 +1099,9 @@ async function applyShadowRowGroup(
                 }
             }
 
-            // Write shadow rows ONLY for approved rows (denied rows get no shadow entry).
+            // Write shadow rows only for sender-approved mutations. Sender-denied
+            // mutations get no shadow entry. This is unrelated to receiver read
+            // permission; CanRead is not a shadow-retention/materialization rule today.
             // Wire format has 6 elements per row; DB table has SenderPublicKey + EnvelopeSignature
             // columns — set sender from group level, signature empty (batch sig is at group level).
             if (approvedInserts.length > 0 || approvedDeletes.length > 0) {
