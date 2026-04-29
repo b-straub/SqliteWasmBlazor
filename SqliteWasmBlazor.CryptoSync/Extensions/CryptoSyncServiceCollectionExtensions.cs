@@ -1,7 +1,9 @@
 // SqliteWasmBlazor.CryptoSync - Boot integration with the typed status surface.
 
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 
 namespace SqliteWasmBlazor.CryptoSync;
 
@@ -14,6 +16,96 @@ namespace SqliteWasmBlazor.CryptoSync;
 /// </summary>
 public static class CryptoSyncServiceCollectionExtensions
 {
+    /// <summary>
+    /// Registers the CryptoSync transport stack —
+    /// <see cref="DeclarationSigner"/>, <see cref="IWhitelistPushService"/>,
+    /// <see cref="IReceiveCursorStore"/>, and <see cref="ISyncTransport"/> —
+    /// against the relay URL bound to <see cref="CryptoSyncOptions"/>.
+    ///
+    /// <para>
+    /// <b>Caller responsibilities (Stage A test fixtures, Stage B production host).</b>
+    /// The signer seams <see cref="ISenderAuthSigner"/> and
+    /// <see cref="IReceiveAuthSigner"/> are <i>not</i> registered here — they're
+    /// the host's identity contract. Stage A injects stub Ed25519 signers in
+    /// xUnit fixtures; Stage B will register PRF/WebAuthn-backed implementations
+    /// against the same seam without touching this method.
+    /// </para>
+    ///
+    /// <para>
+    /// <see cref="DeclarationSigner"/> depends on
+    /// <see cref="Crypto.Abstractions.ICryptoProvider"/>, which the host registers
+    /// via <c>AddSqliteWasmBlazorCrypto</c>. <see cref="HttpSyncTransport"/> and
+    /// <see cref="WhitelistPushService"/> resolve <see cref="System.Net.Http.HttpClient"/>
+    /// from the container — typically the scoped one Blazor WebAssembly hosts
+    /// register against the app base address.
+    /// </para>
+    /// </summary>
+    /// <typeparam name="TContext">Concrete domain context inheriting
+    /// <see cref="CryptoSyncContextBase"/>. Used by
+    /// <see cref="EfReceiveCursorStoreFactory{TContext}"/> to fetch a fresh
+    /// context per receive-cursor read/write through
+    /// <see cref="IDbContextFactory{TContext}"/>.</typeparam>
+    /// <param name="services">Service collection.</param>
+    /// <param name="configuration">Optional configuration root. When supplied,
+    /// binds <see cref="CryptoSyncOptions.SectionName"/> from it.</param>
+    /// <param name="configure">Optional callback to set
+    /// <see cref="CryptoSyncOptions"/> programmatically (overlays the
+    /// configuration binding).</param>
+    public static IServiceCollection AddCryptoSync<TContext>(
+        this IServiceCollection services,
+        IConfiguration? configuration = null,
+        Action<CryptoSyncOptions>? configure = null)
+        where TContext : CryptoSyncContextBase
+    {
+        if (configuration is not null)
+        {
+            services.Configure<CryptoSyncOptions>(
+                configuration.GetSection(CryptoSyncOptions.SectionName));
+        }
+        else
+        {
+            services.AddOptions<CryptoSyncOptions>();
+        }
+
+        if (configure is not null)
+        {
+            services.Configure(configure);
+        }
+
+        services.AddSingleton<DeclarationSigner>();
+
+        services.AddScoped<IReceiveCursorStore>(sp =>
+            new EfReceiveCursorStoreFactory<TContext>(
+                sp.GetRequiredService<IDbContextFactory<TContext>>()));
+
+        services.AddScoped<IWhitelistPushService>(sp => new WhitelistPushService(
+            sp.GetRequiredService<HttpClient>(),
+            ResolveRelayBaseUri(sp),
+            sp.GetRequiredService<DeclarationSigner>()));
+
+        services.AddScoped<ISyncTransport>(sp => new HttpSyncTransport(
+            sp.GetRequiredService<HttpClient>(),
+            ResolveRelayBaseUri(sp),
+            sp.GetRequiredService<ISenderAuthSigner>(),
+            sp.GetRequiredService<IReceiveAuthSigner>(),
+            sp.GetRequiredService<IReceiveCursorStore>()));
+
+        return services;
+    }
+
+    private static Uri ResolveRelayBaseUri(IServiceProvider sp)
+    {
+        var options = sp.GetRequiredService<IOptions<CryptoSyncOptions>>().Value;
+        if (string.IsNullOrWhiteSpace(options.RelayBaseUri))
+        {
+            throw new InvalidOperationException(
+                $"CryptoSync: '{nameof(CryptoSyncOptions.RelayBaseUri)}' is not configured. "
+                + $"Bind '{CryptoSyncOptions.SectionName}:{nameof(CryptoSyncOptions.RelayBaseUri)}' "
+                + "from configuration or pass a 'configure' callback to AddCryptoSync.");
+        }
+        return new Uri(options.RelayBaseUri, UriKind.Absolute);
+    }
+
     /// <summary>
     /// Verifies the CryptoSync seed state of <typeparamref name="TContext"/>
     /// and reports the appropriate failure to the unified boot status. Intended

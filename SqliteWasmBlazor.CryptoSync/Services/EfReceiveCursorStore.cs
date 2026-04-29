@@ -20,6 +20,16 @@ namespace SqliteWasmBlazor.CryptoSync;
 /// raced; cursors only ever move forward, so a lost write at most replays
 /// a small batch on the next pull.
 /// </para>
+///
+/// <para>
+/// <b>Lifetime.</b> Constructed with a live <see cref="CryptoSyncContextBase"/>
+/// — useful for tests + ad-hoc callers. Production DI uses
+/// <see cref="EfReceiveCursorStoreFactory{TContext}"/> instead, which
+/// creates a fresh context per Load/Save call via
+/// <see cref="IDbContextFactory{TContext}"/> and disposes it immediately —
+/// the right shape for browser apps where the host is a single long-lived
+/// scope.
+/// </para>
 /// </summary>
 public sealed class EfReceiveCursorStore(CryptoSyncContextBase context) : IReceiveCursorStore
 {
@@ -50,5 +60,39 @@ public sealed class EfReceiveCursorStore(CryptoSyncContextBase context) : IRecei
             row.LastReceivedCursor = cursor;
         }
         await context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+    }
+}
+
+/// <summary>
+/// DI-friendly <see cref="IReceiveCursorStore"/> wrapper that obtains a
+/// fresh <typeparamref name="TContext"/> from
+/// <see cref="IDbContextFactory{TContext}"/> on each Load/Save and disposes
+/// it immediately. Used by <c>AddCryptoSync&lt;TContext&gt;</c> so the
+/// receive cursor never holds a context across the long-lived browser
+/// scope; <see cref="EfReceiveCursorStore"/> stays directly constructible
+/// for tests that already manage context lifetime.
+/// </summary>
+public sealed class EfReceiveCursorStoreFactory<TContext>(IDbContextFactory<TContext> contextFactory)
+    : IReceiveCursorStore
+    where TContext : CryptoSyncContextBase
+{
+    public async ValueTask<long> LoadAsync(CancellationToken cancellationToken = default)
+    {
+        await using var context = await contextFactory
+            .CreateDbContextAsync(cancellationToken)
+            .ConfigureAwait(false);
+        return await new EfReceiveCursorStore(context)
+            .LoadAsync(cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    public async ValueTask SaveAsync(long cursor, CancellationToken cancellationToken = default)
+    {
+        await using var context = await contextFactory
+            .CreateDbContextAsync(cancellationToken)
+            .ConfigureAwait(false);
+        await new EfReceiveCursorStore(context)
+            .SaveAsync(cursor, cancellationToken)
+            .ConfigureAwait(false);
     }
 }
