@@ -13,7 +13,7 @@ For protocol detail see `docs/security/relay-whitelist-design.md`. For the activ
 | `relay-config.example.php` | **denied** | Template for operator config. |
 | `relay-config.php` | **denied** | Live deployment config. Created by `cryptosync-relay-init`. |
 | `cryptosync-relay-init.php` | **denied** | One-time bootstrap CLI. |
-| `cryptosync-relay-gc.php` | **denied** | Time-based delta retention CLI. (Lands in Stage A Step 6.) |
+| `cryptosync-relay-gc.php` | **denied** | Time-based delta retention CLI. |
 | `relay.db` | **denied** | SQLite store. Auto-created on first request. |
 | `LocalValetDriver.php` | n/a | Laravel Valet routing for local dev. |
 | `.htaccess` | n/a | Apache routing + deny rules. Must mirror the Valet driver. |
@@ -92,17 +92,31 @@ The category trait keeps these tests out of the default `dotnet test` run, so CI
 
 Schema creation is idempotent (`CREATE TABLE IF NOT EXISTS`), so deleting `relay.db` between tests is safe. The seeded `relay-config.php` is left in place after the run for post-mortem; the next run overwrites it.
 
-## Retention / GC (Stage A Step 6)
+## Retention / GC
 
-`cryptosync-relay-gc.php` (cron-driven CLI, lands in Step 6) deletes deltas older than `retention_seconds` from `relay-config.php`. Suggested cron:
+`cryptosync-relay-gc.php` is a cron-driven CLI that deletes rows from `deltas` where `created_at < (now - retention_seconds)`. `retention_seconds` is read from `relay-config.php` (default 2592000 = 30 days). Suggested cron:
 
 ```cron
 0 3 * * * cd /path/to/DeltaRelay && php cryptosync-relay-gc.php >> gc.log 2>&1
 ```
 
+The CLI emits one JSON line on stdout per run:
+
+```json
+{"deleted": 17, "oldest_remaining": 1714000000}
+```
+
+`oldest_remaining` is the `MIN(created_at)` of the surviving rows (or `null` if the queue is now empty). Exit code is `0` on success, `1` on failure (error to stderr, nothing on stdout).
+
 GC is **lossy**: a receiver offline longer than `retention_seconds` silently misses intervening envelopes. Lossless GC requires snapshot endpoints, which are deferred (see ROADMAP).
 
-Whitelist entries are **never** GC'd — they transition `active → revoked → expired` and stay forever to keep the whitelist version monotonic across re-additions.
+Whitelist entries (`whitelist` rows + `whitelist_meta.current_version`) are **never** GC'd — they transition `active → revoked → expired` and stay forever to keep the whitelist version monotonic across re-additions.
+
+The script refuses to run over HTTP (`php_sapi_name() !== 'cli'` → 404). The Valet driver and `.htaccess` also deny direct access; verify with:
+
+```sh
+curl -I https://your-host/cryptosync-relay-gc.php   # expect 403 or 404
+```
 
 ## Server hardening (deployment-time, not in code)
 

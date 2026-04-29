@@ -1,8 +1,11 @@
+using System.Diagnostics;
 using System.Globalization;
 using System.Net;
 using System.Net.Http.Json;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
+using Microsoft.Data.Sqlite;
 using Org.BouncyCastle.Crypto.Parameters;
 using Org.BouncyCastle.Crypto.Signers;
 using SqliteWasmBlazor.Crypto.Testing;
@@ -367,6 +370,128 @@ public sealed class HttpSyncTransportLiveRelayTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }
 
+    [Fact]
+    public async Task Gc_DeletesOnlyExpiredDeltas_WhitelistRowsUntouched()
+    {
+        // Tighten retention to 60s so a 200s-old envelope is comfortably past
+        // the threshold without test-clock machinery. Then revoke the sender
+        // at v2 so we have a non-active whitelist row to assert is preserved
+        // by the GC pass — entries are forever; only deltas GC.
+        var adminHashHex = HashHex(_deploymentSalt, _adminPub);
+        WriteRelayConfig(_deploymentSalt, adminHashHex, retentionSeconds: 60);
+
+        // POST 5 envelopes via the normal flow.
+        using var http = new HttpClient();
+        var transport = NewSenderTransport(http);
+        var envelopes = new byte[5][]
+        {
+            [0xE1, 0x01], [0xE2, 0x02], [0xE3, 0x03], [0xE4, 0x04], [0xE5, 0x05],
+        };
+        foreach (var env in envelopes)
+        {
+            await transport.SendAsync(env);
+        }
+
+        // Revoke the sender at v2 so a non-active whitelist row exists for the
+        // negative assertion below. Backdate revoked_at past the grace window
+        // so the post-GC GET is a clean check of "GC didn't touch the row";
+        // the GET path's grace check is covered by other tests.
+        var revokedAtPastGrace = DateTimeOffset.UtcNow.ToUnixTimeSeconds() - 1_000_000;
+        await PushAsync(
+            version: 2,
+            ops:
+            [
+                WhitelistOp.Revoke(
+                    HashHex(_deploymentSalt, _senderPub),
+                    revokedAt: revokedAtPastGrace),
+            ]);
+
+        // Backdate cursors 1..3 to (now - 200) so they fall outside the 60s
+        // retention window. Cursors 4 and 5 keep their fresh created_at.
+        var stalenessSeconds = 200L;
+        var pastCreatedAt = DateTimeOffset.UtcNow.ToUnixTimeSeconds() - stalenessSeconds;
+        BackdateDeltas([1, 2, 3], pastCreatedAt);
+
+        var (exitCode, stdout, stderr) = RunGcCli();
+        Assert.Equal(0, exitCode);
+        AssertNoGcError(stderr);
+
+        using var summary = JsonDocument.Parse(stdout);
+        Assert.Equal(3, summary.RootElement.GetProperty("deleted").GetInt32());
+        var oldestRemaining = summary.RootElement.GetProperty("oldest_remaining");
+        Assert.Equal(JsonValueKind.Number, oldestRemaining.ValueKind);
+        // The remaining envelopes were created within the test run; allow a
+        // generous floor (now - 60s) so a slow CI box doesn't flake.
+        var lowerBound = DateTimeOffset.UtcNow.ToUnixTimeSeconds() - 60;
+        Assert.InRange(oldestRemaining.GetInt64(), lowerBound, DateTimeOffset.UtcNow.ToUnixTimeSeconds() + 5);
+
+        // Whitelist rows survive: sender row still revoked at v2, admin nowhere
+        // (we never added it in this test), current_version still 2.
+        var (whitelistRows, currentVersion) = ReadWhitelistState();
+        Assert.Equal(2L, currentVersion);
+        Assert.Single(whitelistRows);
+        var senderRow = whitelistRows[0];
+        Assert.Equal(HashHex(_deploymentSalt, _senderPub), senderRow.PubkeyHash);
+        Assert.Equal("revoked", senderRow.Status);
+        Assert.Equal(revokedAtPastGrace, senderRow.RevokedAt);
+
+        // Surviving deltas keep their original AUTOINCREMENT cursors. Re-issue
+        // the revoke so the sender lands inside a fresh tight grace window
+        // (60s) and the GET is allowed to drain the queue. Push v3.
+        WriteRelayConfig(_deploymentSalt, adminHashHex, readGraceSeconds: 60, retentionSeconds: 60);
+        await PushAsync(
+            version: 3,
+            ops:
+            [
+                WhitelistOp.Revoke(
+                    HashHex(_deploymentSalt, _senderPub),
+                    revokedAt: DateTimeOffset.UtcNow.ToUnixTimeSeconds()),
+            ]);
+
+        var pulled = new List<byte[]>();
+        for (var i = 0; i < 2; i++)
+        {
+            var bytes = await transport.TryReceiveAsync();
+            Assert.NotNull(bytes);
+            pulled.Add(bytes!);
+        }
+        Assert.Null(await transport.TryReceiveAsync());
+        Assert.Contains(envelopes[3], pulled);
+        Assert.Contains(envelopes[4], pulled);
+        Assert.DoesNotContain(envelopes[0], pulled);
+        Assert.DoesNotContain(envelopes[1], pulled);
+        Assert.DoesNotContain(envelopes[2], pulled);
+    }
+
+    [Fact]
+    public void Gc_EmptyDatabase_ReportsZeroDeleted()
+    {
+        // Cold-deployment shape: GC runs on a relay that has a config but no
+        // deltas yet (e.g. between init and first POST). The CLI must not
+        // create a relay.db, must exit 0, and must report deleted=0.
+        var dbPath = Path.Combine(_deltaRelayDir, "relay.db");
+        var existedBefore = File.Exists(dbPath);
+        if (existedBefore)
+        {
+            ResetRelayDb();
+        }
+
+        try
+        {
+            var (exitCode, stdout, stderr) = RunGcCli();
+            Assert.Equal(0, exitCode);
+            AssertNoGcError(stderr);
+            using var summary = JsonDocument.Parse(stdout);
+            Assert.Equal(0, summary.RootElement.GetProperty("deleted").GetInt32());
+            Assert.Equal(JsonValueKind.Null, summary.RootElement.GetProperty("oldest_remaining").ValueKind);
+            Assert.False(File.Exists(dbPath), "GC must not create relay.db when none exists.");
+        }
+        finally
+        {
+            ResetRelayDb();
+        }
+    }
+
     // ------------------------------------------------------------------
     // Helpers
     // ------------------------------------------------------------------
@@ -436,7 +561,8 @@ public sealed class HttpSyncTransportLiveRelayTests : IAsyncLifetime
         byte[] salt,
         string adminHashHex,
         int readGraceSeconds = 604800,
-        int maxBodyBytes = 1048576)
+        int maxBodyBytes = 1048576,
+        int retentionSeconds = 2592000)
     {
         var saltB64 = Convert.ToBase64String(salt);
         var contents = $$"""
@@ -449,7 +575,7 @@ public sealed class HttpSyncTransportLiveRelayTests : IAsyncLifetime
                 'max_body_bytes'     => {{maxBodyBytes}},
                 'rate_limit_window'  => 60,
                 'rate_limit_count'   => 60,
-                'retention_seconds'  => 2592000,
+                'retention_seconds'  => {{retentionSeconds}},
             ];
             """;
         var path = Path.Combine(_deltaRelayDir, "relay-config.php");
@@ -461,6 +587,94 @@ public sealed class HttpSyncTransportLiveRelayTests : IAsyncLifetime
         TryDelete(Path.Combine(_deltaRelayDir, "relay.db"));
         TryDelete(Path.Combine(_deltaRelayDir, "relay.db-wal"));
         TryDelete(Path.Combine(_deltaRelayDir, "relay.db-shm"));
+    }
+
+    private void BackdateDeltas(IReadOnlyList<long> cursors, long createdAt)
+    {
+        var path = Path.Combine(_deltaRelayDir, "relay.db");
+        using var conn = new SqliteConnection($"Data Source={path}");
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "UPDATE deltas SET created_at = $t WHERE cursor = $c";
+        var tParam = cmd.CreateParameter();
+        tParam.ParameterName = "$t";
+        tParam.Value = createdAt;
+        cmd.Parameters.Add(tParam);
+        var cParam = cmd.CreateParameter();
+        cParam.ParameterName = "$c";
+        cmd.Parameters.Add(cParam);
+        foreach (var cursor in cursors)
+        {
+            cParam.Value = cursor;
+            var rows = cmd.ExecuteNonQuery();
+            if (rows != 1)
+            {
+                throw new InvalidOperationException(
+                    $"Backdate UPDATE matched {rows} rows for cursor={cursor}; expected exactly 1.");
+            }
+        }
+    }
+
+    private record WhitelistRow(string PubkeyHash, string Status, long? RevokedAt);
+
+    private (IReadOnlyList<WhitelistRow> Rows, long CurrentVersion) ReadWhitelistState()
+    {
+        var path = Path.Combine(_deltaRelayDir, "relay.db");
+        using var conn = new SqliteConnection($"Data Source={path}");
+        conn.Open();
+
+        var rows = new List<WhitelistRow>();
+        using (var cmd = conn.CreateCommand())
+        {
+            cmd.CommandText =
+                "SELECT pubkey_hash, status, revoked_at FROM whitelist ORDER BY pubkey_hash";
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                rows.Add(new WhitelistRow(
+                    reader.GetString(0),
+                    reader.GetString(1),
+                    reader.IsDBNull(2) ? null : reader.GetInt64(2)));
+            }
+        }
+
+        long version;
+        using (var cmd = conn.CreateCommand())
+        {
+            cmd.CommandText = "SELECT current_version FROM whitelist_meta WHERE id = 1";
+            version = (long)(cmd.ExecuteScalar() ?? 0L);
+        }
+
+        return (rows, version);
+    }
+
+    private static void AssertNoGcError(string stderr)
+    {
+        // Some PHP installations emit benign noise to stderr (e.g.
+        // "Cannot load Xdebug - it was already loaded"). The GC CLI's own
+        // failure path always prefixes "GC failed:" — assert on absence of
+        // that, not on a clean stderr.
+        Assert.DoesNotContain("GC failed", stderr);
+    }
+
+    private (int ExitCode, string Stdout, string Stderr) RunGcCli()
+    {
+        var psi = new ProcessStartInfo
+        {
+            FileName = "php",
+            ArgumentList = { "cryptosync-relay-gc.php" },
+            WorkingDirectory = _deltaRelayDir,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+        };
+        using var proc = Process.Start(psi)
+            ?? throw new InvalidOperationException("Failed to start php cryptosync-relay-gc.php");
+        var stdout = proc.StandardOutput.ReadToEnd();
+        var stderr = proc.StandardError.ReadToEnd();
+        proc.WaitForExit(TimeSpan.FromSeconds(15));
+        return (proc.ExitCode, stdout, stderr);
     }
 
     private static void TryDelete(string path)
