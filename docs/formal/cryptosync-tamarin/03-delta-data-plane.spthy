@@ -1,0 +1,142 @@
+theory CryptoSyncDeltaDataPlane
+begin
+
+/*
+ * Symbolic model of the worker delta envelope data plane.
+ *
+ * Implementation references:
+ *   SqliteWasmBlazor/TypeScript/worker/crypto-ops.ts
+ *   SqliteWasmBlazor.CryptoSync/Models/DeltaEnvelope.cs
+ *
+ * Modeled flow:
+ *   - A sender with a trusted Ed25519 key exports one encrypted row.
+ *   - Row AEAD uses AAD = groupContext:keyVersion.
+ *   - A per-group batch signature covers ciphertext + nonce.
+ *   - An outer signature covers the packed groups body.
+ *   - Receiver accepts only if the sender is authorized and the CEK for the
+ *     group/keyVersion is available.
+ *
+ * This is a symbolic one-row/one-group model. SQL apply behavior, schema-hash
+ * checks, DeltaWins, and column permissions are implementation properties
+ * tested elsewhere.
+ */
+
+builtins: signing, symmetric-encryption
+
+functions:
+    aad/2,
+    batch_canon/2,
+    groups_canon/4,
+    delta_envelope/7,
+    wrong_aad/2
+
+rule SetupSender:
+    [ Fr(~sender_sig_sk) ]
+  --[ SenderCreated($Sender, ~sender_sig_sk) ]->
+    [ !SenderSigKey($Sender, ~sender_sig_sk)
+    , !SenderSigPub($Sender, pk(~sender_sig_sk))
+    , Out(pk(~sender_sig_sk))
+    ]
+
+rule InstallGroupCek:
+    [ Fr(~cek) ]
+  --[ GroupCekInstalled($Receiver, $Group, $Version, ~cek) ]->
+    [ !GroupCek($Receiver, $Group, $Version, ~cek) ]
+
+rule AuthorizeSender:
+    [ !SenderSigPub($Sender, sender_sig_pub) ]
+  --[ SenderAuthorized($Receiver, $Sender, $Group, $Role) ]->
+    [ !AuthorizedSender($Receiver, $Sender, $Group, $Role) ]
+
+rule ExportDeltaRow:
+    [ !SenderSigKey($Sender, sender_sig_sk)
+    , !GroupCek($Sender, $Group, $Version, cek)
+    , Fr(~row)
+    , Fr(~nonce)
+    ]
+  --[ DeltaRowProduced($Sender, $Group, $Version, ~row, ~nonce) ]->
+    [ !ValidDeltaEnvelope(
+        $Sender,
+        $Group,
+        $Version,
+        ~row,
+        ~nonce,
+        senc(<aad($Group, $Version), <~nonce, ~row>>, cek),
+        sign(batch_canon(senc(<aad($Group, $Version), <~nonce, ~row>>, cek), ~nonce), sender_sig_sk),
+        sign(groups_canon($Group, $Version, senc(<aad($Group, $Version), <~nonce, ~row>>, cek), ~nonce), sender_sig_sk))
+    , Out(delta_envelope(
+        pk(sender_sig_sk),
+        $Group,
+        $Version,
+        ~nonce,
+        senc(<aad($Group, $Version), <~nonce, ~row>>, cek),
+        sign(batch_canon(senc(<aad($Group, $Version), <~nonce, ~row>>, cek), ~nonce), sender_sig_sk),
+        sign(groups_canon($Group, $Version, senc(<aad($Group, $Version), <~nonce, ~row>>, cek), ~nonce), sender_sig_sk)))
+    ]
+
+// Counterexample bait: a syntactically envelope-shaped row encrypted under the
+// wrong AAD must never be accepted by the receiver's v1 data path.
+rule ExportWrongAadRow:
+    [ !SenderSigKey($Sender, sender_sig_sk)
+    , !GroupCek($Sender, $Group, $Version, cek)
+    , Fr(~row)
+    , Fr(~nonce)
+    ]
+  --[ WrongAadDeltaProduced($Sender, $Group, $Version, ~row, ~nonce) ]->
+    [ Out(delta_envelope(
+        pk(sender_sig_sk),
+        $Group,
+        $Version,
+        ~nonce,
+        senc(<wrong_aad($Group, $Version), <~nonce, ~row>>, cek),
+        sign(batch_canon(senc(<wrong_aad($Group, $Version), <~nonce, ~row>>, cek), ~nonce), sender_sig_sk),
+        sign(groups_canon($Group, $Version, senc(<wrong_aad($Group, $Version), <~nonce, ~row>>, cek), ~nonce), sender_sig_sk)))
+    ]
+
+rule AcceptDeltaRow:
+    [ !GroupCek($Receiver, $Group, $Version, cek)
+    , !AuthorizedSender($Receiver, $Sender, $Group, $Role)
+    , !SenderSigPub($Sender, sender_sig_pub)
+    , !ValidDeltaEnvelope($Sender, $Group, $Version, row, nonce, ciphertext, batch_sig, outer_sig)
+    , In(delta_envelope(sender_sig_pub, $Group, $Version, nonce, ciphertext, batch_sig, outer_sig))
+    ]
+  --[ DeltaRowAccepted($Receiver, $Sender, $Group, $Version, row, nonce) ]->
+    [ ]
+
+lemma sender_signing_key_secret:
+    "All Sender sk #t1.
+        SenderCreated(Sender, sk) @ #t1
+        ==> not (Ex #t2. K(sk) @ #t2)"
+
+lemma group_cek_secret:
+    "All Receiver group version cek #t1.
+        GroupCekInstalled(Receiver, group, version, cek) @ #t1
+        ==> not (Ex #t2. K(cek) @ #t2)"
+
+lemma delta_row_secrecy:
+    "All Sender group version row nonce #t1.
+        DeltaRowProduced(Sender, group, version, row, nonce) @ #t1
+        ==> not (Ex #t2. K(row) @ #t2)"
+
+lemma accepted_delta_has_sender_source:
+    "All Receiver Sender group version row nonce #t1.
+        DeltaRowAccepted(Receiver, Sender, group, version, row, nonce) @ #t1
+        ==> Ex #t2.
+              DeltaRowProduced(Sender, group, version, row, nonce) @ #t2
+            & #t2 < #t1"
+
+lemma accepted_delta_requires_authorized_sender:
+    "All Receiver Sender group version row nonce #t1.
+        DeltaRowAccepted(Receiver, Sender, group, version, row, nonce) @ #t1
+        ==> Ex role #t2.
+              SenderAuthorized(Receiver, Sender, group, role) @ #t2
+            & #t2 < #t1"
+
+lemma wrong_aad_rows_not_accepted:
+    "All Sender group version row nonce Receiver #tw #ta.
+        WrongAadDeltaProduced(Sender, group, version, row, nonce) @ #tw
+      & DeltaRowAccepted(Receiver, Sender, group, version, row, nonce) @ #ta
+        ==> Ex #tp.
+              DeltaRowProduced(Sender, group, version, row, nonce) @ #tp"
+
+end

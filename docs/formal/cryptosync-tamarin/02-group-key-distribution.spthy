@@ -1,0 +1,152 @@
+theory CryptoSyncGroupKeyDistribution
+begin
+
+/*
+ * Symbolic model of GroupService / ShareTarget key distribution.
+ *
+ * Implementation references:
+ *   SqliteWasmBlazor.CryptoSync/Services/GroupService.cs
+ *   SqliteWasmBlazor.CryptoSync/Models/ShareGroup.cs
+ *   SqliteWasmBlazor.CryptoSync/Models/ShareTarget.cs
+ *
+ * Modeled flow:
+ *   - Admin creates a group CEK at keyVersion v1.
+ *   - ShareTargets are signed by the group admin and wrap the CEK for current
+ *     members only.
+ *   - Removing a member rotates to v2 and carries current membership forward
+ *     for remaining members only.
+ *
+ * ECIES / X25519 / HKDF wrapping is idealized as fresh private wrapping keys
+ * per ShareTarget. The signed ShareTarget credential and CEK provenance are
+ * the protocol properties modeled here.
+ */
+
+builtins: signing, symmetric-encryption
+
+functions:
+    st_canon/4,
+    share_target/5
+
+restriction rotate_distinct_members:
+    "All Admin Group Remaining Revoked #i.
+        RotateMemberPair(Admin, Group, Remaining, Revoked) @ #i
+        ==> not (Remaining = Revoked)"
+
+restriction unique_group_creation:
+    "All Admin Group cek1 cek2 #i #j.
+        GroupCreated(Admin, Group, 'v1', cek1) @ #i
+      & GroupCreated(Admin, Group, 'v1', cek2) @ #j
+        ==> #i = #j"
+
+restriction unique_bounded_rotation:
+    "All Admin Group old1 old2 new1 new2 #i #j.
+        GroupRotated(Admin, Group, 'v1', old1, 'v2', new1) @ #i
+      & GroupRotated(Admin, Group, 'v1', old2, 'v2', new2) @ #j
+        ==> #i = #j"
+
+rule SetupGroupAdmin:
+    [ Fr(~admin_sig_sk) ]
+  --[ GroupAdminCreated($Admin, ~admin_sig_sk) ]->
+    [ !AdminSigKey($Admin, ~admin_sig_sk)
+    , !AdminSigPub($Admin, pk(~admin_sig_sk))
+    , Out(pk(~admin_sig_sk))
+    ]
+
+rule CreateGroup:
+    [ !AdminSigKey($Admin, admin_sig_sk)
+    , Fr(~cek_v1)
+    ]
+  --[ GroupCreated($Admin, $Group, 'v1', ~cek_v1)
+    , GroupCekCreated($Admin, $Group, 'v1', ~cek_v1)
+    ]->
+    [ !GroupCek($Admin, $Group, 'v1', ~cek_v1)
+    , !CurrentMember($Admin, $Group, $MemberA, 'v1')
+    , !CurrentMember($Admin, $Group, $MemberB, 'v1')
+    ]
+
+rule IssueShareTarget:
+    [ !AdminSigKey($Admin, admin_sig_sk)
+    , !AdminSigPub($Admin, admin_sig_pub)
+    , !GroupCek($Admin, $Group, version, cek)
+    , !CurrentMember($Admin, $Group, $Member, version)
+    , Fr(~wrap_key)
+    ]
+  --[ ShareTargetIssued($Admin, $Member, $Group, version, $Role, cek) ]->
+    [ !ValidShareTarget(
+        $Admin,
+        $Member,
+        $Group,
+        version,
+        $Role,
+        cek,
+        senc(cek, ~wrap_key),
+        sign(st_canon($Member, $Role, $Group, version), admin_sig_sk))
+    , Out(< share_target($Member, $Group, version, $Role, senc(cek, ~wrap_key))
+          , admin_sig_pub
+          , sign(st_canon($Member, $Role, $Group, version), admin_sig_sk)
+          >)
+    ]
+
+rule AcceptShareTarget:
+    [ !ValidShareTarget($Admin, $Member, $Group, version, $Role, cek, wrapped_cek, sig)
+    , In(< share_target($Member, $Group, version, $Role, wrapped_cek)
+         , admin_sig_pub
+         , sig
+         >)
+    ]
+  --[ ShareTargetAccepted($Admin, $Member, $Group, version, $Role, cek)
+    , MemberCekInstalled($Member, $Group, version, cek)
+    ]->
+    [ ]
+
+rule RotateRemoveMember:
+    [ !GroupCek($Admin, $Group, 'v1', old_cek)
+    , !CurrentMember($Admin, $Group, $Remaining, 'v1')
+    , !CurrentMember($Admin, $Group, $Revoked, 'v1')
+    , Fr(~cek_v2)
+    ]
+  --[ RotateMemberPair($Admin, $Group, $Remaining, $Revoked)
+    , MemberRevoked($Admin, $Revoked, $Group, 'v1', 'v2')
+    , GroupRotated($Admin, $Group, 'v1', old_cek, 'v2', ~cek_v2)
+    , GroupCekCreated($Admin, $Group, 'v2', ~cek_v2)
+    ]->
+    [ !GroupCek($Admin, $Group, 'v2', ~cek_v2)
+    , !CurrentMember($Admin, $Group, $Remaining, 'v2')
+    ]
+
+lemma admin_signing_key_secret:
+    "All Admin sk #t1.
+        GroupAdminCreated(Admin, sk) @ #t1
+        ==> not (Ex #t2. K(sk) @ #t2)"
+
+lemma group_cek_secret:
+    "All Admin group version cek #t1.
+        GroupCekCreated(Admin, group, version, cek) @ #t1
+        ==> not (Ex #t2. K(cek) @ #t2)"
+
+lemma accepted_sharetarget_has_admin_source:
+    "All Admin Member group version role cek #t1.
+        ShareTargetAccepted(Admin, Member, group, version, role, cek) @ #t1
+        ==> Ex #t2.
+              ShareTargetIssued(Admin, Member, group, version, role, cek) @ #t2
+            & #t2 < #t1"
+
+lemma accepted_sharetarget_installs_member_cek:
+    "All Member group version cek #t1.
+        MemberCekInstalled(Member, group, version, cek) @ #t1
+        ==> Ex Admin role #t2.
+              ShareTargetAccepted(Admin, Member, group, version, role, cek) @ #t2
+            & #t2 = #t1"
+
+lemma revoked_member_gets_no_rotated_sharetarget:
+    "All Admin Revoked group old_version new_version role cek #tr #ta.
+        MemberRevoked(Admin, Revoked, group, old_version, new_version) @ #tr
+      & ShareTargetAccepted(Admin, Revoked, group, new_version, role, cek) @ #ta
+        ==> F"
+
+lemma rotated_cek_is_fresh:
+    "All Admin group old_version old_cek new_version new_cek #t1.
+        GroupRotated(Admin, group, old_version, old_cek, new_version, new_cek) @ #t1
+        ==> not (old_cek = new_cek)"
+
+end

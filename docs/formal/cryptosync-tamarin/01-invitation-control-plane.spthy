@@ -1,0 +1,148 @@
+theory CryptoSyncInvitationControlPlane
+begin
+
+/*
+ * Symbolic model of ContactInvitationService.
+ *
+ * Implementation references:
+ *   SqliteWasmBlazor.CryptoSync/Services/ContactInvitationService.cs
+ *   SqliteWasmBlazor.CryptoSync/Models/Invitation.cs
+ *
+ * Modeled flow:
+ *   1. Admin creates an invitation bundle and signs
+ *      transportPub || GroupId || ExpiresAt.
+ *   2. Invitee accepts only a bundle with a valid admin signature.
+ *   3. Invitee sends an encrypted response on the invitation channel and signs
+ *      InvitationId || ContactX25519 || ContactEd25519 || ExpiresAt.
+ *   4. Admin ingests only responses encrypted on that channel with a valid
+ *      contact signature.
+ *
+ * The ECDH/HKDF channel key is idealized as a fresh shared invitation channel
+ * key. This file proves protocol wiring/provenance, not curve arithmetic.
+ */
+
+builtins: signing, symmetric-encryption
+
+functions:
+    xpub/1,
+    transport_pub/1,
+    invite_canon/3,
+    contact_canon/4,
+    response_aad/1,
+    contact_payload/4,
+    bundle/5
+
+rule SetupAdmin:
+    [ Fr(~admin_sig_sk)
+    , Fr(~admin_x_sk)
+    ]
+  --[ AdminCreated($Admin, ~admin_sig_sk, ~admin_x_sk) ]->
+    [ !AdminSigKey($Admin, ~admin_sig_sk)
+    , !AdminSigPub($Admin, pk(~admin_sig_sk))
+    , !AdminXKey($Admin, ~admin_x_sk)
+    , Out(pk(~admin_sig_sk))
+    , Out(xpub(~admin_x_sk))
+    ]
+
+rule SetupContact:
+    [ Fr(~contact_sig_sk)
+    , Fr(~contact_x_sk)
+    ]
+  --[ ContactCreated($Contact, ~contact_sig_sk, ~contact_x_sk) ]->
+    [ !ContactKeys($Contact, ~contact_sig_sk, ~contact_x_sk)
+    , !ContactSigPub($Contact, pk(~contact_sig_sk))
+    , !ContactXPub($Contact, xpub(~contact_x_sk))
+    , Out(pk(~contact_sig_sk))
+    , Out(xpub(~contact_x_sk))
+    ]
+
+rule CreateInvitation:
+    [ !AdminSigKey($Admin, admin_sig_sk)
+    , !AdminSigPub($Admin, admin_sig_pk)
+    , !AdminXKey($Admin, admin_x_sk)
+    , Fr(~transport_secret)
+    , Fr(~channel_key)
+    ]
+  --[ InvitationCreated($Admin, $Group, transport_pub(~transport_secret), $Expires)
+    , InvitationChannelCreated($Admin, $Group, transport_pub(~transport_secret), $Expires, ~channel_key)
+    , TransportWhitelisted($Admin, $Group, transport_pub(~transport_secret))
+    ]->
+    [ !InvitationChannel($Admin, $Group, transport_pub(~transport_secret), $Expires, ~channel_key)
+    , !ValidInvitationBundle(
+        $Admin,
+        $Group,
+        transport_pub(~transport_secret),
+        $Expires,
+        admin_sig_pk,
+        xpub(admin_x_sk),
+        sign(invite_canon(transport_pub(~transport_secret), $Group, $Expires), admin_sig_sk))
+    , Out(< bundle($Group, transport_pub(~transport_secret), $Expires, admin_sig_pk, xpub(admin_x_sk))
+          , sign(invite_canon(transport_pub(~transport_secret), $Group, $Expires), admin_sig_sk)
+          >)
+    ]
+
+rule AcceptInvitationBundle:
+    [ !ValidInvitationBundle($Admin, $Group, transport, $Expires, admin_sig_pub, admin_x_pub, sig)
+    , In(< bundle($Group, transport, $Expires, admin_sig_pub, admin_x_pub), sig >)
+    ]
+  --[ InvitationBundleAccepted($Admin, $Group, transport, $Expires, admin_x_pub) ]->
+    [ ]
+
+rule SendInvitationResponse:
+    [ !InvitationChannel($Admin, $Group, transport, $Expires, channel_key)
+    , !ContactKeys($Contact, contact_sig_sk, contact_x_sk)
+    , Fr(~nonce)
+    ]
+  --[ InvitationResponseSent($Admin, $Contact, $Group, xpub(contact_x_sk), pk(contact_sig_sk), ~nonce) ]->
+    [ !ValidInvitationResponse(
+        $Admin,
+        $Contact,
+        $Group,
+        xpub(contact_x_sk),
+        pk(contact_sig_sk),
+        ~nonce,
+        senc(< response_aad($Group)
+             , contact_payload($Group, xpub(contact_x_sk), pk(contact_sig_sk),
+                 sign(contact_canon($Group, xpub(contact_x_sk), pk(contact_sig_sk), $Expires), contact_sig_sk))
+             >, channel_key))
+    , Out(< $Group
+          , ~nonce
+          , senc(< response_aad($Group)
+                 , contact_payload($Group, xpub(contact_x_sk), pk(contact_sig_sk),
+                     sign(contact_canon($Group, xpub(contact_x_sk), pk(contact_sig_sk), $Expires), contact_sig_sk))
+                 >, channel_key)
+          >)
+    ]
+
+rule IngestInvitationResponse:
+    [ !ValidInvitationResponse($Admin, $Contact, $Group, contact_x_pub, contact_sig_pub, nonce, ciphertext)
+    , In(< $Group, nonce, ciphertext >)
+    ]
+  --[ InvitationResponseIngested($Admin, $Contact, $Group, contact_x_pub, contact_sig_pub, nonce) ]->
+    [ ]
+
+lemma admin_signing_key_secret:
+    "All Admin sk xsk #t1.
+        AdminCreated(Admin, sk, xsk) @ #t1
+        ==> not (Ex #t2. K(sk) @ #t2)"
+
+lemma invitation_channel_key_secret:
+    "All Admin group transport expires channel_key #t1.
+        InvitationChannelCreated(Admin, group, transport, expires, channel_key) @ #t1
+        ==> not (Ex #t2. K(channel_key) @ #t2)"
+
+lemma accepted_bundle_has_admin_source:
+    "All Admin group transport expires admin_x_pub #t1.
+        InvitationBundleAccepted(Admin, group, transport, expires, admin_x_pub) @ #t1
+        ==> Ex #t2.
+              InvitationCreated(Admin, group, transport, expires) @ #t2
+            & #t2 < #t1"
+
+lemma ingested_response_has_contact_source:
+    "All Admin Contact group contact_x contact_sig nonce #t1.
+        InvitationResponseIngested(Admin, Contact, group, contact_x, contact_sig, nonce) @ #t1
+        ==> Ex #t2.
+              InvitationResponseSent(Admin, Contact, group, contact_x, contact_sig, nonce) @ #t2
+            & #t2 < #t1"
+
+end

@@ -1,0 +1,287 @@
+theory CryptoSyncRelayWhitelistCursor
+begin
+
+/*
+ * Symbolic model of the whitelist-broadcast relay.
+ *
+ * Implementation references:
+ *   DeltaRelay/delta-relay.php
+ *   SqliteWasmBlazor.CryptoSync/Services/HttpSyncTransport.cs
+ *   SqliteWasmBlazor.CryptoSync/Services/WhitelistPushService.cs
+ *   SqliteWasmBlazor.CryptoSync/Services/DeclarationSigner.cs
+ *
+ * Modeled flow:
+ *   - Hardwired deployment admin signs whitelist ops.
+ *   - Relay accepts v1 add and v2 revoke in monotonic order.
+ *   - Active users may POST deltas; revoked users may not POST.
+ *   - Active users and revoked users inside read grace may GET.
+ *   - Expired revoked users cannot GET.
+ *   - Receive cursor advances c0 -> c1 -> c2 and never rolls back.
+ *
+ * Timestamps and grace duration are abstracted into statuses:
+ *   active, grace, expired.
+ */
+
+builtins: signing
+
+functions:
+    add_op/1,
+    revoke_op/2,
+    wl_canon/2,
+    post_canon/2,
+    get_canon/2,
+    post_req/4,
+    get_req/3
+
+restriction unique_relay_init:
+    "All #i #j.
+        RelayInitialized() @ #i
+      & RelayInitialized() @ #j
+        ==> #i = #j"
+
+restriction unique_receive_cursor_init:
+    "All User #i #j.
+        ReceiveCursorInitialized(User) @ #i
+      & ReceiveCursorInitialized(User) @ #j
+        ==> #i = #j"
+
+rule SetupRelay:
+    [ ]
+  --[ RelayInitialized() ]->
+    [ RelayVersion('v0')
+    , RelayQueue('c0')
+    ]
+
+rule SetupAdmin:
+    [ Fr(~admin_sig_sk) ]
+  --[ RelayAdminCreated($Admin, ~admin_sig_sk) ]->
+    [ !AdminSigKey($Admin, ~admin_sig_sk)
+    , !AdminSigPub($Admin, pk(~admin_sig_sk))
+    , Out(pk(~admin_sig_sk))
+    ]
+
+rule SetupUser:
+    [ Fr(~user_sig_sk) ]
+  --[ RelayUserCreated($User, ~user_sig_sk) ]->
+    [ !UserSigKey($User, ~user_sig_sk)
+    , !UserSigPub($User, pk(~user_sig_sk))
+    , Out(pk(~user_sig_sk))
+    ]
+
+rule InitReceiveCursor:
+    [ ]
+  --[ ReceiveCursorInitialized($User) ]->
+    [ ReceiveCursor($User, 'c0') ]
+
+rule AdminSignAdd:
+    [ !AdminSigKey($Admin, admin_sig_sk) ]
+  --[ WhitelistPushSigned($Admin, 'v1', add_op($User)) ]->
+    [ !ValidWhitelistPush(
+        $Admin,
+        'v1',
+        add_op($User),
+        sign(wl_canon('v1', add_op($User)), admin_sig_sk))
+    , Out(< 'v1', add_op($User), sign(wl_canon('v1', add_op($User)), admin_sig_sk) >)
+    ]
+
+rule RelayAcceptAdd:
+    [ RelayVersion('v0')
+    , !ValidWhitelistPush($Admin, 'v1', add_op($User), sig)
+    , In(< 'v1', add_op($User), sig >)
+    ]
+  --[ WhitelistUpdateAccepted($Admin, 'v1', add_op($User))
+    , UserActive($User, 'v1')
+    ]->
+    [ RelayVersion('v1')
+    , WhitelistStatus($User, 'active', 'v1')
+    ]
+
+rule AdminSignRevoke:
+    [ !AdminSigKey($Admin, admin_sig_sk) ]
+  --[ WhitelistPushSigned($Admin, 'v2', revoke_op($User, $RevokedAt)) ]->
+    [ !ValidWhitelistPush(
+        $Admin,
+        'v2',
+        revoke_op($User, $RevokedAt),
+        sign(wl_canon('v2', revoke_op($User, $RevokedAt)), admin_sig_sk))
+    , Out(< 'v2', revoke_op($User, $RevokedAt),
+            sign(wl_canon('v2', revoke_op($User, $RevokedAt)), admin_sig_sk) >)
+    ]
+
+rule RelayAcceptRevoke:
+    [ RelayVersion('v1')
+    , WhitelistStatus($User, 'active', 'v1')
+    , !ValidWhitelistPush($Admin, 'v2', revoke_op($User, $RevokedAt), sig)
+    , In(< 'v2', revoke_op($User, $RevokedAt), sig >)
+    ]
+  --[ WhitelistUpdateAccepted($Admin, 'v2', revoke_op($User, $RevokedAt))
+    , UserRevoked($User, $RevokedAt)
+    ]->
+    [ RelayVersion('v2')
+    , WhitelistStatus($User, 'grace', 'v2')
+    ]
+
+rule ExpireReadGrace:
+    [ WhitelistStatus($User, 'grace', 'v2') ]
+  --[ UserReadGraceExpired($User) ]->
+    [ WhitelistStatus($User, 'expired', 'v2') ]
+
+rule UserSignPost:
+    [ !UserSigKey($User, user_sig_sk) ]
+  --[ DeltaPostSigned($User, $Envelope, $Timestamp) ]->
+    [ !ValidPost($User, $Envelope, $Timestamp, sign(post_canon($Timestamp, $Envelope), user_sig_sk))
+    , Out(post_req(pk(user_sig_sk), $Envelope, $Timestamp, sign(post_canon($Timestamp, $Envelope), user_sig_sk)))
+    ]
+
+rule RelayPostFirst:
+    [ WhitelistStatus($User, 'active', version)
+    , RelayQueue('c0')
+    , !ValidPost($User, $Envelope, $Timestamp, sig)
+    , !UserSigPub($User, user_sig_pub)
+    , In(post_req(user_sig_pub, $Envelope, $Timestamp, sig))
+    ]
+  --[ DeltaPosted($User, $Envelope, 'c1') ]->
+    [ WhitelistStatus($User, 'active', version)
+    , RelayQueue('c1')
+    , !RelayDelta('c1', $Envelope)
+    ]
+
+rule RelayPostSecond:
+    [ WhitelistStatus($User, 'active', version)
+    , RelayQueue('c1')
+    , !ValidPost($User, $Envelope, $Timestamp, sig)
+    , !UserSigPub($User, user_sig_pub)
+    , In(post_req(user_sig_pub, $Envelope, $Timestamp, sig))
+    ]
+  --[ DeltaPosted($User, $Envelope, 'c2') ]->
+    [ WhitelistStatus($User, 'active', version)
+    , RelayQueue('c2')
+    , !RelayDelta('c2', $Envelope)
+    ]
+
+rule UserSignGet:
+    [ !UserSigKey($User, user_sig_sk) ]
+  --[ DeltaGetSigned($User, $Timestamp) ]->
+    [ !ValidGet($User, $Timestamp, sign(get_canon($Timestamp, pk(user_sig_sk)), user_sig_sk))
+    , Out(get_req(pk(user_sig_sk), $Timestamp, sign(get_canon($Timestamp, pk(user_sig_sk)), user_sig_sk)))
+    ]
+
+rule RelayGetC1Active:
+    [ WhitelistStatus($User, 'active', version)
+    , ReceiveCursor($User, 'c0')
+    , !RelayDelta('c1', envelope)
+    , !ValidGet($User, $Timestamp, sig)
+    , !UserSigPub($User, user_sig_pub)
+    , In(get_req(user_sig_pub, $Timestamp, sig))
+    ]
+  --[ DeltaFetched($User, envelope, 'c1')
+    , CursorSaved($User, 'c1')
+    , ReadAccessGranted($User, 'active')
+    ]->
+    [ WhitelistStatus($User, 'active', version)
+    , ReceiveCursor($User, 'c1')
+    ]
+
+rule RelayGetC1Grace:
+    [ WhitelistStatus($User, 'grace', version)
+    , ReceiveCursor($User, 'c0')
+    , !RelayDelta('c1', envelope)
+    , !ValidGet($User, $Timestamp, sig)
+    , !UserSigPub($User, user_sig_pub)
+    , In(get_req(user_sig_pub, $Timestamp, sig))
+    ]
+  --[ DeltaFetched($User, envelope, 'c1')
+    , CursorSaved($User, 'c1')
+    , ReadAccessGranted($User, 'grace')
+    ]->
+    [ WhitelistStatus($User, 'grace', version)
+    , ReceiveCursor($User, 'c1')
+    ]
+
+rule RelayGetC2Active:
+    [ WhitelistStatus($User, 'active', version)
+    , ReceiveCursor($User, 'c1')
+    , !RelayDelta('c2', envelope)
+    , !ValidGet($User, $Timestamp, sig)
+    , !UserSigPub($User, user_sig_pub)
+    , In(get_req(user_sig_pub, $Timestamp, sig))
+    ]
+  --[ DeltaFetched($User, envelope, 'c2')
+    , CursorSaved($User, 'c2')
+    , ReadAccessGranted($User, 'active')
+    ]->
+    [ WhitelistStatus($User, 'active', version)
+    , ReceiveCursor($User, 'c2')
+    ]
+
+rule RelayGetC2Grace:
+    [ WhitelistStatus($User, 'grace', version)
+    , ReceiveCursor($User, 'c1')
+    , !RelayDelta('c2', envelope)
+    , !ValidGet($User, $Timestamp, sig)
+    , !UserSigPub($User, user_sig_pub)
+    , In(get_req(user_sig_pub, $Timestamp, sig))
+    ]
+  --[ DeltaFetched($User, envelope, 'c2')
+    , CursorSaved($User, 'c2')
+    , ReadAccessGranted($User, 'grace')
+    ]->
+    [ WhitelistStatus($User, 'grace', version)
+    , ReceiveCursor($User, 'c2')
+    ]
+
+lemma admin_signing_key_secret:
+    "All Admin sk #t1.
+        RelayAdminCreated(Admin, sk) @ #t1
+        ==> not (Ex #t2. K(sk) @ #t2)"
+
+lemma accepted_whitelist_update_has_admin_signature:
+    "All Admin version op #t1.
+        WhitelistUpdateAccepted(Admin, version, op) @ #t1
+        ==> Ex #t2.
+              WhitelistPushSigned(Admin, version, op) @ #t2
+            & #t2 < #t1"
+
+lemma whitelist_version_does_not_roll_back:
+    "All Admin1 Admin2 op1 op2 #t1 #t2.
+        WhitelistUpdateAccepted(Admin1, 'v2', op1) @ #t1
+      & WhitelistUpdateAccepted(Admin2, 'v1', op2) @ #t2
+      & #t1 < #t2
+        ==> F"
+
+lemma post_requires_active_status:
+    "All User envelope cursor #t1.
+        DeltaPosted(User, envelope, cursor) @ #t1
+        ==> Ex #t2.
+              UserActive(User, 'v1') @ #t2
+            & #t2 < #t1"
+
+lemma revoked_user_cannot_post_after_revoke:
+    "All User revoked_at envelope cursor #tr #tp.
+        UserRevoked(User, revoked_at) @ #tr
+      & DeltaPosted(User, envelope, cursor) @ #tp
+      & #tr < #tp
+        ==> F"
+
+lemma fetch_requires_read_access:
+    "All User envelope cursor #t1.
+        DeltaFetched(User, envelope, cursor) @ #t1
+        ==> Ex status #t2.
+              ReadAccessGranted(User, status) @ #t2
+            & #t2 = #t1"
+
+lemma expired_user_cannot_fetch_after_expiry:
+    "All User envelope cursor #te #tf.
+        UserReadGraceExpired(User) @ #te
+      & DeltaFetched(User, envelope, cursor) @ #tf
+      & #te < #tf
+        ==> F"
+
+lemma receive_cursor_never_rolls_back:
+    "All User #t1 #t2.
+        CursorSaved(User, 'c2') @ #t1
+      & CursorSaved(User, 'c1') @ #t2
+      & #t1 < #t2
+        ==> F"
+
+end
