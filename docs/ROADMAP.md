@@ -1,6 +1,6 @@
 # SqliteWasmBlazor Roadmap
 
-_Single source of truth for "where are we." Last updated 2026-04-29 against branch `crypto-sync` HEAD `160abac`. Stage A of the whitelist-broadcast rewrite is complete — Stage B (production identity wiring) is now the active workstream._
+_Single source of truth for "where are we." Last updated 2026-04-29 against branch `crypto-sync` HEAD pending Step 6 redesign. Stage A of the whitelist-broadcast rewrite is in flight — Step 6 ("retention" → "admin-only purge with pinned seed") is being landed as a redesign of the prior cron-based GC commit. Stage B (production identity wiring) follows once Stage A is green._
 
 This document supersedes the multiple parallel numbering systems (Stage / Phase A / Phase B / Audit Phase 1-3) that were used while individual workstreams were in flight. Going forward, work is grouped only as **Active**, **Postponed**, **Done**, **Deferred**.
 
@@ -14,15 +14,33 @@ If you're picking this up cold, read in this order:
 
 ## Active
 
-The only piece currently in flight.
+### Stage A Step 6 redesign — admin-only purge + pinned seed
 
-### Whitelist-broadcast Stage B — Production identity wiring
+- **Plan:** `~/.claude/plans/whitelist-broadcast-rewrite.md` § Step 6 (in-place revision; the original cron-driven retention model is being replaced).
+- **Status:** code in flight; commit `160abac` ("GC CLI + retention test") and `ffcf5a2` ("docs: Stage A Step 6 done") are being **superseded** in a forward-only commit (no rebase) that drops the cron CLI and the time-based retention model.
+- **Estimated effort:** ~half a day.
+
+The original Step 6 introduced `cryptosync-relay-gc.php` (cron-driven, time-based retention) and a `retention_seconds` config knob. Two design issues surfaced in review:
+
+1. **Autonomous server-side decisions break the honest-but-curious model.** The relay deciding "this row is too old, delete it" is a server-side policy decision, even if time-based. The user prefers all delete authority to flow from a client-signed action.
+2. **Client-driven compaction reintroduces censorship-by-omission.** A first-pass design considered "any whitelisted client can post a compacted rollup that triggers a server-side purge of patches older than the rollup's `up_to_cursor`." That gives any malicious whitelisted client the ability to pull all pending patches, post a *truncated* rollup, and erase patches that other honest clients hadn't yet received. Censorship masquerading as compaction. Untenable.
+
+The replacement model is **admin-only purge** with a pinned seed:
+
+- New `deltas.pinned` column. The admin's pin POST (header `X-Admin-Pin-Sig` over `deltapin-v1|ts|envelope_hash`) is the *sole* delete authority on the relay: in one transaction, every prior row is purged and the new envelope is stored with `pinned=1`. The pin POST verifies sender hash equals deployment `admin_pubkey_hash` before any sig work, so a non-admin attempt → 403 before crypto.
+- New `gc_threshold_rows` config (replaces `retention_seconds`). The relay never deletes on its own; instead, when `COUNT(*) FROM deltas WHERE pinned = 0` exceeds the threshold, every `GET /api/delta` response includes `"gc_requested": true`. Purely informational — the admin client reads it and may respond with a fresh pin POST. Non-admin clients observe the flag for diagnostics but cannot act on it.
+- `cryptosync-relay-gc.php` deleted. No cron / systemd / launchd plumbing required.
+- New C# `IAdminPinService` registered in DI alongside `IWhitelistPushService`. `HttpSyncTransport` exposes `LastReceiveSignalledGcRequested` so admin tooling can react to the hint.
+
+**Tests:** the prior GC retention test + empty-DB GC test are deleted. Replaced with `SeedReseed_GcSignalDrivesAdminCompaction_OperationalRoundTrip` (admin seeds → patches accumulate past threshold → relay flags `gc_requested` → admin reseeds → fresh receiver bootstraps off new seed) and `Pin_NonAdminSender_Returns403` (censorship attack denied at the wire layer). Live-relay suite stays at 13 tests; total xUnit count holds at 229 = 215 unit + 13 live + 1 new DI assertion for `IAdminPinService` registration.
+
+### Stage B — Production identity wiring
 
 - **Plan:** folded into `~/.claude/plans/whitelist-broadcast-rewrite.md` (§ Out of scope — Stage B). Standalone plan file to be written when Stage B work begins.
-- **Trigger fired:** Stage A complete (`160abac`) — all 6 steps merged, 215 unit + 13 live-relay = 228/228 xUnit green against Herd-served PHP.
-- **Estimated effort:** 1-2 days
+- **Trigger:** Stage A Step 6 redesign green.
+- **Estimated effort:** 1-2 days.
 
-Stage A proved the C#↔PHP wire contract end-to-end with test seeds. Stage B swaps the stub `ISenderAuthSigner` / `IReceiveAuthSigner` for PRF-backed implementations sourced from WebAuthn. Browser host (`SqliteWasmBlazor.Demo`) registers the production signers in DI; a Playwright smoke test confirms the same scenarios as the Stage A xUnit suite, but with real WebAuthn identities. No protocol-level work; purely DI + JS interop.
+Stage A proves the C#↔PHP wire contract end-to-end with test seeds. Stage B swaps the stub `ISenderAuthSigner` / `IReceiveAuthSigner` for PRF-backed implementations sourced from WebAuthn. Browser host (`SqliteWasmBlazor.Demo`) registers the production signers in DI; a Playwright smoke test confirms the same scenarios as the Stage A xUnit suite, but with real WebAuthn identities. No protocol-level work; purely DI + JS interop.
 
 If Stage B uncovers a wire-protocol issue, it's a Stage A regression — fix in Stage A, re-run seeded suite, re-attempt Stage B.
 
@@ -61,7 +79,7 @@ Replaced the per-recipient pubkey-bound delivery model (Stage 3b code) with an a
 3. ✅ (`c1d32c6`) — `WhitelistPushService` + `DeclarationSigner.SignWhitelistPushAsync`/`VerifyWhitelistPushAsync` + `WhitelistMember`/`WhitelistStatus`/`WhitelistPushResult`/`WhitelistVersionConflictException`. Canonical-string lex-sort byte-identical to PHP's `buildWhitelistSigningString`. 7 fast unit tests + 3 new live-relay scenarios (2-member push, replay → typed conflict, non-whitelisted-sender → 403). Live-relay fixture refactored to delegate to the production service. 206 xUnit.
 4. ✅ (4a `64e8d3b` / 4b `7b0ee53` / 4c `e363cf1` / 4d `2a61d73`) — Op-based whitelist contract: PHP `handleWhitelistPush` switched from full-replace to incremental Add/Revoke ops; canonical → `whitelist-ops-v1|version|op1|op2|...`; admin device only tracks `LastWhitelistVersion` (one int) instead of mirroring members. CreateInvitation hook: transport keypair derives dual (X25519 + Ed25519); admin pushes `Add(transport_ed25519_hash)` after persisting invitation. PromoteInvitation hook: `Invitation.TransportEd25519PublicKey` persists the transport hash; promote pushes `[Revoke(transport), Add(contact)]` in one v+1 push. System-admin revocation: `ContactService.RevokeContactAsync` rotates every group the contact's a regular member of (skipping their own self-group), soft-deletes the row, pushes `Revoke(contact_hash)`. `WhitelistAdminFlow.PushAsync` factored as the shared version-tracking + retry-on-409 helper. 213 xUnit (209 unit + 4 live).
 5. ✅ (5a `4f1ae1b` / 5b `8197141`) — DI wiring + scenario-completeness sweep (test seeds throughout). 5a: `AddCryptoSync<TContext>` registers `DeclarationSigner` + `IWhitelistPushService` + `IReceiveCursorStore` + `ISyncTransport` against `CryptoSyncOptions.RelayBaseUri` (bindable from appsettings or configure callback); new `EfReceiveCursorStoreFactory<TContext>` wraps `EfReceiveCursorStore` with `IDbContextFactory`; `ISenderAuthSigner` / `IReceiveAuthSigner` stay caller-registered seams (Stage A: stubs; Stage B: PRF-backed). 5b: six new live-relay scenarios — three-actor broadcast, non-admin push → 401, grace-window expired → 403, within-grace GET still drains, body cap (8000 bytes vs 4096) → 413 (C-2 verified end-to-end), stale timestamp → 401. 226 xUnit (215 unit + 11 live).
-6. ✅ (`160abac`) — GC CLI (`cryptosync-relay-gc.php`) + time-based retention test. Cron-driven CLI deletes deltas where `created_at < (now - retention_seconds)`, emits `{"deleted","oldest_remaining"}` JSON; whitelist NEVER GC'd; refuses HTTP invocation. Two new live-relay scenarios: PDO-backdated deltas with revoked-but-preserved whitelist row + cold-deployment empty-DB shape. 228 xUnit (215 unit + 13 live).
+6. ✅ (`160abac`) — **SUPERSEDED.** Original Step 6 introduced `cryptosync-relay-gc.php` (cron-driven, `retention_seconds` config). Replaced in flight by the admin-only-purge redesign — see Active. The supersession is forward-only (no rebase); commit history retains both for context.
 
 **Tiny PHP fixes** from the relay audit (C-2 body cap, C-3 fan-out cap, W-1 `__DIR__` leak, W-3 PDO message leak) landed inside the rewrite, not separately.
 
@@ -105,7 +123,10 @@ Captured follow-ups with no plan file written. Tracked here so they don't fall o
 
 - **Stage 2 — UI absorption** (was Phase C). `BlazorPRF.UI` panels (`AuthenticationPanel`, `ContactsPanel`, `UserProfilePanel`, `InvitationPanel`, `PushPanel`) absorbed as `SqliteWasmBlazor.CryptoSync.UI`. Deferred per user preference for xUnit-testable slices over UI work.
 - **Audit P14** — permission-denied-row-leaves-no-shadow PBT. Deferred because `applyShadowRowGroup` is tightly coupled to `worker-state.openDatabases` and the full sqlite-wasm + shadow-table schema. Either a node-side wasm harness or a refactor to inject the DB dependency. Browser-side smoke tests cover this path end-to-end today.
-- **Snapshot endpoints / retention GC** (relay-side). Original `project_relay_design.md` follow-up. Whitelist solves auth; snapshot solves storage-bound. Independent from the rewrite — can land before, during, or after.
+- **Webpush admin nudge for `gc_requested`.** Preferred mitigation for the admin-offline gap, deferred until the upcoming webpush integration (Stage 3c `IPushNotifier` exists; production wiring is Stage B+). Clients that observe `gc_requested: true` persistently (e.g. across N polls or X minutes — domain-tunable) emit an admin-targeted push notification asking the admin to come reseed. Admin-only purge authority stays unchanged at the wire layer; clients only *nudge*. No new relay endpoints, no new signing strings, no new wire config — purely a domain-level reaction in the C# / TS clients on top of the `LastReceiveSignalledGcRequested` flag already exposed by `HttpSyncTransport`. This is the lightest-weight path and folds into infrastructure already on the roadmap.
+- **Quorum / multi-party compaction.** Heavier alternative to the webpush nudge for the same admin-offline gap. M-of-N whitelisted peers co-sign a compacted rollup; relay verifies M distinct attestations before accepting the purge. Closes the gap *and* preserves the client-only architecture without requiring admin presence at all, but needs three new things this codebase doesn't have: peer-discovery, off-relay attestation exchange, and operational quorum tuning (~1-2 weeks of work). Weighted variant ("admin sig counts as M-1, peer sigs count as 1") gives admin-online behavior identical to today plus admin-offline graceful degradation; same plumbing cost. Likely overkill if the webpush nudge above proves sufficient in practice.
+- **Admin-role rethink for unattended automation.** Stage B will bind admin authority to a hardware-backed WebAuthn passkey via PRF. That cryptographic choice means admin actions cannot run as cron / systemd / launchd jobs (no human, no passkey gesture). Any future "automatic compaction at off-peak" plan needs a separate admin-compaction key (or delegated identity) distinct from the passkey-bound primary admin sig. Defer until a concrete operational need surfaces; today's admin-online-when-needed model is acceptable.
+- **Snapshot endpoints / retention GC** (relay-side). Original `project_relay_design.md` follow-up. Now partially obsoleted by the pinned-seed mechanism (admin reseed = a snapshot). The remaining gap is automated retention without admin involvement, which folds into the two items above.
 - **Signed admin key bundle** in PRF/WebAuthn flow. For admin device backup. Domain concern, not protocol concern. Captured in `relay-whitelist-design.md` §10.
 - **Per-pair sender→recipient routing** at relay. Optional metadata tightening. Not in the rewrite scope.
 - **Sender-rate-limiting at relay** by pubkey hash. Useful if a whitelisted device is compromised and abused.
