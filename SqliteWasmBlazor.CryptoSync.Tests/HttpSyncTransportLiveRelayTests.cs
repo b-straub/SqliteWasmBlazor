@@ -1,21 +1,20 @@
-using System.Globalization;
-using System.Net.Http.Json;
+using System.Net;
 using System.Security.Cryptography;
 using System.Text;
-using System.Text.Json;
-using System.Text.Json.Serialization;
 using Org.BouncyCastle.Crypto.Parameters;
 using Org.BouncyCastle.Crypto.Signers;
+using SqliteWasmBlazor.Crypto.Testing;
 using Xunit;
 
 namespace SqliteWasmBlazor.CryptoSync.Tests;
 
 /// <summary>
-/// Live-relay integration tests for <see cref="HttpSyncTransport"/>. Drives a
-/// Herd-served PHP relay at <c>http://delta-relay.test/</c> through the same
-/// wire contract a production deployment exposes. Each test resets
-/// <c>relay-config.php</c> and <c>relay.db</c> to a known seeded state, so
-/// the suite is deterministic but write-heavy on the relay directory.
+/// Live-relay integration tests for the whitelist-broadcast wire contract.
+/// Drives a Herd-served PHP relay at <c>http://delta-relay.test/</c> through
+/// <see cref="HttpSyncTransport"/> + <see cref="WhitelistPushService"/>. Each
+/// test resets <c>relay-config.php</c> + <c>relay.db</c> to a known seeded
+/// state, so the suite is deterministic but write-heavy on the relay
+/// directory.
 ///
 /// <para>
 /// Opt-in via <c>dotnet test --filter "Category=LiveRelay"</c>. The default
@@ -44,6 +43,7 @@ public sealed class HttpSyncTransportLiveRelayTests : IAsyncLifetime
     private byte[] _senderSeed = null!;
     private byte[] _senderPub = null!;
     private byte[] _deploymentSalt = null!;
+    private DeclarationSigner _declarationSigner = null!;
 
     public async Task InitializeAsync()
     {
@@ -56,36 +56,31 @@ public sealed class HttpSyncTransportLiveRelayTests : IAsyncLifetime
         _senderPub = DerivePub(_senderSeed);
         _deploymentSalt = RandomNumberGenerator.GetBytes(32);
 
+        var crypto = new BouncyCastleCryptoProvider();
+        _declarationSigner = new DeclarationSigner(crypto);
+
         var adminHashHex = HashHex(_deploymentSalt, _adminPub);
         WriteRelayConfig(_deploymentSalt, adminHashHex);
         ResetRelayDb();
 
-        await PushWhitelistAsync(
+        // Baseline whitelist: just the sender, version 1.
+        await PushAsync(
             version: 1,
             members:
             [
-                new WhitelistEntry(
+                new WhitelistMember(
                     PubkeyHash: HashHex(_deploymentSalt, _senderPub),
-                    Status: "active",
-                    RevokedAt: null),
+                    Status: WhitelistStatus.Active),
             ]);
     }
 
-    public Task DisposeAsync()
-    {
-        // Leave the seeded state in place — InitializeAsync resets on the
-        // next run. Skipping cleanup keeps the relay directory inspectable
-        // after a failed test for post-mortem.
-        return Task.CompletedTask;
-    }
+    public Task DisposeAsync() => Task.CompletedTask;
 
     [Fact]
     public async Task PostEnvelope_RoundTripsThroughLivePhpRelay()
     {
         using var http = new HttpClient();
-        var senderSigner = new BcEd25519SenderSigner(_senderSeed, _senderPub);
-        var receiveSigner = new BcEd25519ReceiveSigner(_senderSeed, _senderPub);
-        var transport = new HttpSyncTransport(http, RelayBase, senderSigner, receiveSigner);
+        var transport = NewSenderTransport(http);
 
         var envelope = new byte[] { 0x10, 0x20, 0x30, 0x40, 0x50 };
         await transport.SendAsync(envelope);
@@ -94,13 +89,104 @@ public sealed class HttpSyncTransportLiveRelayTests : IAsyncLifetime
         Assert.NotNull(received);
         Assert.Equal(envelope, received!);
 
-        // Stream is empty after the single envelope is drained.
         Assert.Null(await transport.TryReceiveAsync());
     }
 
+    [Fact]
+    public async Task WhitelistPush_TwoActiveMembers_BothCanPostAndPullThroughTransport()
+    {
+        // Generate a second sender, push v2 with both members active.
+        var secondSeed = RandomNumberGenerator.GetBytes(Ed25519SeedLength);
+        var secondPub = DerivePub(secondSeed);
+
+        var result = await PushAsync(
+            version: 2,
+            members:
+            [
+                new WhitelistMember(HashHex(_deploymentSalt, _senderPub), WhitelistStatus.Active),
+                new WhitelistMember(HashHex(_deploymentSalt, secondPub), WhitelistStatus.Active),
+            ]);
+        Assert.Equal(2L, result.Version);
+        Assert.Equal(2, result.MemberCount);
+
+        using var http = new HttpClient();
+        var firstTransport = NewSenderTransport(http);
+        var secondTransport = NewTransportFor(http, secondSeed, secondPub);
+
+        var envFromFirst = new byte[] { 0xA1, 0xA2 };
+        var envFromSecond = new byte[] { 0xB1, 0xB2, 0xB3 };
+        await firstTransport.SendAsync(envFromFirst);
+        await secondTransport.SendAsync(envFromSecond);
+
+        // Either side polls and the broadcast queue serves both envelopes.
+        var pulled = new List<byte[]>();
+        for (int i = 0; i < 2; i++)
+        {
+            var bytes = await secondTransport.TryReceiveAsync();
+            Assert.NotNull(bytes);
+            pulled.Add(bytes!);
+        }
+        Assert.Contains(envFromFirst, pulled);
+        Assert.Contains(envFromSecond, pulled);
+        Assert.Null(await secondTransport.TryReceiveAsync());
+    }
+
+    [Fact]
+    public async Task WhitelistPush_ReplayVersion_ThrowsWhitelistVersionConflict()
+    {
+        // Baseline (v1) was pushed in InitializeAsync. Pushing v1 again must
+        // surface as a typed replay-defense exception with the relay's
+        // current_version.
+        var ex = await Assert.ThrowsAsync<WhitelistVersionConflictException>(async () =>
+            await PushAsync(
+                version: 1,
+                members:
+                [
+                    new WhitelistMember(HashHex(_deploymentSalt, _senderPub), WhitelistStatus.Active),
+                ]));
+        Assert.Equal(1L, ex.AttemptedVersion);
+        Assert.Equal(1L, ex.CurrentVersion);
+    }
+
+    [Fact]
+    public async Task PostEnvelope_NonWhitelistedSender_Returns403()
+    {
+        // Generate a third sender NOT on the whitelist.
+        var rogueSeed = RandomNumberGenerator.GetBytes(Ed25519SeedLength);
+        var roguePub = DerivePub(rogueSeed);
+
+        using var http = new HttpClient();
+        var transport = NewTransportFor(http, rogueSeed, roguePub);
+
+        var ex = await Assert.ThrowsAsync<HttpRequestException>(async () =>
+            await transport.SendAsync([0xCC]));
+        Assert.Equal(HttpStatusCode.Forbidden, ex.StatusCode);
+    }
+
     // ------------------------------------------------------------------
-    // Setup helpers
+    // Helpers
     // ------------------------------------------------------------------
+
+    private HttpSyncTransport NewSenderTransport(HttpClient http)
+        => NewTransportFor(http, _senderSeed, _senderPub);
+
+    private static HttpSyncTransport NewTransportFor(HttpClient http, byte[] seed, byte[] pub)
+    {
+        var senderSigner = new BcEd25519SenderSigner(seed, pub);
+        var receiveSigner = new BcEd25519ReceiveSigner(seed, pub);
+        return new HttpSyncTransport(http, RelayBase, senderSigner, receiveSigner);
+    }
+
+    private async Task<WhitelistPushResult> PushAsync(long version, IReadOnlyList<WhitelistMember> members)
+    {
+        using var http = new HttpClient();
+        var service = new WhitelistPushService(http, RelayBase, _declarationSigner);
+        return await service.PushAsync(
+            members,
+            adminEd25519PublicKeyBase64: Convert.ToBase64String(_adminPub),
+            adminEd25519PrivateKey: _adminSeed,
+            version: version);
+    }
 
     private static string LocateDeltaRelayDir()
     {
@@ -125,13 +211,13 @@ public sealed class HttpSyncTransportLiveRelayTests : IAsyncLifetime
         try
         {
             using var resp = await http.GetAsync(RelayBase);
-            if (resp.StatusCode == System.Net.HttpStatusCode.NotFound)
+            if (resp.StatusCode == HttpStatusCode.NotFound)
             {
                 throw new InvalidOperationException(
                     $"LiveRelay setup: GET {RelayBase} returned 404 — Herd/Valet "
                     + "is running but the delta-relay.test site is not linked. "
-                    + "Run 'valet link delta-relay' (or 'herd link') from the "
-                    + "DeltaRelay directory before running LiveRelay tests.");
+                    + "Run 'herd link delta-relay' (or 'valet link delta-relay') from "
+                    + "the DeltaRelay directory before running LiveRelay tests.");
             }
         }
         catch (HttpRequestException ex)
@@ -177,50 +263,6 @@ public sealed class HttpSyncTransportLiveRelayTests : IAsyncLifetime
         }
     }
 
-    private async Task PushWhitelistAsync(int version, IReadOnlyList<WhitelistEntry> members)
-    {
-        var canonical = BuildWhitelistSigningString(version, members);
-        var sig = SignEd25519(_adminSeed, Encoding.UTF8.GetBytes(canonical));
-
-        var body = new WhitelistPushBody
-        {
-            Version = version,
-            Members =
-            [
-                .. members.Select(m => new WhitelistMemberWire
-                {
-                    PubkeyHash = m.PubkeyHash,
-                    Status = m.Status,
-                    RevokedAt = m.RevokedAt,
-                }),
-            ],
-            AdminPubkey = Convert.ToBase64String(_adminPub),
-            AdminSignature = Convert.ToBase64String(sig),
-        };
-
-        using var http = new HttpClient();
-        using var resp = await http.PostAsJsonAsync(
-            new Uri(RelayBase, "api/whitelist"),
-            body,
-            LiveRelayJsonContext.Default.WhitelistPushBody);
-
-        if (!resp.IsSuccessStatusCode)
-        {
-            var responseBody = await resp.Content.ReadAsStringAsync();
-            throw new InvalidOperationException(
-                $"LiveRelay setup: whitelist push failed: HTTP {(int)resp.StatusCode} — {responseBody}");
-        }
-    }
-
-    private static string BuildWhitelistSigningString(int version, IReadOnlyList<WhitelistEntry> members)
-    {
-        var rows = members
-            .Select(m => $"{m.PubkeyHash}:{m.Status}:{m.RevokedAt ?? 0}")
-            .OrderBy(s => s, StringComparer.Ordinal)
-            .ToArray();
-        return $"whitelist-v1|{version.ToString(CultureInfo.InvariantCulture)}|{string.Join("|", rows)}";
-    }
-
     private static string HashHex(byte[] salt, byte[] pubKey)
     {
         var buffer = new byte[salt.Length + pubKey.Length];
@@ -243,8 +285,6 @@ public sealed class HttpSyncTransportLiveRelayTests : IAsyncLifetime
         return signer.GenerateSignature();
     }
 
-    private sealed record WhitelistEntry(string PubkeyHash, string Status, long? RevokedAt);
-
     private sealed class BcEd25519SenderSigner(byte[] seed, byte[] pub) : ISenderAuthSigner
     {
         public string OwnEd25519PublicKeyBase64 { get; } = Convert.ToBase64String(pub);
@@ -266,36 +306,4 @@ public sealed class HttpSyncTransportLiveRelayTests : IAsyncLifetime
             return ValueTask.FromResult(Convert.ToBase64String(sig));
         }
     }
-
-    internal sealed class WhitelistMemberWire
-    {
-        [JsonPropertyName("pubkey_hash")]
-        public required string PubkeyHash { get; init; }
-
-        [JsonPropertyName("status")]
-        public required string Status { get; init; }
-
-        [JsonPropertyName("revoked_at")]
-        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-        public long? RevokedAt { get; init; }
-    }
-
-    internal sealed class WhitelistPushBody
-    {
-        [JsonPropertyName("version")]
-        public required int Version { get; init; }
-
-        [JsonPropertyName("members")]
-        public required WhitelistMemberWire[] Members { get; init; }
-
-        [JsonPropertyName("admin_pubkey")]
-        public required string AdminPubkey { get; init; }
-
-        [JsonPropertyName("admin_signature")]
-        public required string AdminSignature { get; init; }
-    }
 }
-
-[JsonSourceGenerationOptions(JsonSerializerDefaults.Web)]
-[JsonSerializable(typeof(HttpSyncTransportLiveRelayTests.WhitelistPushBody))]
-internal partial class LiveRelayJsonContext : JsonSerializerContext;

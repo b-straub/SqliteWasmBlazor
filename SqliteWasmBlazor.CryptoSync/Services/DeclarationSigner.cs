@@ -58,6 +58,59 @@ public class DeclarationSigner(ICryptoProvider crypto)
         => $"{memberPublicKeyBase64}|{(int)role}|{groupContext}|{keyVersion}";
 
     // ================================================================
+    // Whitelist push (System Admin signs, relay verifies)
+    // ================================================================
+
+    /// <summary>
+    /// System Admin signs a whitelist push for the broadcast relay. The
+    /// canonical string is byte-identical to the PHP relay's
+    /// <c>buildWhitelistSigningString</c>: rows of
+    /// <c>{pubkey_hash}:{status}:{revoked_at_or_zero}</c>, lex-sorted as
+    /// raw strings, joined by <c>|</c>, prefixed with
+    /// <c>"whitelist-v1|{version}|"</c>.
+    /// </summary>
+    public async ValueTask<byte[]> SignWhitelistPushAsync(
+        ReadOnlyMemory<byte> adminEd25519PrivateKey,
+        long version,
+        IReadOnlyList<WhitelistMember> members)
+    {
+        var canonical = BuildWhitelistPushCanonical(version, members);
+        var result = await crypto.SignAsync(canonical, adminEd25519PrivateKey);
+        if (!result.Success || result.Value is null)
+        {
+            throw new InvalidOperationException($"DeclarationSigner: SignWhitelistPushAsync failed: {result.ErrorCode}");
+        }
+        return Convert.FromBase64String(result.Value);
+    }
+
+    /// <summary>
+    /// Verify an admin's signature on a whitelist push. Mirrors the PHP
+    /// relay's verification path — useful for parity tests.
+    /// </summary>
+    public async ValueTask<bool> VerifyWhitelistPushAsync(
+        string adminEd25519PublicKeyBase64,
+        long version,
+        IReadOnlyList<WhitelistMember> members,
+        byte[] adminSignature)
+    {
+        var canonical = BuildWhitelistPushCanonical(version, members);
+        return await crypto.VerifyAsync(canonical, Convert.ToBase64String(adminSignature), adminEd25519PublicKeyBase64);
+    }
+
+    internal static string BuildWhitelistPushCanonical(long version, IReadOnlyList<WhitelistMember> members)
+    {
+        var rows = new string[members.Count];
+        for (var i = 0; i < members.Count; i++)
+        {
+            var m = members[i];
+            var revokedAt = m.RevokedAt ?? 0;
+            rows[i] = $"{m.PubkeyHash}:{WhitelistStatusTokens.ToWire(m.Status)}:{revokedAt}";
+        }
+        Array.Sort(rows, StringComparer.Ordinal);
+        return $"whitelist-v1|{version}|{string.Join("|", rows)}";
+    }
+
+    // ================================================================
     // Leave declaration (member signs)
     // ================================================================
 
