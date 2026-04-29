@@ -1,5 +1,6 @@
 using SqliteWasmBlazor.Crypto.Abstractions;
 using SqliteWasmBlazor.Crypto.Abstractions.Models;
+using SqliteWasmBlazor.Crypto.Abstractions.Services;
 using Microsoft.EntityFrameworkCore;
 using SqliteWasmBlazor.CryptoSync;
 
@@ -72,7 +73,10 @@ internal sealed class CryptoSyncActor : IAsyncDisposable
         await context.SaveChangesAsync();
 
         var deviceIdentity = new DeviceIdentityService(context);
-        var contacts = new ContactService(context);
+        var groupEncryption = new GroupEncryptionService(crypto);
+        var declarationSigner = new DeclarationSigner(crypto);
+        var groupService = new GroupService(context, groupEncryption, declarationSigner);
+        var contacts = new ContactService(context, groupService, new BrowserStubWhitelistPushService());
         var sync = new SyncOrchestrator(databaseService, context, NullImportNotifier.Instance);
 
         return new CryptoSyncActor(
@@ -83,5 +87,22 @@ internal sealed class CryptoSyncActor : IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         await Context.DisposeAsync();
+    }
+
+    /// <summary>
+    /// Browser-side test harness doesn't drive a live PHP relay. This stub
+    /// returns success without attempting any HTTP so ContactService /
+    /// ContactInvitationService stay constructible without a real
+    /// WhitelistPushService.
+    /// </summary>
+    private sealed class BrowserStubWhitelistPushService : IWhitelistPushService
+    {
+        public ValueTask<WhitelistPushResult> PushAsync(
+            IReadOnlyList<WhitelistOp> operations,
+            string adminEd25519PublicKeyBase64,
+            ReadOnlyMemory<byte> adminEd25519PrivateKey,
+            long version,
+            CancellationToken cancellationToken = default)
+            => ValueTask.FromResult(new WhitelistPushResult(version, operations.Count));
     }
 }

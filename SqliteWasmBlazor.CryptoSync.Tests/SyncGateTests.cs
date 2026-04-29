@@ -1,5 +1,8 @@
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using SqliteWasmBlazor.Crypto.Abstractions.Services;
+using SqliteWasmBlazor.Crypto.Testing;
+using SqliteWasmBlazor.CryptoSync.Tests.Fixtures;
 using Xunit;
 
 namespace SqliteWasmBlazor.CryptoSync.Tests;
@@ -27,7 +30,11 @@ public class SyncGateTests : IDisposable
 
         _context = new TestSyncContext(options);
         _context.Database.EnsureCreated();
-        _contacts = new ContactService(_context);
+        var crypto = new BouncyCastleCryptoProvider();
+        var groupEncryption = new GroupEncryptionService(crypto);
+        var declarationSigner = new DeclarationSigner(crypto);
+        var groupService = new GroupService(_context, groupEncryption, declarationSigner);
+        _contacts = new ContactService(_context, groupService, new RecordingWhitelistPushService());
         _gate = new SyncGate(_contacts);
     }
 

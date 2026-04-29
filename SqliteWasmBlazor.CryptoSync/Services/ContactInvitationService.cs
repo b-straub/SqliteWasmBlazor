@@ -297,63 +297,11 @@ public class ContactInvitationService(
         };
     }
 
-    /// <summary>
-    /// Push <paramref name="ops"/> to the relay's whitelist using the admin's
-    /// keys, advancing <see cref="SyncState.LastWhitelistVersion"/> on success.
-    /// Retries once on <see cref="WhitelistVersionConflictException"/> after
-    /// re-aligning to the relay's reported <c>current_version</c>; a second
-    /// 409 propagates to the caller (real concurrent-admin contention).
-    /// </summary>
-    private async ValueTask PushWhitelistOpsAsync(
+    private ValueTask PushWhitelistOpsAsync(
         DualKeyPairFull adminKeys,
         IReadOnlyList<WhitelistOp> ops,
         CancellationToken cancellationToken)
-    {
-        var adminEdPriv = Convert.FromBase64String(adminKeys.Ed25519PrivateKey);
-        try
-        {
-            var state = await GetOrCreateSyncStateAsync(cancellationToken).ConfigureAwait(false);
-            var attempts = 0;
-            while (true)
-            {
-                var nextVersion = state.LastWhitelistVersion + 1;
-                try
-                {
-                    var result = await whitelistPush.PushAsync(
-                        ops,
-                        adminKeys.Ed25519PublicKey,
-                        adminEdPriv,
-                        nextVersion,
-                        cancellationToken).ConfigureAwait(false);
-                    state.LastWhitelistVersion = result.Version;
-                    await context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
-                    return;
-                }
-                catch (WhitelistVersionConflictException ex) when (attempts == 0)
-                {
-                    state.LastWhitelistVersion = ex.CurrentVersion;
-                    attempts++;
-                }
-            }
-        }
-        finally
-        {
-            System.Security.Cryptography.CryptographicOperations.ZeroMemory(adminEdPriv);
-        }
-    }
-
-    private async ValueTask<SyncState> GetOrCreateSyncStateAsync(CancellationToken cancellationToken)
-    {
-        var row = await context.SyncStates
-            .FirstOrDefaultAsync(s => s.Id == SyncState.EngineCursorId, cancellationToken)
-            .ConfigureAwait(false);
-        if (row is null)
-        {
-            row = new SyncState { Id = SyncState.EngineCursorId };
-            context.SyncStates.Add(row);
-        }
-        return row;
-    }
+        => WhitelistAdminFlow.PushAsync(whitelistPush, context, adminKeys, ops, cancellationToken);
 
     /// <summary>
     /// Hard-delete invitations whose <see cref="Invitation.ExpiresAt"/> is in

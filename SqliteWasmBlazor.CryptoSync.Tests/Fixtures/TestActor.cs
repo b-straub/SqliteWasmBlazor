@@ -52,14 +52,14 @@ public sealed class TestActor : IAsyncDisposable
         Context = context;
 
         DeviceIdentity = new DeviceIdentityService(context);
-        Contacts = new ContactService(context);
         var declarationSigner = new DeclarationSigner(crypto);
         var groupEncryption = new GroupEncryptionService(crypto);
         WhitelistPush = new RecordingWhitelistPushService();
+        Groups = new GroupService(context, groupEncryption, declarationSigner);
+        Contacts = new ContactService(context, Groups, WhitelistPush);
         Invitations = new ContactInvitationService(
             context, groupEncryption, crypto, declarationSigner, WhitelistPush);
         Bootstrap = new CryptoSyncBootstrap(groupEncryption, declarationSigner);
-        Groups = new GroupService(context, groupEncryption, declarationSigner);
         Gate = new SyncGate(Contacts);
     }
 
