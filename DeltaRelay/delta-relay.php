@@ -7,10 +7,10 @@
  *   POST /api/whitelist
  *     body: {
  *       "version":         <int>,                                // monotonic
- *       "members": [
- *         {"pubkey_hash": "<hex>", "status": "active"},
- *         {"pubkey_hash": "<hex>", "status": "revoked",
- *                                  "revoked_at": <unix seconds>}
+ *       "operations": [
+ *         {"op": "add",    "pubkey_hash": "<hex>"},
+ *         {"op": "revoke", "pubkey_hash": "<hex>",
+ *                          "revoked_at": <unix seconds>}
  *       ],
  *       "admin_pubkey":    "<base64 Ed25519 pub>",
  *       "admin_signature": "<base64 Ed25519 sig>"
@@ -18,8 +18,15 @@
  *     Verification: sha256(deployment_salt || admin_pubkey) must equal the
  *     hardwired admin_pubkey_hash, version must be > current_version,
  *     signature must verify against the canonical signing string (see
- *     buildWhitelistSigningString below). On success: atomically replace
- *     the whitelist and bump current_version.
+ *     buildWhitelistOpsCanonical below). On success: apply each op in
+ *     order under a single transaction and bump current_version.
+ *
+ *     Op semantics:
+ *       - add:    INSERT (pubkey_hash, 'active', NULL); on conflict reset
+ *                 status to 'active' + clear revoked_at. Idempotent
+ *                 re-activation.
+ *       - revoke: UPDATE status='revoked', revoked_at=? WHERE pubkey_hash=?.
+ *                 No-op if the hash is unknown.
  *
  *   POST /api/delta
  *     headers: X-Timestamp:    <unix seconds>
@@ -156,15 +163,19 @@ function db(): PDO
     return $pdo;
 }
 
-function buildWhitelistSigningString(int $version, array $members): string
+function buildWhitelistOpsCanonical(int $version, array $operations): string
 {
+    // Order-significant: ops apply in admin-supplied order, so the canonical
+    // mirrors that order. Tampering reorders the bytes and breaks the sig.
     $rows = [];
-    foreach ($members as $m) {
-        $revokedAt = $m['revoked_at'] ?? 0;
-        $rows[] = $m['pubkey_hash'] . ':' . $m['status'] . ':' . $revokedAt;
+    foreach ($operations as $o) {
+        if ($o['op'] === 'add') {
+            $rows[] = 'add:' . $o['pubkey_hash'];
+        } else {
+            $rows[] = 'revoke:' . $o['pubkey_hash'] . ':' . $o['revoked_at'];
+        }
     }
-    sort($rows, SORT_STRING);
-    return 'whitelist-v1|' . $version . '|' . implode('|', $rows);
+    return 'whitelist-ops-v1|' . $version . '|' . implode('|', $rows);
 }
 
 function pubkeyHash(string $saltB64, string $pubkeyBytes): string
@@ -243,30 +254,35 @@ function handleWhitelistPush(): void
     $req = json_decode($raw, true);
 
     if (!is_array($req)
-        || !isset($req['version'], $req['members'],
+        || !isset($req['version'], $req['operations'],
                   $req['admin_pubkey'], $req['admin_signature'])
         || !is_int($req['version'])
-        || !is_array($req['members'])
+        || !is_array($req['operations'])
         || !is_string($req['admin_pubkey'])
         || !is_string($req['admin_signature'])) {
         jsonOut(400, ['error' => 'malformed whitelist push']);
     }
 
     $version = $req['version'];
-    $members = $req['members'];
+    $operations = $req['operations'];
 
-    foreach ($members as $m) {
-        if (!is_array($m)
-            || !isset($m['pubkey_hash'], $m['status'])
-            || !is_string($m['pubkey_hash'])
-            || !ctype_xdigit($m['pubkey_hash'])
-            || strlen($m['pubkey_hash']) !== 64
-            || !in_array($m['status'], ['active', 'revoked'], true)) {
-            jsonOut(400, ['error' => 'malformed whitelist member']);
+    if (count($operations) === 0) {
+        jsonOut(400, ['error' => 'operations must be non-empty']);
+    }
+
+    foreach ($operations as $o) {
+        if (!is_array($o)
+            || !isset($o['op'], $o['pubkey_hash'])
+            || !is_string($o['op'])
+            || !is_string($o['pubkey_hash'])
+            || !ctype_xdigit($o['pubkey_hash'])
+            || strlen($o['pubkey_hash']) !== 64
+            || !in_array($o['op'], ['add', 'revoke'], true)) {
+            jsonOut(400, ['error' => 'malformed whitelist operation']);
         }
-        if ($m['status'] === 'revoked'
-            && (!isset($m['revoked_at']) || !is_int($m['revoked_at']))) {
-            jsonOut(400, ['error' => 'revoked member missing revoked_at']);
+        if ($o['op'] === 'revoke'
+            && (!isset($o['revoked_at']) || !is_int($o['revoked_at']))) {
+            jsonOut(400, ['error' => 'revoke op missing revoked_at']);
         }
     }
 
@@ -287,7 +303,7 @@ function handleWhitelistPush(): void
         jsonOut(401, ['error' => 'admin pubkey hash does not match deployment']);
     }
 
-    $signingInput = buildWhitelistSigningString($version, $members);
+    $signingInput = buildWhitelistOpsCanonical($version, $operations);
     if (!sodium_crypto_sign_verify_detached(
             $adminSigBytes, $signingInput, $adminPubBytes)) {
         jsonOut(401, ['error' => 'admin signature verification failed']);
@@ -308,19 +324,32 @@ function handleWhitelistPush(): void
             ]);
         }
 
-        $pdo->exec('DELETE FROM whitelist');
-        $insert = $pdo->prepare(
-            'INSERT INTO whitelist (pubkey_hash, status, revoked_at, added_at)
-             VALUES (:h, :s, :r, :t)'
-        );
         $now = time();
-        foreach ($members as $m) {
-            $insert->execute([
-                ':h' => $m['pubkey_hash'],
-                ':s' => $m['status'],
-                ':r' => $m['status'] === 'revoked' ? $m['revoked_at'] : null,
-                ':t' => $now,
-            ]);
+        $addStmt = $pdo->prepare(
+            'INSERT INTO whitelist (pubkey_hash, status, revoked_at, added_at)
+             VALUES (:h, ' . "'active'" . ', NULL, :t)
+             ON CONFLICT(pubkey_hash) DO UPDATE SET
+                status = ' . "'active'" . ',
+                revoked_at = NULL'
+        );
+        $revokeStmt = $pdo->prepare(
+            'UPDATE whitelist
+             SET status = ' . "'revoked'" . ', revoked_at = :r
+             WHERE pubkey_hash = :h'
+        );
+
+        foreach ($operations as $o) {
+            if ($o['op'] === 'add') {
+                $addStmt->execute([
+                    ':h' => $o['pubkey_hash'],
+                    ':t' => $now,
+                ]);
+            } else {
+                $revokeStmt->execute([
+                    ':h' => $o['pubkey_hash'],
+                    ':r' => $o['revoked_at'],
+                ]);
+            }
         }
         $pdo->prepare(
             'UPDATE whitelist_meta SET current_version = :v WHERE id = 1'
@@ -335,7 +364,7 @@ function handleWhitelistPush(): void
         return;
     }
 
-    jsonOut(200, ['version' => $version, 'member_count' => count($members)]);
+    jsonOut(200, ['version' => $version, 'operation_count' => count($operations)]);
 }
 
 // ---------------------------------------------------------------------------

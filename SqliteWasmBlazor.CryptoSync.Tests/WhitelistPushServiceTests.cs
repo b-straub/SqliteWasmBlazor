@@ -9,11 +9,11 @@ namespace SqliteWasmBlazor.CryptoSync.Tests;
 
 /// <summary>
 /// Wire-shape coverage for <see cref="WhitelistPushService"/> against the
-/// admin <c>POST /api/whitelist</c> contract documented in
-/// <c>docs/security/relay-whitelist-design.md</c> §6.1. Asserts request body
-/// layout, canonical-string lex-sort parity with PHP's
-/// <c>buildWhitelistSigningString</c>, version-replay → typed exception, and
-/// success-response parsing. Real round-trip against Herd is covered in
+/// admin op-based <c>POST /api/whitelist</c> contract documented in
+/// <c>docs/security/relay-whitelist-design.md</c>. Asserts request body
+/// layout, canonical-string parity (admin-order preserving) with PHP's
+/// <c>buildWhitelistOpsCanonical</c>, version-replay → typed exception,
+/// and success-response parsing. Real round-trip against Herd is covered in
 /// <see cref="HttpSyncTransportLiveRelayTests"/>.
 /// </summary>
 public class WhitelistPushServiceTests
@@ -26,21 +26,21 @@ public class WhitelistPushServiceTests
         var (signer, adminPubB64, adminPriv) = await NewSignerWithKeysAsync();
         var handler = new StubHttpMessageHandler
         {
-            Responder = _ => JsonOk("""{"version":3,"member_count":2}""")
+            Responder = _ => JsonOk("""{"version":3,"operation_count":2}""")
         };
         using var http = new HttpClient(handler);
         var service = new WhitelistPushService(http, RelayBase, signer);
 
-        var members = new[]
+        var ops = new WhitelistOp[]
         {
-            new WhitelistMember("aa".PadRight(64, 'a'), WhitelistStatus.Active),
-            new WhitelistMember("bb".PadRight(64, 'b'), WhitelistStatus.Revoked, RevokedAt: 1700000000),
+            WhitelistOp.Add(new string('a', 64)),
+            WhitelistOp.Revoke(new string('b', 64), revokedAt: 1700000000),
         };
 
-        var result = await service.PushAsync(members, adminPubB64, adminPriv, version: 3);
+        var result = await service.PushAsync(ops, adminPubB64, adminPriv, version: 3);
 
         Assert.Equal(3L, result.Version);
-        Assert.Equal(2, result.MemberCount);
+        Assert.Equal(2, result.OperationCount);
 
         var req = Assert.Single(handler.Requests);
         Assert.Equal(HttpMethod.Post, req.Method);
@@ -52,16 +52,16 @@ public class WhitelistPushServiceTests
         Assert.Equal(adminPubB64, root.GetProperty("admin_pubkey").GetString());
         Assert.False(string.IsNullOrEmpty(root.GetProperty("admin_signature").GetString()));
 
-        var wireMembers = root.GetProperty("members").EnumerateArray().ToArray();
-        Assert.Equal(2, wireMembers.Length);
-        var active = wireMembers.Single(m => m.GetProperty("status").GetString() == "active");
-        Assert.Equal("aa".PadRight(64, 'a'), active.GetProperty("pubkey_hash").GetString());
-        Assert.False(active.TryGetProperty("revoked_at", out _),
-            "active members must not carry a revoked_at field on the wire");
+        var wireOps = root.GetProperty("operations").EnumerateArray().ToArray();
+        Assert.Equal(2, wireOps.Length);
+        Assert.Equal("add", wireOps[0].GetProperty("op").GetString());
+        Assert.Equal(new string('a', 64), wireOps[0].GetProperty("pubkey_hash").GetString());
+        Assert.False(wireOps[0].TryGetProperty("revoked_at", out _),
+            "add op must not carry revoked_at");
 
-        var revoked = wireMembers.Single(m => m.GetProperty("status").GetString() == "revoked");
-        Assert.Equal("bb".PadRight(64, 'b'), revoked.GetProperty("pubkey_hash").GetString());
-        Assert.Equal(1700000000L, revoked.GetProperty("revoked_at").GetInt64());
+        Assert.Equal("revoke", wireOps[1].GetProperty("op").GetString());
+        Assert.Equal(new string('b', 64), wireOps[1].GetProperty("pubkey_hash").GetString());
+        Assert.Equal(1700000000L, wireOps[1].GetProperty("revoked_at").GetInt64());
     }
 
     [Fact]
@@ -72,66 +72,61 @@ public class WhitelistPushServiceTests
         var (adminPubB64, adminPriv) = await NewAdminKeyPairAsync();
         var handler = new StubHttpMessageHandler
         {
-            Responder = _ => JsonOk("""{"version":1,"member_count":1}""")
+            Responder = _ => JsonOk("""{"version":1,"operation_count":1}""")
         };
         using var http = new HttpClient(handler);
         var service = new WhitelistPushService(http, RelayBase, signer);
 
-        var members = new[]
+        var ops = new WhitelistOp[]
         {
-            new WhitelistMember(new string('c', 64), WhitelistStatus.Active),
+            WhitelistOp.Add(new string('c', 64)),
         };
 
-        await service.PushAsync(members, adminPubB64, adminPriv, version: 1);
+        await service.PushAsync(ops, adminPubB64, adminPriv, version: 1);
 
         using var doc = JsonDocument.Parse(handler.Requests[0].Body!);
         var sigB64 = doc.RootElement.GetProperty("admin_signature").GetString()!;
 
         // The signature must verify against the canonical string the service
         // built — same one the PHP relay reconstructs.
-        var canonical = DeclarationSigner.BuildWhitelistPushCanonical(version: 1, members);
+        var canonical = DeclarationSigner.BuildWhitelistOpsCanonical(version: 1, ops);
         var ok = await crypto.VerifyAsync(canonical, sigB64, adminPubB64);
         Assert.True(ok);
     }
 
     [Fact]
-    public void BuildWhitelistPushCanonical_LexSortsByRowString()
+    public void BuildWhitelistOpsCanonical_PreservesAdminOrder()
     {
-        // Adversarial: out-of-order input, mixed status. Expected canonical
-        // matches PHP's SORT_STRING (byte-wise lex) on
-        // "{pubkey_hash}:{status}:{revoked_or_zero}".
-        var members = new[]
+        // Order-significant: revoke-then-add is a different operation than
+        // add-then-revoke on the same hash, so the canonical mirrors admin
+        // input order. PHP's buildWhitelistOpsCanonical does the same — no
+        // sort.
+        var ops = new WhitelistOp[]
         {
-            new WhitelistMember(new string('z', 64), WhitelistStatus.Active),
-            new WhitelistMember(new string('a', 64), WhitelistStatus.Revoked, RevokedAt: 42),
-            new WhitelistMember(new string('m', 64), WhitelistStatus.Active),
+            WhitelistOp.Revoke(new string('a', 64), revokedAt: 42),
+            WhitelistOp.Add(new string('z', 64)),
+            WhitelistOp.Add(new string('m', 64)),
         };
 
-        var canonical = DeclarationSigner.BuildWhitelistPushCanonical(version: 7, members);
+        var canonical = DeclarationSigner.BuildWhitelistOpsCanonical(version: 7, ops);
 
-        var expectedRows = new[]
-        {
-            $"{new string('a', 64)}:revoked:42",
-            $"{new string('m', 64)}:active:0",
-            $"{new string('z', 64)}:active:0",
-        };
-        Assert.Equal($"whitelist-v1|7|{string.Join("|", expectedRows)}", canonical);
+        Assert.Equal(
+            "whitelist-ops-v1|7"
+            + $"|revoke:{new string('a', 64)}:42"
+            + $"|add:{new string('z', 64)}"
+            + $"|add:{new string('m', 64)}",
+            canonical);
     }
 
     [Fact]
-    public async Task PushAsync_RevokedWithoutRevokedAt_ThrowsArgumentException()
+    public async Task PushAsync_EmptyOperations_ThrowsArgumentException()
     {
         var (signer, adminPubB64, adminPriv) = await NewSignerWithKeysAsync();
         using var http = new HttpClient(new StubHttpMessageHandler());
         var service = new WhitelistPushService(http, RelayBase, signer);
 
-        var members = new[]
-        {
-            new WhitelistMember(new string('a', 64), WhitelistStatus.Revoked, RevokedAt: null),
-        };
-
         await Assert.ThrowsAsync<ArgumentException>(async () =>
-            await service.PushAsync(members, adminPubB64, adminPriv, version: 1));
+            await service.PushAsync(Array.Empty<WhitelistOp>(), adminPubB64, adminPriv, version: 1));
     }
 
     [Fact]
@@ -141,13 +136,10 @@ public class WhitelistPushServiceTests
         using var http = new HttpClient(new StubHttpMessageHandler());
         var service = new WhitelistPushService(http, RelayBase, signer);
 
-        var members = new[]
-        {
-            new WhitelistMember(new string('a', 64), WhitelistStatus.Active),
-        };
+        var ops = new WhitelistOp[] { WhitelistOp.Add(new string('a', 64)) };
 
         await Assert.ThrowsAsync<ArgumentOutOfRangeException>(async () =>
-            await service.PushAsync(members, adminPubB64, adminPriv, version: 0));
+            await service.PushAsync(ops, adminPubB64, adminPriv, version: 0));
     }
 
     [Fact]
@@ -166,13 +158,10 @@ public class WhitelistPushServiceTests
         using var http = new HttpClient(handler);
         var service = new WhitelistPushService(http, RelayBase, signer);
 
-        var members = new[]
-        {
-            new WhitelistMember(new string('a', 64), WhitelistStatus.Active),
-        };
+        var ops = new WhitelistOp[] { WhitelistOp.Add(new string('a', 64)) };
 
         var ex = await Assert.ThrowsAsync<WhitelistVersionConflictException>(async () =>
-            await service.PushAsync(members, adminPubB64, adminPriv, version: 5));
+            await service.PushAsync(ops, adminPubB64, adminPriv, version: 5));
         Assert.Equal(5L, ex.AttemptedVersion);
         Assert.Equal(12L, ex.CurrentVersion);
     }
@@ -193,13 +182,28 @@ public class WhitelistPushServiceTests
         using var http = new HttpClient(handler);
         var service = new WhitelistPushService(http, RelayBase, signer);
 
-        var members = new[]
-        {
-            new WhitelistMember(new string('a', 64), WhitelistStatus.Active),
-        };
+        var ops = new WhitelistOp[] { WhitelistOp.Add(new string('a', 64)) };
 
         await Assert.ThrowsAsync<HttpRequestException>(async () =>
-            await service.PushAsync(members, adminPubB64, adminPriv, version: 1));
+            await service.PushAsync(ops, adminPubB64, adminPriv, version: 1));
+    }
+
+    [Fact]
+    public void HashPubkey_MatchesPhpFormat()
+    {
+        // sha256(salt || pubkey), lowercase hex. Parity-test against the
+        // PHP relay's pubkeyHash() function on a known input.
+        var salt = new byte[] { 0x00, 0x01, 0x02, 0x03 };
+        var pubkey = new byte[] { 0xAA, 0xBB, 0xCC, 0xDD };
+        var combined = salt.Concat(pubkey).ToArray();
+        var expected = Convert.ToHexString(
+            System.Security.Cryptography.SHA256.HashData(combined)).ToLowerInvariant();
+
+        var actual = WhitelistPushService.HashPubkey(
+            Convert.ToBase64String(salt),
+            Convert.ToBase64String(pubkey));
+
+        Assert.Equal(expected, actual);
     }
 
     private static async Task<(DeclarationSigner Signer, string AdminPubB64, byte[] AdminPriv)> NewSignerWithKeysAsync()
@@ -215,8 +219,6 @@ public class WhitelistPushServiceTests
 
     private static async Task<(string Pub, byte[] Priv)> NewAdminKeyPairAsync(Crypto.Abstractions.ICryptoProvider crypto)
     {
-        // Per-test PRF seed; deterministic-isn't-needed since we sign + verify
-        // in-process with the same crypto provider.
         var prfSeed = System.Security.Cryptography.RandomNumberGenerator.GetBytes(32);
         var dual = await crypto.DeriveDualKeyPairAsync(prfSeed);
         return (dual.Ed25519PublicKey, Convert.FromBase64String(dual.Ed25519PrivateKey));

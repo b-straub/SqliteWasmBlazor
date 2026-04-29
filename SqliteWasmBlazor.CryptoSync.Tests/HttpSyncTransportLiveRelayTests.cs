@@ -63,14 +63,12 @@ public sealed class HttpSyncTransportLiveRelayTests : IAsyncLifetime
         WriteRelayConfig(_deploymentSalt, adminHashHex);
         ResetRelayDb();
 
-        // Baseline whitelist: just the sender, version 1.
+        // Baseline whitelist: add the sender, version 1.
         await PushAsync(
             version: 1,
-            members:
+            ops:
             [
-                new WhitelistMember(
-                    PubkeyHash: HashHex(_deploymentSalt, _senderPub),
-                    Status: WhitelistStatus.Active),
+                WhitelistOp.Add(HashHex(_deploymentSalt, _senderPub)),
             ]);
     }
 
@@ -93,21 +91,21 @@ public sealed class HttpSyncTransportLiveRelayTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task WhitelistPush_TwoActiveMembers_BothCanPostAndPullThroughTransport()
+    public async Task WhitelistPush_AddSecondMember_BothCanPostAndPullThroughTransport()
     {
-        // Generate a second sender, push v2 with both members active.
+        // Add a second sender via an incremental Add op at v2. Sender from
+        // the baseline (v1) stays whitelisted.
         var secondSeed = RandomNumberGenerator.GetBytes(Ed25519SeedLength);
         var secondPub = DerivePub(secondSeed);
 
         var result = await PushAsync(
             version: 2,
-            members:
+            ops:
             [
-                new WhitelistMember(HashHex(_deploymentSalt, _senderPub), WhitelistStatus.Active),
-                new WhitelistMember(HashHex(_deploymentSalt, secondPub), WhitelistStatus.Active),
+                WhitelistOp.Add(HashHex(_deploymentSalt, secondPub)),
             ]);
         Assert.Equal(2L, result.Version);
-        Assert.Equal(2, result.MemberCount);
+        Assert.Equal(1, result.OperationCount);
 
         using var http = new HttpClient();
         var firstTransport = NewSenderTransport(http);
@@ -140,12 +138,35 @@ public sealed class HttpSyncTransportLiveRelayTests : IAsyncLifetime
         var ex = await Assert.ThrowsAsync<WhitelistVersionConflictException>(async () =>
             await PushAsync(
                 version: 1,
-                members:
+                ops:
                 [
-                    new WhitelistMember(HashHex(_deploymentSalt, _senderPub), WhitelistStatus.Active),
+                    WhitelistOp.Add(HashHex(_deploymentSalt, _senderPub)),
                 ]));
         Assert.Equal(1L, ex.AttemptedVersion);
         Assert.Equal(1L, ex.CurrentVersion);
+    }
+
+    [Fact]
+    public async Task WhitelistPush_RevokeFlipsActiveSenderTo403()
+    {
+        // Sender is active on the baseline. Revoke at v2; subsequent POSTs
+        // must hit 403 (status='revoked' is denied for POST per design §6.2).
+        var result = await PushAsync(
+            version: 2,
+            ops:
+            [
+                WhitelistOp.Revoke(
+                    HashHex(_deploymentSalt, _senderPub),
+                    revokedAt: DateTimeOffset.UtcNow.ToUnixTimeSeconds()),
+            ]);
+        Assert.Equal(2L, result.Version);
+
+        using var http = new HttpClient();
+        var transport = NewSenderTransport(http);
+
+        var ex = await Assert.ThrowsAsync<HttpRequestException>(async () =>
+            await transport.SendAsync([0xDE, 0xAD]));
+        Assert.Equal(HttpStatusCode.Forbidden, ex.StatusCode);
     }
 
     [Fact]
@@ -177,12 +198,12 @@ public sealed class HttpSyncTransportLiveRelayTests : IAsyncLifetime
         return new HttpSyncTransport(http, RelayBase, senderSigner, receiveSigner);
     }
 
-    private async Task<WhitelistPushResult> PushAsync(long version, IReadOnlyList<WhitelistMember> members)
+    private async Task<WhitelistPushResult> PushAsync(long version, IReadOnlyList<WhitelistOp> ops)
     {
         using var http = new HttpClient();
         var service = new WhitelistPushService(http, RelayBase, _declarationSigner);
         return await service.PushAsync(
-            members,
+            ops,
             adminEd25519PublicKeyBase64: Convert.ToBase64String(_adminPub),
             adminEd25519PrivateKey: _adminSeed,
             version: version);

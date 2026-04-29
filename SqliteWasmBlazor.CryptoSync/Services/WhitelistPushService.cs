@@ -1,5 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -7,27 +9,38 @@ namespace SqliteWasmBlazor.CryptoSync;
 
 /// <summary>
 /// Admin-side client for the relay's <c>POST /api/whitelist</c> endpoint.
-/// Builds the canonical signing string (lex-sorted by pubkey hash, see
-/// <c>docs/security/relay-whitelist-design.md</c> §6.1), signs it via
-/// <see cref="DeclarationSigner"/> with the admin's Ed25519 priv, and POSTs
-/// the result. The relay verifies the signature, the admin's pubkey-hash
-/// against its hardwired <c>admin_pubkey_hash</c>, and that <paramref
-/// name="version"/> exceeds <c>current_version</c>; on success it
-/// atomically replaces the whitelist contents.
+/// Pushes <i>incremental ops</i> (add / revoke) signed by the admin's
+/// Ed25519 priv via <see cref="DeclarationSigner"/>; the relay verifies the
+/// signature, the admin's pubkey-hash against its hardwired
+/// <c>admin_pubkey_hash</c>, and that <paramref name="version"/> exceeds
+/// <c>current_version</c>; on success it applies the ops in order under a
+/// single transaction and bumps <c>current_version</c>.
 ///
 /// <para>
-/// Members are supplied <b>already-hashed</b> as
-/// <c>sha256(deployment_salt || pubkey)</c>. Hashing happens at the call
-/// site (the salt is per-deployment config; the caller — Step 4 hooks like
-/// invitation promotion — already has it). The admin pubkey itself is sent
-/// raw because the relay hashes it server-side to match config.
+/// Op semantics:
+/// <list type="bullet">
+///   <item><c>Add</c> — INSERT (or re-activate-on-conflict). The relay
+///         clears any prior <c>revoked_at</c> and sets status to
+///         <c>active</c>. Idempotent.</item>
+///   <item><c>Revoke</c> — UPDATE <c>status='revoked'</c> +
+///         <c>revoked_at=...</c>. No-op if the hash isn't on the
+///         whitelist.</item>
+/// </list>
+/// </para>
+///
+/// <para>
+/// <b>Pubkey hashing.</b> Members are referenced by
+/// <c>sha256(deployment_salt || pubkey)</c> hex. Use
+/// <see cref="HashPubkey"/> at the call site — the salt stays where the
+/// pubkey originates (admin device config) so non-admin code paths never
+/// see it.
 /// </para>
 ///
 /// <para>
 /// <b>Replay defense.</b> A push with a <paramref name="version"/> not
 /// strictly greater than the relay's current value surfaces as a
 /// <see cref="WhitelistVersionConflictException"/>; the relay's reported
-/// <c>current_version</c> is included so callers can choose to retry with
+/// <c>current_version</c> is included so callers can retry at
 /// <c>current + 1</c>.
 /// </para>
 /// </summary>
@@ -37,37 +50,33 @@ public sealed class WhitelistPushService(
     DeclarationSigner signer)
 {
     public async ValueTask<WhitelistPushResult> PushAsync(
-        IReadOnlyList<WhitelistMember> members,
+        IReadOnlyList<WhitelistOp> operations,
         string adminEd25519PublicKeyBase64,
         ReadOnlyMemory<byte> adminEd25519PrivateKey,
         long version,
         CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(members);
+        ArgumentNullException.ThrowIfNull(operations);
         ArgumentNullException.ThrowIfNull(adminEd25519PublicKeyBase64);
+        if (operations.Count == 0)
+        {
+            throw new ArgumentException(
+                "operations must be non-empty.", nameof(operations));
+        }
         if (version <= 0)
         {
             throw new ArgumentOutOfRangeException(
                 nameof(version), version, "version must be positive");
         }
-        foreach (var m in members)
-        {
-            if (m.Status == WhitelistStatus.Revoked && m.RevokedAt is null)
-            {
-                throw new ArgumentException(
-                    $"WhitelistMember '{m.PubkeyHash}' has Status=Revoked but no RevokedAt timestamp.",
-                    nameof(members));
-            }
-        }
 
         var signature = await signer
-            .SignWhitelistPushAsync(adminEd25519PrivateKey, version, members)
+            .SignWhitelistOpsAsync(adminEd25519PrivateKey, version, operations)
             .ConfigureAwait(false);
 
         var body = new WhitelistPushDto.Request
         {
             Version = version,
-            Members = [.. members.Select(WhitelistPushDto.WireMember.From)],
+            Operations = [.. operations.Select(WhitelistPushDto.WireOp.From)],
             AdminPubkey = adminEd25519PublicKeyBase64,
             AdminSignature = Convert.ToBase64String(signature),
         };
@@ -102,40 +111,54 @@ public sealed class WhitelistPushService(
             .ConfigureAwait(false)
             ?? throw new InvalidOperationException(
                 "WhitelistPushService: empty 200 body from delta relay");
-        return new WhitelistPushResult(ok.Version, ok.MemberCount);
+        return new WhitelistPushResult(ok.Version, ok.OperationCount);
+    }
+
+    /// <summary>
+    /// Produce the lowercase-hex of <c>sha256(deploymentSalt || pubkey)</c>
+    /// — the form members are stored as on the relay. Salt stays at the
+    /// call site (admin device config), so this static helper is safe to
+    /// use anywhere a pubkey-hash is needed without DI plumbing.
+    /// </summary>
+    public static string HashPubkey(string deploymentSaltBase64, string ed25519PublicKeyBase64)
+    {
+        ArgumentNullException.ThrowIfNull(deploymentSaltBase64);
+        ArgumentNullException.ThrowIfNull(ed25519PublicKeyBase64);
+
+        var salt = Convert.FromBase64String(deploymentSaltBase64);
+        var pubkey = Convert.FromBase64String(ed25519PublicKeyBase64);
+        var buffer = new byte[salt.Length + pubkey.Length];
+        Buffer.BlockCopy(salt, 0, buffer, 0, salt.Length);
+        Buffer.BlockCopy(pubkey, 0, buffer, salt.Length, pubkey.Length);
+        return Convert.ToHexString(SHA256.HashData(buffer)).ToLowerInvariant();
     }
 }
 
 /// <summary>
-/// One row in a whitelist push. <see cref="PubkeyHash"/> is the lowercase
-/// hex of <c>sha256(deployment_salt || pubkey_bytes)</c>; the relay never
-/// sees the raw pubkey for non-admin members.
+/// One operation in a whitelist push. Use <see cref="Add"/> /
+/// <see cref="Revoke"/> factories rather than constructing directly.
 /// </summary>
-public sealed record WhitelistMember(
-    string PubkeyHash,
-    WhitelistStatus Status,
-    long? RevokedAt = null);
-
-public enum WhitelistStatus
+public abstract record WhitelistOp
 {
-    Active,
-    Revoked,
-}
+    private WhitelistOp() { }
 
-internal static class WhitelistStatusTokens
-{
-    public const string Active = "active";
-    public const string Revoked = "revoked";
+    public abstract string PubkeyHash { get; }
 
-    public static string ToWire(WhitelistStatus status) => status switch
+    public sealed record AddOp(string PubkeyHash) : WhitelistOp
     {
-        WhitelistStatus.Active => Active,
-        WhitelistStatus.Revoked => Revoked,
-        _ => throw new ArgumentOutOfRangeException(nameof(status), status, null),
-    };
+        public override string PubkeyHash { get; } = PubkeyHash;
+    }
+
+    public sealed record RevokeOp(string PubkeyHash, long RevokedAt) : WhitelistOp
+    {
+        public override string PubkeyHash { get; } = PubkeyHash;
+    }
+
+    public static AddOp Add(string pubkeyHash) => new(pubkeyHash);
+    public static RevokeOp Revoke(string pubkeyHash, long revokedAt) => new(pubkeyHash, revokedAt);
 }
 
-public sealed record WhitelistPushResult(long Version, int MemberCount);
+public sealed record WhitelistPushResult(long Version, int OperationCount);
 
 /// <summary>
 /// The relay rejected a whitelist push because the supplied version was not
@@ -158,8 +181,8 @@ internal static class WhitelistPushDto
         [JsonPropertyName("version")]
         public required long Version { get; init; }
 
-        [JsonPropertyName("members")]
-        public required WireMember[] Members { get; init; }
+        [JsonPropertyName("operations")]
+        public required WireOp[] Operations { get; init; }
 
         [JsonPropertyName("admin_pubkey")]
         public required string AdminPubkey { get; init; }
@@ -168,23 +191,33 @@ internal static class WhitelistPushDto
         public required string AdminSignature { get; init; }
     }
 
-    public sealed class WireMember
+    public sealed class WireOp
     {
+        [JsonPropertyName("op")]
+        public required string Op { get; init; }
+
         [JsonPropertyName("pubkey_hash")]
         public required string PubkeyHash { get; init; }
-
-        [JsonPropertyName("status")]
-        public required string Status { get; init; }
 
         [JsonPropertyName("revoked_at")]
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public long? RevokedAt { get; init; }
 
-        public static WireMember From(WhitelistMember m) => new()
+        public static WireOp From(WhitelistOp op) => op switch
         {
-            PubkeyHash = m.PubkeyHash,
-            Status = WhitelistStatusTokens.ToWire(m.Status),
-            RevokedAt = m.Status == WhitelistStatus.Revoked ? m.RevokedAt : null,
+            WhitelistOp.AddOp a => new WireOp
+            {
+                Op = "add",
+                PubkeyHash = a.PubkeyHash,
+                RevokedAt = null,
+            },
+            WhitelistOp.RevokeOp r => new WireOp
+            {
+                Op = "revoke",
+                PubkeyHash = r.PubkeyHash,
+                RevokedAt = r.RevokedAt,
+            },
+            _ => throw new ArgumentOutOfRangeException(nameof(op), op?.GetType(), null),
         };
     }
 
@@ -193,8 +226,8 @@ internal static class WhitelistPushDto
         [JsonPropertyName("version")]
         public long Version { get; init; }
 
-        [JsonPropertyName("member_count")]
-        public int MemberCount { get; init; }
+        [JsonPropertyName("operation_count")]
+        public int OperationCount { get; init; }
     }
 
     public sealed class ConflictResponse

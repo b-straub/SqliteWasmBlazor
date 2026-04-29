@@ -58,56 +58,64 @@ public class DeclarationSigner(ICryptoProvider crypto)
         => $"{memberPublicKeyBase64}|{(int)role}|{groupContext}|{keyVersion}";
 
     // ================================================================
-    // Whitelist push (System Admin signs, relay verifies)
+    // Whitelist ops (System Admin signs, relay verifies)
     // ================================================================
 
     /// <summary>
-    /// System Admin signs a whitelist push for the broadcast relay. The
+    /// System Admin signs a whitelist-ops push for the broadcast relay. The
     /// canonical string is byte-identical to the PHP relay's
-    /// <c>buildWhitelistSigningString</c>: rows of
-    /// <c>{pubkey_hash}:{status}:{revoked_at_or_zero}</c>, lex-sorted as
-    /// raw strings, joined by <c>|</c>, prefixed with
-    /// <c>"whitelist-v1|{version}|"</c>.
+    /// <c>buildWhitelistOpsCanonical</c>: each op rendered as
+    /// <c>add:{pubkey_hash}</c> or <c>revoke:{pubkey_hash}:{revoked_at}</c>,
+    /// joined in admin-supplied order by <c>|</c>, prefixed with
+    /// <c>"whitelist-ops-v1|{version}|"</c>.
     /// </summary>
-    public async ValueTask<byte[]> SignWhitelistPushAsync(
+    /// <remarks>
+    /// Order is significant: <c>add</c> then <c>revoke</c> on the same hash
+    /// has a different effect than the reverse, so the canonical preserves
+    /// admin order rather than sorting. Tampering reorders the bytes and
+    /// breaks the sig.
+    /// </remarks>
+    public async ValueTask<byte[]> SignWhitelistOpsAsync(
         ReadOnlyMemory<byte> adminEd25519PrivateKey,
         long version,
-        IReadOnlyList<WhitelistMember> members)
+        IReadOnlyList<WhitelistOp> operations)
     {
-        var canonical = BuildWhitelistPushCanonical(version, members);
+        var canonical = BuildWhitelistOpsCanonical(version, operations);
         var result = await crypto.SignAsync(canonical, adminEd25519PrivateKey);
         if (!result.Success || result.Value is null)
         {
-            throw new InvalidOperationException($"DeclarationSigner: SignWhitelistPushAsync failed: {result.ErrorCode}");
+            throw new InvalidOperationException($"DeclarationSigner: SignWhitelistOpsAsync failed: {result.ErrorCode}");
         }
         return Convert.FromBase64String(result.Value);
     }
 
     /// <summary>
-    /// Verify an admin's signature on a whitelist push. Mirrors the PHP
+    /// Verify an admin's signature on a whitelist-ops push. Mirrors the PHP
     /// relay's verification path — useful for parity tests.
     /// </summary>
-    public async ValueTask<bool> VerifyWhitelistPushAsync(
+    public async ValueTask<bool> VerifyWhitelistOpsAsync(
         string adminEd25519PublicKeyBase64,
         long version,
-        IReadOnlyList<WhitelistMember> members,
+        IReadOnlyList<WhitelistOp> operations,
         byte[] adminSignature)
     {
-        var canonical = BuildWhitelistPushCanonical(version, members);
+        var canonical = BuildWhitelistOpsCanonical(version, operations);
         return await crypto.VerifyAsync(canonical, Convert.ToBase64String(adminSignature), adminEd25519PublicKeyBase64);
     }
 
-    internal static string BuildWhitelistPushCanonical(long version, IReadOnlyList<WhitelistMember> members)
+    internal static string BuildWhitelistOpsCanonical(long version, IReadOnlyList<WhitelistOp> operations)
     {
-        var rows = new string[members.Count];
-        for (var i = 0; i < members.Count; i++)
+        var rows = new string[operations.Count];
+        for (var i = 0; i < operations.Count; i++)
         {
-            var m = members[i];
-            var revokedAt = m.RevokedAt ?? 0;
-            rows[i] = $"{m.PubkeyHash}:{WhitelistStatusTokens.ToWire(m.Status)}:{revokedAt}";
+            rows[i] = operations[i] switch
+            {
+                WhitelistOp.AddOp a => $"add:{a.PubkeyHash}",
+                WhitelistOp.RevokeOp r => $"revoke:{r.PubkeyHash}:{r.RevokedAt}",
+                _ => throw new ArgumentOutOfRangeException(nameof(operations), operations[i]?.GetType(), null),
+            };
         }
-        Array.Sort(rows, StringComparer.Ordinal);
-        return $"whitelist-v1|{version}|{string.Join("|", rows)}";
+        return $"whitelist-ops-v1|{version}|{string.Join("|", rows)}";
     }
 
     // ================================================================
