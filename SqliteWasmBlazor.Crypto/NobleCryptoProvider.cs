@@ -1,5 +1,5 @@
+using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
-using System.Security.Cryptography;
 using System.Text;
 using Microsoft.Extensions.Options;
 using SqliteWasmBlazor.Crypto.Abstractions;
@@ -41,10 +41,15 @@ public sealed class NobleCryptoProvider : ICryptoProvider
     {
         await NobleInterop.EnsureInitializedAsync();
 
-        var plaintextBase64 = Convert.ToBase64String(Encoding.UTF8.GetBytes(plaintext));
-        var keyBase64 = Convert.ToBase64String(key.Span);
+        if (!MemoryMarshal.TryGetArray(key, out ArraySegment<byte> keySegment))
+        {
+            return PrfResult<SymmetricEncryptedData>.Fail(PrfErrorCode.ENCRYPTION_FAILED);
+        }
 
-        var packedBase64 = await NobleInterop.EncryptAesGcmAsync(plaintextBase64, keyBase64, associatedData);
+        var plaintextBytes = Encoding.UTF8.GetBytes(plaintext);
+
+        var packedBase64 = await NobleInterop.EncryptAesGcmAsync(
+            new ArraySegment<byte>(plaintextBytes), keySegment, associatedData);
         var packed = Convert.FromBase64String(packedBase64);
 
         if (packed.Length <= NonceLength)
@@ -62,10 +67,14 @@ public sealed class NobleCryptoProvider : ICryptoProvider
     {
         await NobleInterop.EnsureInitializedAsync();
 
+        if (!MemoryMarshal.TryGetArray(key, out ArraySegment<byte> keySegment))
+        {
+            return PrfResult<string>.Fail(PrfErrorCode.DECRYPTION_FAILED);
+        }
+
         try
         {
-            var keyBase64 = Convert.ToBase64String(key.Span);
-            var packedBase64 = await NobleInterop.DecryptAesGcmAsync(encrypted.Ciphertext, encrypted.Nonce, keyBase64, associatedData);
+            var packedBase64 = await NobleInterop.DecryptAesGcmAsync(encrypted.Ciphertext, encrypted.Nonce, keySegment, associatedData);
             var plaintext = Convert.FromBase64String(packedBase64);
 
             if (plaintext.Length == 0)
@@ -115,16 +124,21 @@ public sealed class NobleCryptoProvider : ICryptoProvider
         await NobleInterop.EnsureInitializedAsync();
 
         // Cross to JS as a binary MemoryView — no immutable Base64 string ever
-        // holds the private-key bytes on the JS heap. Local copy is zeroed in
-        // finally; the original ReadOnlyMemory is owned (and zeroed) by caller.
-        var privateKeyCopy = privateKey.ToArray();
+        // holds the private-key bytes on the JS heap. The caller-owned byte[]
+        // is exposed directly via MemoryMarshal.TryGetArray; no managed copy
+        // of the secret is allocated here. Caller zeros its byte[] in finally.
+        if (!MemoryMarshal.TryGetArray(privateKey, out ArraySegment<byte> privateKeySegment))
+        {
+            return PrfResult<string>.Fail(PrfErrorCode.DECRYPTION_FAILED);
+        }
+
         try
         {
             var packedBase64 = await NobleInterop.DecryptAsymmetricAesGcmAsync(
                 asymmetricEncrypted.EphemeralPublicKey,
                 asymmetricEncrypted.Ciphertext,
                 asymmetricEncrypted.Nonce,
-                new ArraySegment<byte>(privateKeyCopy));
+                privateKeySegment);
             var plaintext = Convert.FromBase64String(packedBase64);
 
             if (plaintext.Length == 0)
@@ -137,10 +151,6 @@ public sealed class NobleCryptoProvider : ICryptoProvider
         catch
         {
             return PrfResult<string>.Fail(PrfErrorCode.DECRYPTION_FAILED);
-        }
-        finally
-        {
-            CryptographicOperations.ZeroMemory(privateKeyCopy);
         }
     }
 
@@ -155,18 +165,16 @@ public sealed class NobleCryptoProvider : ICryptoProvider
         var messageBase64 = Convert.ToBase64String(Encoding.UTF8.GetBytes(message));
 
         // Cross to JS as a binary MemoryView — no immutable Base64 string ever
-        // holds the private-key bytes on the JS heap. Local copy is zeroed in
-        // finally; the original ReadOnlyMemory is owned (and zeroed) by caller.
-        var privateKeyCopy = privateKey.ToArray();
-        string signatureBase64;
-        try
+        // holds the private-key bytes on the JS heap. The caller-owned byte[]
+        // is exposed directly via MemoryMarshal.TryGetArray; no managed copy
+        // of the secret is allocated here. Caller (SigningService) zeros its
+        // byte[] in finally.
+        if (!MemoryMarshal.TryGetArray(privateKey, out ArraySegment<byte> privateKeySegment))
         {
-            signatureBase64 = NobleInterop.Ed25519Sign(messageBase64, privateKeyCopy.AsSpan());
+            return PrfResult<string>.Fail(PrfErrorCode.SIGNING_FAILED);
         }
-        finally
-        {
-            CryptographicOperations.ZeroMemory(privateKeyCopy);
-        }
+
+        var signatureBase64 = NobleInterop.Ed25519Sign(messageBase64, privateKeySegment.AsSpan());
 
         var signature = Convert.FromBase64String(signatureBase64);
         if (signature.Length != SignatureLength)
@@ -381,8 +389,13 @@ public sealed class NobleCryptoProvider : ICryptoProvider
     {
         await NobleInterop.EnsureInitializedAsync();
 
-        var packedBase64 = await NobleInterop.EncryptAesGcmAsync(
-            Convert.ToBase64String(contentKey.Span), Convert.ToBase64String(wrappingKey.Span));
+        if (!MemoryMarshal.TryGetArray(contentKey, out ArraySegment<byte> contentKeySegment) ||
+            !MemoryMarshal.TryGetArray(wrappingKey, out ArraySegment<byte> wrappingKeySegment))
+        {
+            return PrfResult<SymmetricEncryptedData>.Fail(PrfErrorCode.ENCRYPTION_FAILED);
+        }
+
+        var packedBase64 = await NobleInterop.EncryptAesGcmAsync(contentKeySegment, wrappingKeySegment);
         var packed = Convert.FromBase64String(packedBase64);
 
         if (packed.Length <= NonceLength)
@@ -398,10 +411,15 @@ public sealed class NobleCryptoProvider : ICryptoProvider
     {
         await NobleInterop.EnsureInitializedAsync();
 
+        if (!MemoryMarshal.TryGetArray(wrappingKey, out ArraySegment<byte> wrappingKeySegment))
+        {
+            return PrfResult<ReadOnlyMemory<byte>>.Fail(PrfErrorCode.AUTHENTICATION_TAG_MISMATCH);
+        }
+
         try
         {
             var packedBase64 = await NobleInterop.DecryptAesGcmAsync(
-                wrappedKey.Ciphertext, wrappedKey.Nonce, Convert.ToBase64String(wrappingKey.Span));
+                wrappedKey.Ciphertext, wrappedKey.Nonce, wrappingKeySegment);
             var contentKey = Convert.FromBase64String(packedBase64);
 
             if (contentKey.Length == 0)

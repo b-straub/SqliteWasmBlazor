@@ -121,11 +121,27 @@ internal static partial class NobleInterop
     // AES-GCM — encrypt returns Base64 of [nonce(12)|ciphertext], decrypt returns Base64 of plaintext
     // ============================================================
 
+    /// <summary>
+    /// AES-GCM encrypt. Both plaintext and key cross as binary <c>MemoryView</c>s — no
+    /// immutable Base64 string holds the plaintext (which may itself be a wrapped
+    /// content key) or the wrapping key on the JS heap.
+    /// </summary>
     [JSImport("encryptAesGcmB64", ModuleName)]
-    public static partial Task<string> EncryptAesGcmAsync(string plaintextBase64, string keyBase64, string? aad = null);
+    public static partial Task<string> EncryptAesGcmAsync(
+        [JSMarshalAs<JSType.MemoryView>] ArraySegment<byte> plaintext,
+        [JSMarshalAs<JSType.MemoryView>] ArraySegment<byte> key,
+        string? aad = null);
 
+    /// <summary>
+    /// AES-GCM decrypt. The key crosses as a binary <c>MemoryView</c> so no immutable
+    /// Base64 string holds the secret on the JS heap.
+    /// </summary>
     [JSImport("decryptAesGcmB64", ModuleName)]
-    public static partial Task<string> DecryptAesGcmAsync(string ciphertextBase64, string nonceBase64, string keyBase64, string? aad = null);
+    public static partial Task<string> DecryptAesGcmAsync(
+        string ciphertextBase64,
+        string nonceBase64,
+        [JSMarshalAs<JSType.MemoryView>] ArraySegment<byte> key,
+        string? aad = null);
 
     // ============================================================
     // ECIES — encrypt returns Base64 of [ephPubKey(32)|nonce(12)|ciphertext], decrypt returns Base64

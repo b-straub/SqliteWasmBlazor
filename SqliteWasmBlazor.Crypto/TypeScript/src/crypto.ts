@@ -410,14 +410,14 @@ export function ed25519VerifyB64(sigB64: string, msgB64: string, pubB64: string)
 /** Base64([x25519Priv(32)|x25519Pub(32)|ed25519Priv(32)|ed25519Pub(32)]) */
 export function deriveDualKeyPairB64(seedB64: string): string { return bytesToBase64(deriveDualKeyPair(base64ToBytes(seedB64))); }
 
-/** Base64([nonce(12)|ciphertext]) */
-export async function encryptAesGcmB64(ptB64: string, keyB64: string, aad: string | null = null): Promise<string> {
-    return bytesToBase64(await encryptAesGcm(base64ToBytes(ptB64), base64ToBytes(keyB64), aad));
+/** Base64([nonce(12)|ciphertext]). Both plaintext and key cross as binary views (no Base64 holds the secret). */
+export async function encryptAesGcmB64(plaintext: Uint8Array, key: Uint8Array, aad: string | null = null): Promise<string> {
+    return bytesToBase64(await encryptAesGcm(plaintext, key, aad));
 }
 
-/** Base64(plaintext) */
-export async function decryptAesGcmB64(ctB64: string, nonceB64: string, keyB64: string, aad: string | null = null): Promise<string> {
-    return bytesToBase64(await decryptAesGcm(base64ToBytes(ctB64), base64ToBytes(nonceB64), base64ToBytes(keyB64), aad));
+/** Base64(plaintext). key is a binary view (no Base64 string holds the secret). */
+export async function decryptAesGcmB64(ctB64: string, nonceB64: string, key: Uint8Array, aad: string | null = null): Promise<string> {
+    return bytesToBase64(await decryptAesGcm(base64ToBytes(ctB64), base64ToBytes(nonceB64), key, aad));
 }
 
 /** Base64([ephPubKey(32)|nonce(12)|ciphertext]) */
