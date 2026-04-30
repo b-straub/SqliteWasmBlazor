@@ -36,13 +36,20 @@ public sealed class GroupEncryptionService(ICryptoProvider cryptoProvider) : IGr
                     return PrfResult<GroupKeyBundle>.Fail(PrfErrorCode.KEY_DERIVATION_FAILED);
                 }
 
-                var wrapResult = await cryptoProvider.WrapContentKeyAsync(cek, wrappingKeyResult.Value);
-                if (!wrapResult.Success || wrapResult.Value is null)
+                try
                 {
-                    return PrfResult<GroupKeyBundle>.Fail(PrfErrorCode.ENCRYPTION_FAILED);
-                }
+                    var wrapResult = await cryptoProvider.WrapContentKeyAsync(cek, wrappingKeyResult.Value);
+                    if (!wrapResult.Success || wrapResult.Value is null)
+                    {
+                        return PrfResult<GroupKeyBundle>.Fail(PrfErrorCode.ENCRYPTION_FAILED);
+                    }
 
-                memberKeys.Add(new WrappedKey(memberPubKey, wrapResult.Value));
+                    memberKeys.Add(new WrappedKey(memberPubKey, wrapResult.Value));
+                }
+                finally
+                {
+                    ClearMemory(wrappingKeyResult.Value);
+                }
             }
 
             var bundle = new GroupKeyBundle(groupContext, 1, adminPublicKey, memberKeys);
@@ -82,13 +89,20 @@ public sealed class GroupEncryptionService(ICryptoProvider cryptoProvider) : IGr
                     return PrfResult<IReadOnlyList<WrappedKey>>.Fail(PrfErrorCode.KEY_DERIVATION_FAILED);
                 }
 
-                var wrapResult = await cryptoProvider.WrapContentKeyAsync(cekResult.Value, wrappingKeyResult.Value);
-                if (!wrapResult.Success || wrapResult.Value is null)
+                try
                 {
-                    return PrfResult<IReadOnlyList<WrappedKey>>.Fail(PrfErrorCode.ENCRYPTION_FAILED);
-                }
+                    var wrapResult = await cryptoProvider.WrapContentKeyAsync(cekResult.Value, wrappingKeyResult.Value);
+                    if (!wrapResult.Success || wrapResult.Value is null)
+                    {
+                        return PrfResult<IReadOnlyList<WrappedKey>>.Fail(PrfErrorCode.ENCRYPTION_FAILED);
+                    }
 
-                newKeys.Add(new WrappedKey(memberPubKey, wrapResult.Value));
+                    newKeys.Add(new WrappedKey(memberPubKey, wrapResult.Value));
+                }
+                finally
+                {
+                    ClearMemory(wrappingKeyResult.Value);
+                }
             }
 
             return PrfResult<IReadOnlyList<WrappedKey>>.Ok(newKeys);
@@ -121,13 +135,20 @@ public sealed class GroupEncryptionService(ICryptoProvider cryptoProvider) : IGr
                     return PrfResult<GroupKeyBundle>.Fail(PrfErrorCode.KEY_DERIVATION_FAILED);
                 }
 
-                var wrapResult = await cryptoProvider.WrapContentKeyAsync(newCek, wrappingKeyResult.Value);
-                if (!wrapResult.Success || wrapResult.Value is null)
+                try
                 {
-                    return PrfResult<GroupKeyBundle>.Fail(PrfErrorCode.ENCRYPTION_FAILED);
-                }
+                    var wrapResult = await cryptoProvider.WrapContentKeyAsync(newCek, wrappingKeyResult.Value);
+                    if (!wrapResult.Success || wrapResult.Value is null)
+                    {
+                        return PrfResult<GroupKeyBundle>.Fail(PrfErrorCode.ENCRYPTION_FAILED);
+                    }
 
-                memberKeys.Add(new WrappedKey(memberPubKey, wrapResult.Value));
+                    memberKeys.Add(new WrappedKey(memberPubKey, wrapResult.Value));
+                }
+                finally
+                {
+                    ClearMemory(wrappingKeyResult.Value);
+                }
             }
 
             // Extract version from context (format: "group-{id}:v{N}")
@@ -171,13 +192,20 @@ public sealed class GroupEncryptionService(ICryptoProvider cryptoProvider) : IGr
                     return PrfResult<GroupKeyBundle>.Fail(PrfErrorCode.KEY_DERIVATION_FAILED);
                 }
 
-                var wrapResult = await cryptoProvider.WrapContentKeyAsync(cekResult.Value, wrappingKeyResult.Value);
-                if (!wrapResult.Success || wrapResult.Value is null)
+                try
                 {
-                    return PrfResult<GroupKeyBundle>.Fail(PrfErrorCode.ENCRYPTION_FAILED);
-                }
+                    var wrapResult = await cryptoProvider.WrapContentKeyAsync(cekResult.Value, wrappingKeyResult.Value);
+                    if (!wrapResult.Success || wrapResult.Value is null)
+                    {
+                        return PrfResult<GroupKeyBundle>.Fail(PrfErrorCode.ENCRYPTION_FAILED);
+                    }
 
-                memberKeys.Add(new WrappedKey(memberPubKey, wrapResult.Value));
+                    memberKeys.Add(new WrappedKey(memberPubKey, wrapResult.Value));
+                }
+                finally
+                {
+                    ClearMemory(wrappingKeyResult.Value);
+                }
             }
 
             var bundle = new GroupKeyBundle(groupContext, keyVersion, newAdminPublicKey, memberKeys);
@@ -210,7 +238,15 @@ public sealed class GroupEncryptionService(ICryptoProvider cryptoProvider) : IGr
             return PrfResult<GroupEncryptedData>.Fail(PrfErrorCode.KEY_DERIVATION_FAILED);
         }
 
-        var cekResult = await cryptoProvider.UnwrapContentKeyAsync(senderWrappedCek, wrappingKeyResult.Value);
+        PrfResult<ReadOnlyMemory<byte>> cekResult;
+        try
+        {
+            cekResult = await cryptoProvider.UnwrapContentKeyAsync(senderWrappedCek, wrappingKeyResult.Value);
+        }
+        finally
+        {
+            ClearMemory(wrappingKeyResult.Value);
+        }
         if (!cekResult.Success || cekResult.Value.Length == 0)
         {
             return PrfResult<GroupEncryptedData>.Fail(cekResult.ErrorCode ?? PrfErrorCode.DECRYPTION_FAILED);
@@ -274,7 +310,15 @@ public sealed class GroupEncryptionService(ICryptoProvider cryptoProvider) : IGr
             return PrfResult<string>.Fail(PrfErrorCode.KEY_DERIVATION_FAILED);
         }
 
-        var cekResult = await cryptoProvider.UnwrapContentKeyAsync(recipientWrappedCek, wrappingKeyResult.Value);
+        PrfResult<ReadOnlyMemory<byte>> cekResult;
+        try
+        {
+            cekResult = await cryptoProvider.UnwrapContentKeyAsync(recipientWrappedCek, wrappingKeyResult.Value);
+        }
+        finally
+        {
+            ClearMemory(wrappingKeyResult.Value);
+        }
         if (!cekResult.Success || cekResult.Value.Length == 0)
         {
             return PrfResult<string>.Fail(cekResult.ErrorCode ?? PrfErrorCode.DECRYPTION_FAILED);
@@ -309,7 +353,14 @@ public sealed class GroupEncryptionService(ICryptoProvider cryptoProvider) : IGr
             return PrfResult<ReadOnlyMemory<byte>>.Fail(PrfErrorCode.KEY_DERIVATION_FAILED);
         }
 
-        return await cryptoProvider.UnwrapContentKeyAsync(adminWrappedCek, wrappingKeyResult.Value);
+        try
+        {
+            return await cryptoProvider.UnwrapContentKeyAsync(adminWrappedCek, wrappingKeyResult.Value);
+        }
+        finally
+        {
+            ClearMemory(wrappingKeyResult.Value);
+        }
     }
 
     /// <summary>

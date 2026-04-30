@@ -429,14 +429,25 @@ export function ed25519VerifyB64(sigB64: string, msgB64: string, pubB64: string)
     return ed25519Verify(base64ToBytes(sigB64), base64ToBytes(msgB64), base64ToBytes(pubB64));
 }
 
-/** Base64([x25519Priv(32)|x25519Pub(32)|ed25519Priv(32)|ed25519Pub(32)]) */
-export function deriveDualKeyPairB64(seedB64: string): string { return bytesToBase64(deriveDualKeyPair(base64ToBytes(seedB64))); }
+/**
+ * Base64([x25519Priv(32)|x25519Pub(32)|ed25519Priv(32)|ed25519Pub(32)]).
+ * The seed crosses as a .NET MemoryView; slice into a real Uint8Array and
+ * zeroize that copy in finally so the seed never lingers on the JS heap.
+ */
+export function deriveDualKeyPairB64(seed: IMemoryView): string {
+    const seedCopy = seed.slice();
+    try {
+        return bytesToBase64(deriveDualKeyPair(seedCopy));
+    } finally {
+        clearBytes(seedCopy);
+    }
+}
 
 /**
  * Base64([nonce(12)|ciphertext]). Both plaintext and key cross as .NET
- * MemoryViews; slice into real Uint8Arrays and zeroize the secret slice.
- * The plaintext slice is NOT zeroed since callers may pass user-text bytes
- * whose lifetime they manage.
+ * MemoryViews; slice into real Uint8Arrays and zeroize both JS-owned copies
+ * in finally. WrapContentKey routes a CEK through this path, so the plaintext
+ * slice must be cleared too — the caller's buffer is independent.
  */
 export async function encryptAesGcmB64(plaintext: IMemoryView, key: IMemoryView, aad: string | null = null): Promise<string> {
     const ptCopy = plaintext.slice();
@@ -444,6 +455,7 @@ export async function encryptAesGcmB64(plaintext: IMemoryView, key: IMemoryView,
     try {
         return bytesToBase64(await encryptAesGcm(ptCopy, keyCopy, aad));
     } finally {
+        clearBytes(ptCopy);
         clearBytes(keyCopy);
     }
 }
@@ -485,9 +497,18 @@ export function deriveWrappingKeyB64(ownPrivateKey: IMemoryView, recipPubB64: st
 }
 export function generateRandomBytesB64(length: number): string { return bytesToBase64(generateRandomBytes(length)); }
 
-/** Base64([x25519Pub(32)|ed25519Pub(32)]) */
-export async function storeKeysB64(keyId: string, seedB64: string, ttlMs: number | null): Promise<string> {
-    return bytesToBase64(await storeKeys(keyId, base64ToBytes(seedB64), ttlMs));
+/**
+ * Base64([x25519Pub(32)|ed25519Pub(32)]). The seed crosses as a .NET
+ * MemoryView; slice into a real Uint8Array and zeroize that copy in finally
+ * so the PRF seed never lingers on the JS heap.
+ */
+export async function storeKeysB64(keyId: string, seed: IMemoryView, ttlMs: number | null): Promise<string> {
+    const seedCopy = seed.slice();
+    try {
+        return bytesToBase64(await storeKeys(keyId, seedCopy, ttlMs));
+    } finally {
+        clearBytes(seedCopy);
+    }
 }
 export function getPublicKeysB64(keyId: string): string { return bytesToBase64(getPublicKeys(keyId)); }
 

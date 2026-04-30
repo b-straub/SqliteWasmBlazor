@@ -114,8 +114,14 @@ internal static partial class NobleInterop
     // DUAL KEY — Returns Base64 of: [x25519Priv(32)|x25519Pub(32)|ed25519Priv(32)|ed25519Pub(32)]
     // ============================================================
 
+    /// <summary>
+    /// Derive [x25519 + ed25519] keypair packed Base64. The seed crosses as a
+    /// binary <c>MemoryView</c> so no immutable Base64 string holds the seed
+    /// on the JS heap. Caller owns the source span lifecycle.
+    /// </summary>
     [JSImport("deriveDualKeyPairB64", ModuleName)]
-    public static partial string DeriveDualKeyPair(string seedBase64);
+    public static partial string DeriveDualKeyPair(
+        [JSMarshalAs<JSType.MemoryView>] Span<byte> seed);
 
     // ============================================================
     // AES-GCM — encrypt returns Base64 of [nonce(12)|ciphertext], decrypt returns Base64 of plaintext
@@ -195,8 +201,16 @@ internal static partial class NobleInterop
     // KEY CACHE — storeKeys returns Base64 of [x25519Pub(32)|ed25519Pub(32)]
     // ============================================================
 
+    /// <summary>
+    /// Store and derive keys from a PRF seed. The seed crosses as a binary
+    /// <c>MemoryView</c> so no immutable Base64 string holds the seed on the
+    /// JS heap. Caller owns the source <see cref="ArraySegment{T}"/> lifecycle.
+    /// </summary>
     [JSImport("storeKeysB64", ModuleName)]
-    public static partial Task<string> StoreKeysAsync(string keyId, string seedBase64, int? ttlMs);
+    public static partial Task<string> StoreKeysAsync(
+        string keyId,
+        [JSMarshalAs<JSType.MemoryView>] ArraySegment<byte> seed,
+        int? ttlMs);
 
     [JSImport("getPublicKeysB64", ModuleName)]
     public static partial string GetPublicKeys(string keyId);

@@ -1,6 +1,6 @@
 # SqliteWasmBlazor Roadmap
 
-_Single source of truth for "where are we." Last updated 2026-05-01 against branch `crypto-sync` HEAD `5541a14`. Stage A (whitelist-broadcast rewrite) is fully complete and the Codex memory-hygiene audit close-out (zeroization + binary boundary + non-extractable JS keys) just landed. **Stage 2 (UI absorption) remains the active workstream**; once UI panels land, the WebAuthn-bound demo / TestApp / admin-seeding work follows. Stage B (production PRF/WebAuthn signer wiring) is folded into that sequence — it's no longer a standalone item._
+_Single source of truth for "where are we." Last updated 2026-05-01 against branch `crypto-sync` HEAD `5541a14` (+ unstaged second-pass audit close-out). Stage A (whitelist-broadcast rewrite) is fully complete and the Codex memory-hygiene audit close-out (zeroization + binary boundary + non-extractable JS keys + second-pass HKDF/seed/packed-buffer cleanup) just landed. **Stage 2 (UI absorption) remains the active workstream**; once UI panels land, the WebAuthn-bound demo / TestApp / admin-seeding work follows. Stage B (production PRF/WebAuthn signer wiring) is folded into that sequence — it's no longer a standalone item._
 
 This document supersedes the multiple parallel numbering systems (Stage / Phase A / Phase B / Audit Phase 1-3) that were used while individual workstreams were in flight. Going forward, work is grouped only as **Active**, **Postponed**, **Done**, **Deferred**.
 
@@ -164,8 +164,9 @@ Replaced the per-recipient pubkey-bound delivery model (Stage 3b code) with an a
 | `53e18bb` | `.slice()` MemoryView → real `Uint8Array` in TS bridge (noble's `isBytes` requires `instanceof Uint8Array`; the runtime `Span` view fails that). Also fixes the `Task.WhenAny(Expect.ToBeVisibleAsync, …)` failure-swallow bug in `SqliteWasmTestBase` — switched to `Locator.Or`. |
 | `a1a14c6` | Regenerate stale `AdminSeed.g.cs` — committed PermissionTableSignature hash diverged from current generator output. |
 | `5541a14` | Map `PERMISSION_SENDER_UNAUTHORIZED` → wire int 14 in `importErrorCodeToInt` (commit `42bc26a` added the C# enum value but missed the TS mapping; tests silently failed via `default: return 99`). Revert over-bumped Playwright timeout to 60s now that the wrapper actually surfaces failures. |
+| _next_ | **Second-pass Codex audit close-out (2026-05-01).** PRF seed `StoreKeysAsync` flipped to `MemoryView` (no Base64 string); `encryptAesGcmB64` clears `ptCopy` in finally (CEK-after-wrap window); HKDF-derived `wrappingKeyResult.Value` now `try/finally` cleared at every consumer (7 sites in `GroupEncryptionService`, 2 in `ContactInvitationService`); `DeriveDualKeyPair` seed flipped to `MemoryView` and the unpacked private-key buffer `CryptographicOperations.ZeroMemory`-ed in finally. `DualKeyPairFull` private-key string surface logged as known architectural debt (blocked by AdminSeed.g.cs codegen template). |
 
-**End state:** every per-operation crypto path uses `MemoryView` for secrets; sign + ECIES decrypt route through the JS keyId cache (Ed25519 = non-extractable CryptoKey); recurring zeroization invariants codified in feedback memory; Playwright suite no longer silently passes failed crypto tests; AdminSeed-regeneration trigger captured in feedback memory.
+**End state:** every per-operation crypto path uses `MemoryView` for secrets; sign + ECIES decrypt route through the JS keyId cache (Ed25519 = non-extractable CryptoKey); HKDF wrapping keys + bridge plaintext slices + packed unpack buffers all zeroed deterministically; recurring zeroization invariants codified in feedback memory; Playwright suite no longer silently passes failed crypto tests; AdminSeed-regeneration trigger captured in feedback memory.
 
 ---
 

@@ -458,14 +458,21 @@ public class ContactInvitationService(
                 throw new InvalidOperationException(
                     $"ContactInvitationService.RespondToInvitationAsync: DeriveWrappingKeyAsync failed: {wkResult.ErrorCode}");
             }
-            var encResult = await crypto.EncryptSymmetricAsync(
-                Convert.ToBase64String(payloadBytes), wkResult.Value).ConfigureAwait(false);
-            if (!encResult.Success || encResult.Value is null)
+            try
             {
-                throw new InvalidOperationException(
-                    $"ContactInvitationService.RespondToInvitationAsync: EncryptSymmetricAsync failed: {encResult.ErrorCode}");
+                var encResult = await crypto.EncryptSymmetricAsync(
+                    Convert.ToBase64String(payloadBytes), wkResult.Value).ConfigureAwait(false);
+                if (!encResult.Success || encResult.Value is null)
+                {
+                    throw new InvalidOperationException(
+                        $"ContactInvitationService.RespondToInvitationAsync: EncryptSymmetricAsync failed: {encResult.ErrorCode}");
+                }
+                encrypted = encResult.Value;
             }
-            encrypted = encResult.Value;
+            finally
+            {
+                ClearWrappingKey(wkResult.Value);
+            }
         }
         finally
         {
@@ -592,17 +599,24 @@ public class ContactInvitationService(
                     throw new InvalidInvitationResponseException(
                         $"IngestInvitationResponsesAsync: DeriveWrappingKeyAsync failed: {wkResult.ErrorCode}");
                 }
-                var decResult = await crypto.DecryptSymmetricAsync(
-                    new SymmetricEncryptedData(
-                        Convert.ToBase64String(envelope.Ciphertext),
-                        Convert.ToBase64String(envelope.Nonce)),
-                    wkResult.Value).ConfigureAwait(false);
-                if (!decResult.Success || decResult.Value is null)
+                try
                 {
-                    throw new InvalidInvitationResponseException(
-                        $"IngestInvitationResponsesAsync: DecryptSymmetricAsync failed: {decResult.ErrorCode}");
+                    var decResult = await crypto.DecryptSymmetricAsync(
+                        new SymmetricEncryptedData(
+                            Convert.ToBase64String(envelope.Ciphertext),
+                            Convert.ToBase64String(envelope.Nonce)),
+                        wkResult.Value).ConfigureAwait(false);
+                    if (!decResult.Success || decResult.Value is null)
+                    {
+                        throw new InvalidInvitationResponseException(
+                            $"IngestInvitationResponsesAsync: DecryptSymmetricAsync failed: {decResult.ErrorCode}");
+                    }
+                    plaintextBase64 = decResult.Value;
                 }
-                plaintextBase64 = decResult.Value;
+                finally
+                {
+                    ClearWrappingKey(wkResult.Value);
+                }
             }
             finally
             {
@@ -882,5 +896,19 @@ public class ContactInvitationService(
         }
 
         return contactRow;
+    }
+
+    /// <summary>
+    /// Best-effort zeroize of an HKDF-derived wrapping key. Mirrors
+    /// <c>GroupEncryptionService.ClearMemory</c> — the underlying buffer comes
+    /// from <c>Convert.FromBase64String(...)</c> in <see cref="NobleCryptoProvider"/>
+    /// so it backs onto an array we can clear.
+    /// </summary>
+    private static void ClearWrappingKey(ReadOnlyMemory<byte> wrappingKey)
+    {
+        if (System.Runtime.InteropServices.MemoryMarshal.TryGetArray(wrappingKey, out var seg) && seg.Array is not null)
+        {
+            Array.Clear(seg.Array, seg.Offset, seg.Count);
+        }
     }
 }

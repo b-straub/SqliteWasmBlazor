@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
+using System.Security.Cryptography;
 using System.Text;
 using Microsoft.Extensions.Options;
 using SqliteWasmBlazor.Crypto.Abstractions;
@@ -212,15 +213,30 @@ public sealed class NobleCryptoProvider : ICryptoProvider
     public async ValueTask<DualKeyPairFull> DeriveDualKeyPairAsync(ReadOnlyMemory<byte> prfSeed)
     {
         await NobleInterop.EnsureInitializedAsync();
-        var packed = Convert.FromBase64String(NobleInterop.DeriveDualKeyPair(Convert.ToBase64String(prfSeed.Span)));
 
-        // Unpack: [x25519Priv(32) | x25519Pub(32) | ed25519Priv(32) | ed25519Pub(32)]
-        return new DualKeyPairFull(
-            Convert.ToBase64String(packed[..32]),
-            Convert.ToBase64String(packed[32..64]),
-            Convert.ToBase64String(packed[64..96]),
-            Convert.ToBase64String(packed[96..128])
-        );
+        if (!MemoryMarshal.TryGetArray(prfSeed, out ArraySegment<byte> seedSegment))
+        {
+            throw new InvalidOperationException(
+                "DeriveDualKeyPairAsync: caller-supplied seed must back onto an array (use byte[] or ReadOnlyMemory<byte> over byte[]).");
+        }
+
+        var packed = Convert.FromBase64String(NobleInterop.DeriveDualKeyPair(seedSegment.AsSpan()));
+        try
+        {
+            // Unpack: [x25519Priv(32) | x25519Pub(32) | ed25519Priv(32) | ed25519Pub(32)]
+            return new DualKeyPairFull(
+                Convert.ToBase64String(packed.AsSpan(0, 32)),
+                Convert.ToBase64String(packed.AsSpan(32, 32)),
+                Convert.ToBase64String(packed.AsSpan(64, 32)),
+                Convert.ToBase64String(packed.AsSpan(96, 32))
+            );
+        }
+        finally
+        {
+            // Packed buffer holds raw private-key material decoded from the
+            // JS-side Base64 string; clear it now so it doesn't linger until GC.
+            CryptographicOperations.ZeroMemory(packed);
+        }
     }
 
     public async ValueTask<string> GenerateSaltAsync(int length = 32)
@@ -239,7 +255,12 @@ public sealed class NobleCryptoProvider : ICryptoProvider
     {
         await NobleInterop.EnsureInitializedAsync();
 
-        var packedBase64 = await NobleInterop.StoreKeysAsync(keyId, Convert.ToBase64String(prfSeed.Span), ttlMs);
+        if (!MemoryMarshal.TryGetArray(prfSeed, out ArraySegment<byte> seedSegment))
+        {
+            return PrfResult<DualKeyPair>.Fail(PrfErrorCode.KEY_DERIVATION_FAILED);
+        }
+
+        var packedBase64 = await NobleInterop.StoreKeysAsync(keyId, seedSegment, ttlMs);
         var packed = Convert.FromBase64String(packedBase64);
 
         if (packed.Length != 64)
