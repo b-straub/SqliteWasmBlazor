@@ -46,6 +46,19 @@ import {
 
 import type { PushSubscriptionKeys } from '@sqlitewasmblazor/crypto-core';
 
+/**
+ * .NET MemoryView marshalling produces a runtime <c>Span</c> object — NOT a
+ * Uint8Array. Noble's <c>isBytes</c> check (<c>instanceof Uint8Array</c>) fails
+ * against it. Bridge functions that accept a MemoryView call <c>.slice()</c> to
+ * lift the bytes into a real Uint8Array before passing them downstream.
+ * Mirror of the same shape used by SqliteWasmBlazor/TypeScript/bridge/worker-bridge.ts.
+ */
+interface IMemoryView {
+    slice(): Uint8Array;
+    slice(start: number): Uint8Array;
+    slice(start: number, end: number): Uint8Array;
+}
+
 // ============================================================
 // KEY CACHE (Keys stored in JS, C# only references by keyId)
 // ============================================================
@@ -398,9 +411,18 @@ export function generateEd25519KeyPairB64(): string { return bytesToBase64(gener
 export function getEd25519PublicKeyB64(privB64: string): string { return bytesToBase64(getEd25519PublicKey(base64ToBytes(privB64))); }
 export function deriveEd25519KeyPairB64(seedB64: string): string { return bytesToBase64(deriveEd25519KeyPair(base64ToBytes(seedB64))); }
 
-/** Base64(signature(64)). privKey is a binary view (no Base64 string holds the secret). */
-export function ed25519SignB64(msgB64: string, privKey: Uint8Array): string {
-    return bytesToBase64(ed25519Sign(base64ToBytes(msgB64), privKey));
+/**
+ * Base64(signature(64)). privKey crosses as a .NET MemoryView — a Span runtime
+ * object whose <c>instanceof Uint8Array</c> is false, so noble rejects it. Slice
+ * into a real Uint8Array, then zeroize that copy in finally.
+ */
+export function ed25519SignB64(msgB64: string, privKey: IMemoryView): string {
+    const priv = privKey.slice();
+    try {
+        return bytesToBase64(ed25519Sign(base64ToBytes(msgB64), priv));
+    } finally {
+        clearBytes(priv);
+    }
 }
 
 export function ed25519VerifyB64(sigB64: string, msgB64: string, pubB64: string): boolean {
@@ -410,14 +432,30 @@ export function ed25519VerifyB64(sigB64: string, msgB64: string, pubB64: string)
 /** Base64([x25519Priv(32)|x25519Pub(32)|ed25519Priv(32)|ed25519Pub(32)]) */
 export function deriveDualKeyPairB64(seedB64: string): string { return bytesToBase64(deriveDualKeyPair(base64ToBytes(seedB64))); }
 
-/** Base64([nonce(12)|ciphertext]). Both plaintext and key cross as binary views (no Base64 holds the secret). */
-export async function encryptAesGcmB64(plaintext: Uint8Array, key: Uint8Array, aad: string | null = null): Promise<string> {
-    return bytesToBase64(await encryptAesGcm(plaintext, key, aad));
+/**
+ * Base64([nonce(12)|ciphertext]). Both plaintext and key cross as .NET
+ * MemoryViews; slice into real Uint8Arrays and zeroize the secret slice.
+ * The plaintext slice is NOT zeroed since callers may pass user-text bytes
+ * whose lifetime they manage.
+ */
+export async function encryptAesGcmB64(plaintext: IMemoryView, key: IMemoryView, aad: string | null = null): Promise<string> {
+    const ptCopy = plaintext.slice();
+    const keyCopy = key.slice();
+    try {
+        return bytesToBase64(await encryptAesGcm(ptCopy, keyCopy, aad));
+    } finally {
+        clearBytes(keyCopy);
+    }
 }
 
-/** Base64(plaintext). key is a binary view (no Base64 string holds the secret). */
-export async function decryptAesGcmB64(ctB64: string, nonceB64: string, key: Uint8Array, aad: string | null = null): Promise<string> {
-    return bytesToBase64(await decryptAesGcm(base64ToBytes(ctB64), base64ToBytes(nonceB64), key, aad));
+/** Base64(plaintext). key crosses as a .NET MemoryView; slice + zeroize. */
+export async function decryptAesGcmB64(ctB64: string, nonceB64: string, key: IMemoryView, aad: string | null = null): Promise<string> {
+    const keyCopy = key.slice();
+    try {
+        return bytesToBase64(await decryptAesGcm(base64ToBytes(ctB64), base64ToBytes(nonceB64), keyCopy, aad));
+    } finally {
+        clearBytes(keyCopy);
+    }
 }
 
 /** Base64([ephPubKey(32)|nonce(12)|ciphertext]) */
@@ -425,15 +463,25 @@ export async function encryptAsymmetricB64(ptB64: string, recipPubB64: string): 
     return bytesToBase64(await encryptAsymmetricAesGcm(base64ToBytes(ptB64), base64ToBytes(recipPubB64)));
 }
 
-/** Base64(plaintext). privKey is a binary view (no Base64 string holds the secret). */
-export async function decryptAsymmetricB64(ephPubB64: string, ctB64: string, nonceB64: string, privKey: Uint8Array): Promise<string> {
-    return bytesToBase64(await decryptAsymmetricAesGcm(base64ToBytes(ephPubB64), base64ToBytes(ctB64), base64ToBytes(nonceB64), privKey));
+/** Base64(plaintext). privKey crosses as a .NET MemoryView; slice + zeroize. */
+export async function decryptAsymmetricB64(ephPubB64: string, ctB64: string, nonceB64: string, privKey: IMemoryView): Promise<string> {
+    const priv = privKey.slice();
+    try {
+        return bytesToBase64(await decryptAsymmetricAesGcm(base64ToBytes(ephPubB64), base64ToBytes(ctB64), base64ToBytes(nonceB64), priv));
+    } finally {
+        clearBytes(priv);
+    }
 }
 
 export function deriveHkdfKeyB64(seedB64: string, domain: string): string { return bytesToBase64(deriveHkdfKey(base64ToBytes(seedB64), domain)); }
-/** ownPrivateKey crosses as a binary view (no Base64 string holds the secret). */
-export function deriveWrappingKeyB64(ownPrivateKey: Uint8Array, recipPubB64: string, ctx: string): string {
-    return bytesToBase64(deriveWrappingKey(ownPrivateKey, base64ToBytes(recipPubB64), ctx));
+/** ownPrivateKey crosses as a .NET MemoryView; slice + zeroize. */
+export function deriveWrappingKeyB64(ownPrivateKey: IMemoryView, recipPubB64: string, ctx: string): string {
+    const priv = ownPrivateKey.slice();
+    try {
+        return bytesToBase64(deriveWrappingKey(priv, base64ToBytes(recipPubB64), ctx));
+    } finally {
+        clearBytes(priv);
+    }
 }
 export function generateRandomBytesB64(length: number): string { return bytesToBase64(generateRandomBytes(length)); }
 

@@ -98,24 +98,27 @@ public abstract class SqliteWasmTestBase(IWaFixture fixture, ITestOutputHelper o
     {
         Assert.NotNull(_fixture.Page);
 
-        var timeout = 500;
+        // OnePass mode: one shared page load runs every test sequentially and
+        // emits a per-test result label. Each xUnit test polls for its own
+        // label. The wait must cover the *cumulative* test queue, not just the
+        // single-test runtime — otherwise the xUnit tests scheduled later in
+        // the queue time out before the page reaches them.
+        var timeout = _fixture.Type switch
+        {
+            IWaFixture.BrowserType.CHROMIUM => 60000,
+            IWaFixture.BrowserType.FIREFOX => 90000,
+            IWaFixture.BrowserType.WEBKIT => 60000,
+            _ => throw new ArgumentOutOfRangeException(nameof(_fixture.Type), nameof(_fixture.Type))
+        };
+
+        // Increase timeout for large dataset tests (10k records)
+        if (name.Contains("LargeDataset", StringComparison.OrdinalIgnoreCase))
+        {
+            timeout *= 3; // 180-270 seconds for large dataset operations
+        }
 
         if (!_fixture.OnePass)
         {
-            timeout = _fixture.Type switch
-            {
-                IWaFixture.BrowserType.CHROMIUM => 30000,  // 30 seconds for WASM initialization
-                IWaFixture.BrowserType.FIREFOX => 50000,
-                IWaFixture.BrowserType.WEBKIT => 30000,
-                _ => throw new ArgumentOutOfRangeException(nameof(_fixture.Type), nameof(_fixture.Type))
-            };
-
-            // Increase timeout for large dataset tests (10k records)
-            if (name.Contains("LargeDataset", StringComparison.OrdinalIgnoreCase))
-            {
-                timeout *= 3; // 90-150 seconds for large dataset operations
-            }
-
             await _fixture.Page.GotoAsync($"http://localhost:{_fixture.Port}/Tests/{name}");
         }
 
@@ -124,14 +127,17 @@ public abstract class SqliteWasmTestBase(IWaFixture fixture, ITestOutputHelper o
             Timeout = timeout
         };
 
-        // Accept both OK and SKIPPED as passing results
-        var successLocator = _fixture.Page.Locator($"text=SqliteWasm -> {name}: OK");
-        var skippedLocator = _fixture.Page.Locator($"text=SqliteWasm -> {name}: SKIPPED");
+        // Accept both OK and SKIPPED as passing results.
+        // Use a single locator with an OR clause so that ToBeVisibleAsync
+        // throws if NEITHER appears within the timeout. The earlier
+        // Task.WhenAny pattern silently swallowed failures: when both
+        // Expect(...) tasks faulted, WhenAny returned the first faulted task
+        // without us observing its exception, and xUnit counted the test as
+        // passed in ~500 ms even though the test page never reached OK.
+        var resultLocator = _fixture.Page
+            .Locator($"text=SqliteWasm -> {name}: OK")
+            .Or(_fixture.Page.Locator($"text=SqliteWasm -> {name}: SKIPPED"));
 
-        // Wait for either OK or SKIPPED
-        await Task.WhenAny(
-            Assertions.Expect(successLocator).ToBeVisibleAsync(options),
-            Assertions.Expect(skippedLocator).ToBeVisibleAsync(options)
-        );
+        await Assertions.Expect(resultLocator).ToBeVisibleAsync(options);
     }
 }
