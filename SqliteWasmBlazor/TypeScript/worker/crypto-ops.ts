@@ -209,6 +209,7 @@ function importErrorCodeToInt(code: string): number {
         case 'PERMISSION_UPDATE_DENIED': return 11;
         case 'PERMISSION_DELETE_DENIED': return 12;
         case 'PERMISSION_COLUMN_READONLY': return 13;
+        case 'PERMISSION_SENDER_UNAUTHORIZED': return 14;
         case 'UNKNOWN_GROUP': return 20;
         default: return 99;
     }

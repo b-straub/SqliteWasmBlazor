@@ -98,11 +98,14 @@ public abstract class SqliteWasmTestBase(IWaFixture fixture, ITestOutputHelper o
     {
         Assert.NotNull(_fixture.Page);
 
-        // OnePass mode: one shared page load runs every test sequentially and
-        // emits a per-test result label. Each xUnit test polls for its own
-        // label. The wait must cover the *cumulative* test queue, not just the
-        // single-test runtime — otherwise the xUnit tests scheduled later in
-        // the queue time out before the page reaches them.
+        // Cover both modes:
+        //   OnePass — one shared page load runs every test sequentially. Each
+        //     xUnit test polls for its own per-test label, so the wait must
+        //     cover the *cumulative* queue, not just one test's runtime.
+        //   Per-test — fresh navigation per case; wait covers a single WASM
+        //     boot + run.
+        // 60 s comfortably absorbs the queue today; bump only if the queue
+        // grows past that.
         var timeout = _fixture.Type switch
         {
             IWaFixture.BrowserType.CHROMIUM => 60000,
