@@ -106,6 +106,9 @@ public enum ImportErrorCode
     /// <summary>Sender's role cannot update a readonly column.</summary>
     PERMISSION_COLUMN_READONLY = 13,
 
+    /// <summary>Sender has no valid ShareTarget/permission credential chain for this group.</summary>
+    PERMISSION_SENDER_UNAUTHORIZED = 14,
+
     // --- Routing ---
 
     /// <summary>No ShareTarget found for this group — cannot derive CEK.</summary>

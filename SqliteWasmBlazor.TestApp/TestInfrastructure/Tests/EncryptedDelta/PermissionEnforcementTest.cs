@@ -26,6 +26,7 @@ namespace SqliteWasmBlazor.TestApp.TestInfrastructure.Tests.EncryptedDelta;
 ///   D. Editor insert + update allowed
 ///   E. Viewer update denied (changes Price)
 ///   F. Viewer IsBought-only update allowed (readwrite override)
+///   G. Invalid ShareTarget credential denied before table permissions
 /// </summary>
 internal class PermissionEnforcementTest(
     IDbContextFactory<CryptoTestContext> cryptoFactory,
@@ -311,6 +312,37 @@ internal class PermissionEnforcementTest(
             Console.WriteLine($"[{Name}] Step F OK: Viewer IsBought readwrite override works");
         }
 
+        // ===== STEP G: invalid ShareTarget credential denied =====
+        Console.WriteLine($"[{Name}] Step G: invalid ShareTarget credential denied");
+        await ResetDatabaseAsync();
+        {
+            var itemId = Guid.NewGuid();
+            await SeedItemsAsync(
+                new CryptoTestItem
+                {
+                    Id = itemId, Title = "InvalidCredential", Description = "sender credential should fail",
+                    Price = 8.00m, IsBought = false
+                });
+
+            var delta = await ExportDeltaAsync();
+            await ClearOpenTableAsync();
+            await CorruptSenderShareTargetSignatureAsync();
+
+            var report = await ImportDeltaAsync(delta);
+
+            AssertEqual(0, report.RowsImported, "Invalid credential imported");
+            AssertEqual(1, report.RowsSkipped, "Invalid credential skipped");
+            AssertEqual(1, report.Errors.Count, "Invalid credential errors");
+            AssertEqual(
+                ImportErrorCode.PERMISSION_SENDER_UNAUTHORIZED,
+                report.Errors[0].Code,
+                "Invalid credential error code");
+            AssertEqual(0, await CountOpenTableAsync(), "open table after invalid sender credential");
+            AssertEqual(0, await CountShadowTableAsync(), "shadow table after invalid sender credential");
+
+            Console.WriteLine($"[{Name}] Step G OK: invalid ShareTarget credential denied");
+        }
+
         Console.WriteLine($"[{Name}] All permission scenarios passed");
         return "OK";
     }
@@ -428,6 +460,17 @@ internal class PermissionEnforcementTest(
             group.GroupContext, target.KeyVersion);
         System.Security.Cryptography.CryptographicOperations.ZeroMemory(adminEd25519Priv);
 
+        await ctx.SaveChangesAsync();
+    }
+
+    private async ValueTask CorruptSenderShareTargetSignatureAsync()
+    {
+        await using var ctx = await CryptoFactory.CreateDbContextAsync();
+        var group = await ctx.ShareGroups.SingleAsync(g =>
+            g.GroupContext == CryptoSyncBootstrap.SystemGroupContext);
+        var target = await ctx.ShareTargets.SingleAsync(t =>
+            t.ShareGroupId == group.Id && t.MemberPublicKey == CryptoTestContext.AdminX25519PublicKey);
+        target.AdminSignature = new byte[64];
         await ctx.SaveChangesAsync();
     }
 

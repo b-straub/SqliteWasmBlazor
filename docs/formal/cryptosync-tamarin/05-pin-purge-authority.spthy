@@ -11,7 +11,7 @@ begin
  *
  * Wire contracts at issue (locked in Stage A):
  *   pin_canon  := "deltapin-v1|ts|envelope_hash"     -- admin signs
- *   post_canon := "deltapost-v1|ts|envelope"         -- sender signs
+ *   post_canon := "deltapost-v1|ts|envelope_hash"    -- sender signs
  *   get_canon  := "deltaget-v1|ts|pubkey"            -- receiver signs
  *
  * Modeled flow:
@@ -100,14 +100,14 @@ rule AdminSignPinPurge:
 // that the relay never accepts a sender post signature as a pin auth.
 rule SenderSignPost:
     [ !SenderSigKey($Sender, sender_sig_sk) ]
-  --[ DeltaPostSigned($Sender, $Envelope, $Timestamp) ]->
+  --[ DeltaPostSigned($Sender, $EnvelopeHash, $Timestamp) ]->
     [ !ValidPost(
         $Sender,
-        $Envelope,
+        $EnvelopeHash,
         $Timestamp,
-        sign(post_canon($Timestamp, $Envelope), sender_sig_sk))
-    , Out(post_req(pk(sender_sig_sk), $Envelope, $Timestamp,
-            sign(post_canon($Timestamp, $Envelope), sender_sig_sk)))
+        sign(post_canon($Timestamp, $EnvelopeHash), sender_sig_sk))
+    , Out(post_req(pk(sender_sig_sk), $EnvelopeHash, $Timestamp,
+            sign(post_canon($Timestamp, $EnvelopeHash), sender_sig_sk)))
     ]
 
 // ---------------------------------------------------------------------------

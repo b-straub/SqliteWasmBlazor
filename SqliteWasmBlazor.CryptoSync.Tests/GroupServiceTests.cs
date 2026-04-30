@@ -252,11 +252,22 @@ public class GroupServiceTests : IAsyncLifetime
             .SingleAsync(g => g.GroupContext == CryptoSyncBootstrap.SystemGroupContext);
 
         await _scenario.Admin.Groups.UpdateMemberRoleAsync(
-            systemGroup.Id, _scenario.User.Keys.X25519PublicKey, SyncRole.EDITOR);
+            systemGroup.Id, _scenario.Admin.Keys,
+            _scenario.User.Keys.X25519PublicKey, SyncRole.EDITOR);
 
         var members = await _scenario.Admin.Groups.GetMembersAsync(systemGroup.Id);
         var userTarget = members.Single(m => m.MemberPublicKey == _scenario.User.Keys.X25519PublicKey);
         Assert.Equal(SyncRole.EDITOR, userTarget.Role);
+
+        var signer = new DeclarationSigner(_scenario.Crypto);
+        var ok = await signer.VerifyShareTargetAsync(
+            userTarget.GroupAdminEd25519PublicKey,
+            userTarget.MemberPublicKey,
+            userTarget.Role,
+            systemGroup.GroupContext,
+            userTarget.KeyVersion,
+            userTarget.AdminSignature);
+        Assert.True(ok, "Updated role must carry a freshly valid ShareTarget credential");
     }
 
     // ----------------------------------------------------------------

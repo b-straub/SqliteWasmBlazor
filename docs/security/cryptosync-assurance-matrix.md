@@ -66,6 +66,7 @@ Last local verification pass:
 | Group key distribution | `02-group-key-distribution.spthy` | `GroupServiceTests.cs`; `SignedShareTargetTests.cs`; `GroupTransferServiceTests.cs` | CEK secrecy, admin-signed ShareTargets, install provenance, revocation rotation. |
 | Delta data plane | `03-delta-data-plane.spthy` | `DeltaEnvelopeTests.cs`; `PlaintextLeakProperty.cs`; `DeclarationSignerTests.cs`; `SyncEngineTests.cs`; Playwright delta cases | Row secrecy, sender authenticity, authorization, AAD rejection, import/export behavior. |
 | Relay whitelist/cursor | `04-relay-whitelist-cursor.spthy` | `relay-integration.php`; `HttpSyncTransportTests.cs`; `HttpSyncTransportLiveRelayTests.cs`; `WhitelistPushServiceTests.cs` | Admin whitelist authority, active POST, revoked grace GET, expiry denial, cursor monotonicity. |
+| Relay pin/purge | `05-pin-purge-authority.spthy` | `relay-integration.php`; `HttpSyncTransportLiveRelayTests.cs` | Deployment-admin-only pinned reseed purge, deltapin/deltapost signature separation, monotonic purge epoch. |
 | Browser integration | No browser-specific formal model | `SqliteWasmBlazor.Tests` Playwright suite | End-to-end TestApp workflows, WASM/OPFS bridge, sub-path/CSP behavior, broad smoke coverage. |
 
 ## Current Gaps

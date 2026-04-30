@@ -82,6 +82,12 @@ public abstract class SqliteWasmTestBase(IWaFixture fixture, ITestOutputHelper o
     [InlineData("ExportImport_DeltaConflict_LocalWins")]
     [InlineData("ExportImport_DeltaConflict_DeltaWins")]
     [InlineData("ExportImport_DeltaDeletion")]
+    // CryptoSync encrypted delta tests
+    [InlineData("CryptoSync_RoundTrip")]
+    [InlineData("CryptoSync_WorkerEncryptedRoundTrip")]
+    [InlineData("CryptoSync_PermissionEnforcement")]
+    [InlineData("CryptoSync_SchemaVersionMismatch")]
+    [InlineData("CryptoSync_MultiTableRoundTrip")]
     // Raw Database Import/Export Tests
     [InlineData("ExportImport_RawDatabase")]
     [InlineData("ImportRawDatabase_InvalidFile")]

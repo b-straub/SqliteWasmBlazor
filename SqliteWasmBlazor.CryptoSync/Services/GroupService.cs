@@ -257,11 +257,18 @@ public class GroupService(
     /// </summary>
     public async ValueTask UpdateMemberRoleAsync(
         Guid groupId,
+        DualKeyPairFull adminKeys,
         string memberPublicKey,
         SyncRole newRole)
     {
         var group = await context.ShareGroups.FindAsync(groupId)
             ?? throw new InvalidOperationException($"ShareGroup {groupId} not found");
+
+        if (group.GroupAdminPublicKey != adminKeys.X25519PublicKey)
+        {
+            throw new InvalidOperationException(
+                "GroupService.UpdateMemberRoleAsync: caller is not the GroupAdmin of this group");
+        }
 
         var target = await context.ShareTargets
             .FirstOrDefaultAsync(t => t.ShareGroupId == groupId
@@ -271,6 +278,18 @@ public class GroupService(
                 $"ShareTarget for member {memberPublicKey} not found in group {groupId}");
 
         target.Role = newRole;
+        var ed25519Priv = Convert.FromBase64String(adminKeys.Ed25519PrivateKey);
+        try
+        {
+            target.AdminSignature = await signer.SignShareTargetAsync(
+                ed25519Priv, target.MemberPublicKey, newRole,
+                group.GroupContext, target.KeyVersion);
+            target.GroupAdminEd25519PublicKey = adminKeys.Ed25519PublicKey;
+        }
+        finally
+        {
+            System.Security.Cryptography.CryptographicOperations.ZeroMemory(ed25519Priv);
+        }
         target.UpdatedAt = DateTime.UtcNow;
         group.UpdatedAt = DateTime.UtcNow;
         await context.SaveChangesAsync();

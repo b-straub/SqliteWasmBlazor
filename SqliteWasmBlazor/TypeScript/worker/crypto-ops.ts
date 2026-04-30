@@ -411,7 +411,8 @@ interface ParsedPermissions {
 
 /**
  * Resolve the sender's role and parse the applicable permission diff for a domain table.
- * Returns null if the sender's role can't be determined (falls back to no enforcement).
+ * Returns null if the sender's role can't be determined or its credential chain is invalid.
+ * The import caller must treat null as an authorization failure.
  *
  * Lookup chain:
  *   1. SenderPublicKey (Ed25519 hex) → Contacts.Ed25519PublicKey → Contact.X25519PublicKey
@@ -1006,6 +1007,21 @@ async function applyShadowRowGroup(
             const permissions = isSystemTable
                 ? null
                 : resolveSenderPermissions(db, tableName, senderEd25519Hex, header);
+
+            if (!isSystemTable && permissions === null) {
+                for (const verified of verifiedRows) {
+                    const rowId = verified.sr[0];
+                    const rowIdHex = rowId instanceof Uint8Array
+                        ? bytesToHex(rowId) : String(rowId);
+                    errors.push({
+                        code: 'PERMISSION_SENDER_UNAUTHORIZED',
+                        table: tableName, rowId: rowIdHex, groupId: header.groupContext,
+                        message: `Sender is not authorized for ${tableName}`
+                    });
+                    rowsSkipped++;
+                }
+                return { rowsImported, rowsSkipped, rowsDeleted, errors };
+            }
 
             // Permission check each verified row. Collect approved rows
             // with their shadow data for atomic write.

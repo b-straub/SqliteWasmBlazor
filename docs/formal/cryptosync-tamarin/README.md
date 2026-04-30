@@ -18,6 +18,9 @@ the implementation.
 4. `04-relay-whitelist-cursor.spthy`
    Whitelist update authority, sender/receiver relay authorization, revoked
    read grace, monotonic cursor acceptance.
+5. `05-pin-purge-authority.spthy`
+   Deployment-admin-only pinned reseed purge, deltapin/deltapost canonical
+   separation, and monotonic purge epoch.
 
 Run one model:
 
@@ -36,4 +39,3 @@ done
 These are symbolic protocol models. They intentionally trust the primitive
 implementations and leave SQL merge correctness, UI behavior, browser storage,
 and denial-of-service economics to tests, audits, and implementation review.
-
