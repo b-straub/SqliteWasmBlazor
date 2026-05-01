@@ -36,4 +36,13 @@
           Condition="Exists('..\..\src\Base\SqliteWasmBlazor\TypeScript\package.json')" />
   </Target>
 
+  <!-- Run the crypto-core vitest suite (TypeScript unit tests for HKDF /
+       X25519 / Ed25519 / ECIES / wrapping / cross-language KDF vectors).
+       Same skip flag as RunVitest. -->
+  <Target Name="RunCryptoCoreVitest" BeforeTargets="VSTest" Condition="'$(SkipVitest)' != 'true'">
+    <Exec WorkingDirectory="..\..\src\Base\SqliteWasmBlazor\TypeScript-Crypto"
+          Command="npm test"
+          Condition="Exists('..\..\src\Base\SqliteWasmBlazor\TypeScript-Crypto\package.json')" />
+  </Target>
+
 </Project>
