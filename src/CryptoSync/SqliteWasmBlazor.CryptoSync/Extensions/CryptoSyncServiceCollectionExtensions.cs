@@ -76,10 +76,7 @@ public static class CryptoSyncServiceCollectionExtensions
             services.Configure(configure);
         }
 
-        // CryptoSync-plane crypto services layered on top of the base
-        // ICryptoProvider registered by AddSqliteWasmBlazorCrypto.
-        services.AddSingleton<IVapidCryptoProvider, VapidCryptoProvider>();
-        services.AddSingleton<IGroupEncryption, GroupEncryptionService>();
+        services.AddCryptoSyncCrypto();
 
         services.AddSingleton<DeclarationSigner>();
 
@@ -104,6 +101,26 @@ public static class CryptoSyncServiceCollectionExtensions
             sp.GetRequiredService<IReceiveAuthSigner>(),
             sp.GetRequiredService<IReceiveCursorStore>()));
 
+        return services;
+    }
+
+    /// <summary>
+    /// Registers the CryptoSync-plane crypto services that layer on top of
+    /// the base <see cref="ICryptoProvider"/> registered by
+    /// <c>AddSqliteWasmBlazorCrypto</c>: <see cref="IGroupEncryption"/> +
+    /// <see cref="IVapidCryptoProvider"/>. Use this when the consumer needs
+    /// the crypto services but not the HTTP relay transport (e.g. test
+    /// runners exercising group encryption without a real relay).
+    /// </summary>
+    /// <remarks>
+    /// <see cref="AddCryptoSync{TContext}"/> calls this internally before
+    /// registering the transport services, so callers using the full
+    /// CryptoSync stack do not need to call this directly.
+    /// </remarks>
+    public static IServiceCollection AddCryptoSyncCrypto(this IServiceCollection services)
+    {
+        services.AddSingleton<IVapidCryptoProvider, VapidCryptoProvider>();
+        services.AddSingleton<IGroupEncryption, GroupEncryptionService>();
         return services;
     }
 

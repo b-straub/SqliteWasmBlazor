@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Components.Web;
 using Microsoft.AspNetCore.Components.WebAssembly.Hosting;
+using SqliteWasmBlazor.CryptoSync;
 using SqliteWasmBlazor.TestApp;
 using Microsoft.EntityFrameworkCore;
 using MudBlazor.Services;
@@ -88,6 +89,10 @@ builder.Services.AddSqliteWasm(o => o.BaseHref = baseHref);
 
 // Register SqliteWasmBlazor.Crypto services (Noble.js + SubtleCrypto)
 builder.Services.AddSqliteWasmBlazorCrypto(configure: o => o.BaseHref = baseHref);
+
+// CryptoSync-plane crypto layer (IGroupEncryption + IVapidCryptoProvider)
+// without the HTTP transport — TestApp drives group encryption directly.
+builder.Services.AddCryptoSyncCrypto();
 
 var host = builder.Build();
 
