@@ -1,6 +1,6 @@
 # SqliteWasmBlazor Roadmap
 
-_Single source of truth for "where are we." Last updated 2026-05-01 against branch `crypto-sync` HEAD `3884ad7`. Stage A (whitelist-broadcast rewrite) is fully complete and the Codex memory-hygiene audit close-out (zeroization + binary boundary + non-extractable JS keys + second-pass HKDF/seed/packed-buffer cleanup + third-pass B64-result-buffer clears + storeKeys failure-path scoping + legacy single-key API removal) just landed. **Stage 2 (UI absorption) remains the active workstream**; once UI panels land, the WebAuthn-bound demo / TestApp / admin-seeding work follows. Stage B (production PRF/WebAuthn signer wiring) is folded into that sequence — it's no longer a standalone item._
+_Single source of truth for "where are we." Last updated 2026-05-01 against branch `crypto-sync` HEAD `3884ad7`. Stage A (whitelist-broadcast rewrite) is fully complete and the Codex memory-hygiene audit close-out (zeroization + binary boundary + non-extractable JS keys + second-pass HKDF/seed/packed-buffer cleanup + third-pass B64-result-buffer clears + storeKeys failure-path scoping + legacy single-key API removal) just landed. **Stage 2 (UI absorption) panels are all ✅ except slot 10 (xUnit bootstrap), which folds into the next workstream — `plane-separation-and-test-buildup.md` is now Active.** The Post-Stage-2 sequence (WebAuthn demo / TestApp / admin-seeding) sequences on top of the plane-separated structure rather than on Stage 2's monolithic UI library. Stage B (production PRF/WebAuthn signer wiring) is folded into Phase 3 of the new plan — it remains not a standalone item._
 
 This document supersedes the multiple parallel numbering systems (Stage / Phase A / Phase B / Audit Phase 1-3) that were used while individual workstreams were in flight. Going forward, work is grouped only as **Active**, **Postponed**, **Done**, **Deferred**.
 
@@ -66,16 +66,32 @@ The goal is a carefully designed re-skinnable Razor library `SqliteWasmBlazor.Cr
 - **Library = pure component library.** No app-layer concerns (routing, layout, auth-redirect glue). Hosting apps wire those in.
 - **MudBlazor stays the default skin.** Panels ship MudBlazor markup as the reference implementation per project preference (no hand-rolled CSS where MudBlazor primitives suffice). The code-behind discipline means a re-skin to Fluent / Tailwind doesn't touch behavior.
 
-### Post-Stage-2 sequence (logical order, plans written at kickoff)
+### Plane separation + test buildup (`plane-separation-and-test-buildup.md`)
 
-Each step below is a separate workstream with its own plan + memory pointer. They sequence on top of the absorbed UI library and progressively bind WebAuthn into the runtime stack.
+- **Plan:** `~/.claude/plans/plane-separation-and-test-buildup.md` (written 2026-05-01).
+- **Memory:** `project_plane_separation_status.md`.
+- **Trigger:** absorbed BlazorPRF crypto + UI surface mixes base-plane and CryptoSync-plane code in single assemblies (`Crypto.Testing` referenced by production AdminSeed; `CryptoSync.UI` carries panels that only need `Crypto`). Splitting before the Post-Stage-2 demo / TestApp / admin-seeding work prevents new panels and tests from landing in the wrong project.
+- **Architectural locks (2026-05-01):** encrypted VFS via PRF is part of the **base plane**, not opt-in. Two planes only: **Base** (SQLite + Blazor + encrypted VFS + PRF) and **CryptoSync** (delta sync + groups + push). Group encryption + WebPush + VAPID stay in the CryptoSync plane (group enc is the multi-recipient sharing primitive used by `GroupService` / `ContactService` / `ContactInvitationService`; WebPush is the wake-the-other-device primitive completing CryptoSync UX). `.Testing` becomes test-only; production AdminSeed gets a separate `SqliteWasmBlazor.Crypto.BouncyCastle` package.
 
-1. **Demo with WebAuthn for encryption.** A reference page in `SqliteWasmBlazor.Demo` modeled after `SqliteWasmBlazor.TestApp/Pages/PrfVfsTest.razor` — wires `AuthenticationPanel` to drive WebAuthn-PRF-derived encryption keys, exercising the absorbed panel against a real browser identity. Folds in the previous standalone "Stage B — Production identity wiring" item: this demo IS the production wiring of `ISenderAuthSigner` / `IReceiveAuthSigner` against PRF-backed signers.
-2. **TestApp with WebAuthn for all tests.** Promote `SqliteWasmBlazor.TestApp` to use WebAuthn end-to-end across its existing test pages. Replaces synthetic test seeds with real assertions in the browser-side test runner.
-3. **WebAuthn-based admin seeding.** Bind admin bootstrap (the first whitelist push + initial pinned seed POST) to a WebAuthn-PRF identity. Today the admin's Ed25519 keypair lives in test fixtures; this step binds it to a passkey. Once landed, a deployment is genuinely admin-keyless on disk.
-4. **Further steps TBD** as the WebAuthn wiring matures (Playwright e2e, recovery flows, multi-device admin handoff, etc.).
+**Phases (executed in order, single branch, no parallel feature work):**
 
-If any of these surface a wire-protocol issue, it's a Stage A regression — fix in Stage A, re-run the seeded xUnit suite, re-attempt the WebAuthn step.
+| # | Phase | Status |
+|---|---|---|
+| 1 | **Structural separation.** Solution folders (`src/Base/`, `src/Crypto/`, `src/CryptoSync/`, `samples/`, `tools/`, `tests/`); carve `SqliteWasmBlazor.Crypto.UI` out of `CryptoSync.UI` (Auth + Registration + DatabaseErrorAlert + SessionExpiredPopover + seams + shared DTOs + en/de resx); split `BouncyCastleCryptoProvider` → new `SqliteWasmBlazor.Crypto.BouncyCastle` (AdminSeed depends on this), `.Testing` reverts to test-only; promote `@sqlitewasmblazor/crypto-core` from path-symlink to imported-by-name. | ⏭ Pending |
+| 2 | **Test buildup, three rounds.** R1 (deterministic): C#↔TS KDF byte-equality vector, C#↔TS canonical envelope agreement, `SigningService` keyId-cache, `AsymmetricEncryptionService` keyId-cache, `CryptoMessageHandler` worker dispatch. R2 (virtual authenticator E2E): `WaFixtureBase` virtual-authenticator setup + four PRF scenarios (register, unlock+open, mismatch, rekey). R3 (composition): synthetic-PRF-seed → VFS + delta round-trip, sync-engine `KeyRotation` → VFS rekey correctness. Bootstrap `Crypto.UI.Tests` + `CryptoSync.UI.Tests` xUnit projects (absorbs Stage 2 slot 10). | ⏭ Pending |
+| 3 | **Resume Post-Stage-2 sequence on the new structure.** (a) Demo with WebAuthn for encryption (folds in Stage B — production wiring of `ISenderAuthSigner` / `IReceiveAuthSigner` against PRF-backed signers). (b) TestApp with WebAuthn end-to-end. (c) WebAuthn-based admin seeding (uses `Crypto.BouncyCastle` for offline seed generation). (d) Further steps TBD (recovery, multi-device admin handoff, etc.). | ⏭ Pending |
+
+The split line for `CryptoSync.UI` panels:
+
+| Panel | Target plane | Reason |
+|---|---|---|
+| `AuthenticationPanel`, `RegistrationPanel` | **Crypto.UI** (base) | Only need `IPrfAuthenticator` seam |
+| `DatabaseErrorAlert`, `SessionExpiredPopover` | **Crypto.UI** (base) | Boot-status / re-auth, no sync coupling |
+| `UserProfilePanel` | **CryptoSync.UI** | Injects `DeviceIdentityService` (devices imply sync) |
+| `ContactsPanel`, `InvitationPanel` | **CryptoSync.UI** | Inject `ContactService` / `ContactInvitationService` |
+| `PushPanel` | **CryptoSync.UI** | `IPushNotifier` lives in `SqliteWasmBlazor.CryptoSync/Services/`; push is wake-the-other-device for sync |
+
+If any Phase 3 step surfaces a wire-protocol issue, it's a Stage A regression — fix in Stage A, re-run the seeded xUnit suite, re-attempt the WebAuthn step.
 
 ---
 
@@ -194,7 +210,9 @@ Captured follow-ups with no plan file written. Tracked here so they don't fall o
 
 | Plan file | Status | Pointer |
 |---|---|---|
-| `whitelist-broadcast-rewrite.md` | **ACTIVE** (Stage B § "Out of scope — Stage B"); Stage A DONE | this document → Active + Done |
+| `plane-separation-and-test-buildup.md` | **ACTIVE** | this document → Active |
+| `cryptosync-ui-absorption.md` | DONE (slots 1-9 + 2.5a + 2.5b ✅; slot 10 absorbed into plane-separation Phase 2) | this document → Active (transitional) |
+| `whitelist-broadcast-rewrite.md` | DONE (Stage A); Stage B folded into plane-separation Phase 3 | this document → Done |
 | `twin-streams-flowing-codd.md` | **POSTPONED** | this document → Postponed |
 | `i-did-something-small-parallel-allen.md` | DONE (master plan, kept for context) | this document → Done |
 | `the-way-back-is-peaceful-emerson.md` | DONE | this document → Done |
