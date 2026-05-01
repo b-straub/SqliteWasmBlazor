@@ -76,6 +76,8 @@ public abstract class SqliteWasmTestBase(IWaFixture fixture, ITestOutputHelper o
     [InlineData("CryptoSync_PermissionEnforcement")]
     [InlineData("CryptoSync_SchemaVersionMismatch")]
     [InlineData("CryptoSync_MultiTableRoundTrip")]
+    // R3.1 — synthetic-PRF-seed → encrypted VFS composition test
+    [InlineData("Synthetic_PrfSeed_DrivesEncryptedVfsRoundTrip")]
     // Raw Database Import/Export Tests
     [InlineData("ExportImport_RawDatabase")]
     [InlineData("ImportRawDatabase_InvalidFile")]

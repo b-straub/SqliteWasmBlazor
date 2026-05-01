@@ -15,6 +15,7 @@ using SqliteWasmBlazor.TestApp.TestInfrastructure.Tests.TypeMarshalling;
 using SqliteWasmBlazor.TestApp.TestInfrastructure.Tests.EncryptedDelta;
 using SqliteWasmBlazor.TestApp.TestInfrastructure.CryptoSync;
 using SqliteWasmBlazor.TestApp.TestInfrastructure.VfsEncryption;
+using SqliteWasmBlazor.Crypto.Abstractions;
 
 namespace SqliteWasmBlazor.TestApp.TestInfrastructure;
 
@@ -52,6 +53,24 @@ internal class TestFactory
             {
                 var prfMismatch = new PrfCredentialMismatchFailureTest(services);
                 _entries.Add(new TestEntry("VFS Encryption", prfMismatch.Name, () => prfMismatch.RunTestWithFreshDatabaseAsync()));
+
+                // R3.1 composition test — drives a synthetic PRF seed through
+                // ICryptoProvider.StoreKeysAsync → X25519 pubkey-bytes → VFS.
+                // Requires the full DI scope (PrfVfsTestContext factory + the
+                // crypto provider). Cleans the on-disk DB after itself so the
+                // PrfVfsTest demo page sees a fresh OPFS afterwards.
+                var prfFactory = services.GetService(
+                    typeof(IDbContextFactory<PrfVfsTestContext>))
+                    as IDbContextFactory<PrfVfsTestContext>;
+                var provider = services.GetService(typeof(ICryptoProvider))
+                    as ICryptoProvider;
+                if (prfFactory is not null && provider is not null)
+                {
+                    var syntheticSeed = new SyntheticPrfSeedRoundTripTest(
+                        prfFactory, databaseService, provider);
+                    _entries.Add(new TestEntry(
+                        "VFS Encryption", syntheticSeed.Name, () => syntheticSeed.RunAsync()));
+                }
             }
         }
     }
