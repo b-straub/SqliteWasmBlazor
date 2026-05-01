@@ -60,7 +60,6 @@ public static class ServiceCollectionExtensions
 
         // Register crypto provider
         services.AddSingleton<ICryptoProvider, NobleCryptoProvider>();
-        services.AddSingleton<IVapidCryptoProvider, VapidCryptoProvider>();
 
         // Register services
         services.AddSingleton<ISecureKeyCache, SecureKeyCache>();
@@ -70,7 +69,6 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<ISymmetricEncryption, SymmetricEncryptionService>();
         services.AddSingleton<IAsymmetricEncryption, AsymmetricEncryptionService>();
         services.AddSingleton<ISigningService, SigningService>();
-        services.AddSingleton<IGroupEncryption, GroupEncryptionService>();
 
         return services;
     }
@@ -105,7 +103,6 @@ public static class ServiceCollectionExtensions
 
         // Register crypto provider
         services.AddSingleton<ICryptoProvider, NobleCryptoProvider>();
-        services.AddSingleton<IVapidCryptoProvider, VapidCryptoProvider>();
 
         // Register services
         services.AddScoped<ISecureKeyCache, SecureKeyCache>();
@@ -115,7 +112,6 @@ public static class ServiceCollectionExtensions
         services.AddScoped<ISymmetricEncryption, SymmetricEncryptionService>();
         services.AddScoped<IAsymmetricEncryption, AsymmetricEncryptionService>();
         services.AddScoped<ISigningService, SigningService>();
-        services.AddScoped<IGroupEncryption, GroupEncryptionService>();
 
         return services;
     }

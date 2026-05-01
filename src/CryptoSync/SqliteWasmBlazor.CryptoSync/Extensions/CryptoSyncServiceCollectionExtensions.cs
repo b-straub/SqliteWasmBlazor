@@ -4,6 +4,9 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
+using SqliteWasmBlazor.Crypto.Abstractions;
+using SqliteWasmBlazor.Crypto.Abstractions.Services;
+using SqliteWasmBlazor.Crypto.Services;
 
 namespace SqliteWasmBlazor.CryptoSync;
 
@@ -72,6 +75,11 @@ public static class CryptoSyncServiceCollectionExtensions
         {
             services.Configure(configure);
         }
+
+        // CryptoSync-plane crypto services layered on top of the base
+        // ICryptoProvider registered by AddSqliteWasmBlazorCrypto.
+        services.AddSingleton<IVapidCryptoProvider, VapidCryptoProvider>();
+        services.AddSingleton<IGroupEncryption, GroupEncryptionService>();
 
         services.AddSingleton<DeclarationSigner>();
 

@@ -41,7 +41,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\SqliteWasmBlazor.Hosting\SqliteWasmBlazor.Hosting.csproj" />
+    <InternalsVisibleTo Include="SqliteWasmBlazor.CryptoSync" />
   </ItemGroup>
 
   <ItemGroup>
@@ -56,12 +56,18 @@
 
   <ItemGroup>
     <Content Update="TypeScript/**" Pack="false" />
+    <Content Update="TypeScript-Crypto/**" Pack="false" />
   </ItemGroup>
   
   <ItemGroup>
     <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" />
     <PackageReference Include="MessagePack" />
+    <PackageReference Include="Microsoft.Extensions.Options" />
+    <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Abstractions" />
+    <PackageReference Include="R3" />
     <PackageReference Include="SQLitePCLRaw.lib.e_sqlite3" ExcludeAssets="all" PrivateAssets="all" />
   </ItemGroup>
   
@@ -73,7 +79,23 @@
     <None Include="native/lib/e_sqlite3.a" Pack="true" PackagePath="native/lib" />
   </ItemGroup>
 
-  <!-- Build TypeScript very early, before static web assets are discovered -->
+  <!-- npm install for the absorbed crypto-core workspace before building. -->
+  <Target Name="NpmInstallCrypto" BeforeTargets="BuildTypeScriptCryptoDebug;BuildTypeScriptCryptoRelease">
+    <Exec WorkingDirectory="TypeScript-Crypto" Command="npm audit signatures" Condition="Exists('TypeScript-Crypto/package.json') And !Exists('TypeScript-Crypto/node_modules')" />
+    <Exec WorkingDirectory="TypeScript-Crypto" Command="npm ci --ignore-scripts" Condition="Exists('TypeScript-Crypto/package.json') And !Exists('TypeScript-Crypto/node_modules')" />
+  </Target>
+
+  <!-- Build TypeScript very early, before static web assets are discovered. -->
+  <!-- TypeScript-Crypto must build first so SqliteWasmBlazor's TypeScript
+       worker can resolve the crypto-core workspace dep. -->
+  <Target Name="BuildTypeScriptCryptoDebug" BeforeTargets="BuildTypeScriptDebug" Condition="'$(Configuration)' == 'Debug'">
+    <Exec WorkingDirectory="TypeScript-Crypto" Command="npm run build" Condition="Exists('TypeScript-Crypto/package.json')" />
+  </Target>
+
+  <Target Name="BuildTypeScriptCryptoRelease" BeforeTargets="BuildTypeScriptRelease" Condition="'$(Configuration)' == 'Release'">
+    <Exec WorkingDirectory="TypeScript-Crypto" Command="npm run build:release" Condition="Exists('TypeScript-Crypto/package.json')" />
+  </Target>
+
   <Target Name="BuildTypeScriptDebug" BeforeTargets="BeforeCompile;ResolveStaticWebAssetsInputs" Condition="'$(Configuration)' == 'Debug'">
     <Exec WorkingDirectory="TypeScript" Command="npm run build" Condition="Exists('TypeScript/package.json')" />
   </Target>
@@ -81,5 +103,5 @@
   <Target Name="BuildTypeScriptRelease" BeforeTargets="BeforeCompile;ResolveStaticWebAssetsInputs" Condition="'$(Configuration)' == 'Release'">
     <Exec WorkingDirectory="TypeScript" Command="npm run build:release" Condition="Exists('TypeScript/package.json')"/>
   </Target>
-  
+
 </Project>

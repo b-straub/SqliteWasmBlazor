@@ -4,27 +4,11 @@
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <Version>$(SqliteWasmBlazorVersion)</Version>
-    <Authors>bernisoft</Authors>
-    <Description>BouncyCastle-based server-side ICryptoProvider for SqliteWasmBlazor.Crypto. Use for offline / non-WASM scenarios such as console-based admin seeding and CI fixtures.</Description>
-    <PackageTags>blazor;prf;encryption;bouncycastle;server</PackageTags>
-    <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <PackageProjectUrl>https://github.com/b-straub/SqliteWasmBlazor</PackageProjectUrl>
-    <RepositoryUrl>https://github.com/b-straub/SqliteWasmBlazor</RepositoryUrl>
-    <PackageReadmeFile>README.md</PackageReadmeFile>
-    <GeneratePackageOnBuild Condition="'$(Configuration)' == 'Release'">true</GeneratePackageOnBuild>
-    <IncludeSymbols>true</IncludeSymbols>
-    <EmbedAllSources>true</EmbedAllSources>
-    <PublishRepositoryUrl>true</PublishRepositoryUrl>
-    <PackageOutputPath>$(MSBuildThisFileDirectory)../../../.nuget</PackageOutputPath>
+    <IsPackable>false</IsPackable>
   </PropertyGroup>
 
   <ItemGroup>
-    <None Include="../../../README.md" Pack="true" PackagePath="/" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <ProjectReference Include="..\SqliteWasmBlazor.Crypto.Abstractions\SqliteWasmBlazor.Crypto.Abstractions.csproj" />
+    <ProjectReference Include="..\..\Base\SqliteWasmBlazor\SqliteWasmBlazor.csproj" />
   </ItemGroup>
 
   <ItemGroup>

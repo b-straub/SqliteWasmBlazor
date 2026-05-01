@@ -27,7 +27,6 @@
         <ProjectReference Include="..\..\src\CryptoSync\SqliteWasmBlazor.CryptoSync\SqliteWasmBlazor.CryptoSync.csproj" />
         <ProjectReference Include="..\..\src\CryptoSync\SqliteWasmBlazor.CryptoSync.Generator\SqliteWasmBlazor.CryptoSync.Generator.csproj"
                           OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
-        <ProjectReference Include="..\..\src\Crypto\SqliteWasmBlazor.Crypto\SqliteWasmBlazor.Crypto.csproj" />
     </ItemGroup>
     
 </Project>

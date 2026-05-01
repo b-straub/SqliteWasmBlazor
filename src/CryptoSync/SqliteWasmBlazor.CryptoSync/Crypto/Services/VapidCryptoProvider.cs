@@ -2,10 +2,10 @@ using System.Runtime.Versioning;
 using System.Text.Json;
 using Microsoft.Extensions.Options;
 using SqliteWasmBlazor.Crypto.Abstractions;
-using SqliteWasmBlazor.Crypto.Abstractions.Json;
 using SqliteWasmBlazor.Crypto.Abstractions.Models;
 using SqliteWasmBlazor.Crypto.Configuration;
 using SqliteWasmBlazor.Crypto.Interop;
+using SqliteWasmBlazor.CryptoSync.Crypto.Json;
 
 namespace SqliteWasmBlazor.Crypto.Services;
 
@@ -60,7 +60,7 @@ public sealed class VapidCryptoProvider : IVapidCryptoProvider
         try
         {
             var parsed = JsonSerializer.Deserialize(
-                resultJson, SharedJsonContext.Default.PushSendResult);
+                resultJson, CryptoSyncJsonContext.Default.PushSendResult);
             return parsed ?? PushSendResult.Failure(endpoint);
         }
         catch (JsonException)

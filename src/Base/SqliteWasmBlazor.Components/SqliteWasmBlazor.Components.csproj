@@ -5,6 +5,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <IsPackable>false</IsPackable>
   </PropertyGroup>
 
 
@@ -19,7 +20,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\SqliteWasmBlazor.Models\SqliteWasmBlazor.Models.csproj" />
-    <ProjectReference Include="..\SqliteWasmBlazor.Hosting\SqliteWasmBlazor.Hosting.csproj" />
+    <ProjectReference Include="..\SqliteWasmBlazor\SqliteWasmBlazor.csproj" />
   </ItemGroup>
 
   <!-- TypeScript Build Integration -->

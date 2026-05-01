@@ -6,13 +6,10 @@
   </Configurations>
   <Folder Name="/src/Base/">
     <Project Path="src/Base/SqliteWasmBlazor/SqliteWasmBlazor.csproj" />
-    <Project Path="src/Base/SqliteWasmBlazor.Hosting/SqliteWasmBlazor.Hosting.csproj" />
     <Project Path="src/Base/SqliteWasmBlazor.Components/SqliteWasmBlazor.Components.csproj" />
     <Project Path="src/Base/SqliteWasmBlazor.Models/SqliteWasmBlazor.Models.csproj" />
   </Folder>
   <Folder Name="/src/Crypto/">
-    <Project Path="src/Crypto/SqliteWasmBlazor.Crypto.Abstractions/SqliteWasmBlazor.Crypto.Abstractions.csproj" />
-    <Project Path="src/Crypto/SqliteWasmBlazor.Crypto/SqliteWasmBlazor.Crypto.csproj" />
     <Project Path="src/Crypto/SqliteWasmBlazor.Crypto.BouncyCastle/SqliteWasmBlazor.Crypto.BouncyCastle.csproj" />
     <Project Path="src/Crypto/SqliteWasmBlazor.Crypto.UI/SqliteWasmBlazor.Crypto.UI.csproj" />
   </Folder>

@@ -217,7 +217,7 @@ public class WhitelistPushServiceTests
     private static Task<(string Pub, byte[] Priv)> NewAdminKeyPairAsync()
         => NewAdminKeyPairAsync(new BouncyCastleCryptoProvider());
 
-    private static async Task<(string Pub, byte[] Priv)> NewAdminKeyPairAsync(Crypto.Abstractions.ICryptoProvider crypto)
+    private static async Task<(string Pub, byte[] Priv)> NewAdminKeyPairAsync(SqliteWasmBlazor.Crypto.Abstractions.ICryptoProvider crypto)
     {
         var prfSeed = System.Security.Cryptography.RandomNumberGenerator.GetBytes(32);
         var dual = await crypto.DeriveDualKeyPairAsync(prfSeed);

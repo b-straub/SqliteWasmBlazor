@@ -15,7 +15,6 @@ namespace SqliteWasmBlazor.Crypto.Abstractions.Json;
 [JsonSerializable(typeof(SymmetricEncryptedData))]
 [JsonSerializable(typeof(SignedData))]
 [JsonSerializable(typeof(KeyPair))]
-[JsonSerializable(typeof(PushSendResult))]
 [JsonSerializable(typeof(PrfResult<AsymmetricEncryptedData>))]
 [JsonSerializable(typeof(PrfResult<SymmetricEncryptedData>))]
 [JsonSerializable(typeof(PrfResult<SignedData>))]
