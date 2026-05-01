@@ -1,7 +1,7 @@
 using System.Net;
 using System.Text;
 using System.Text.Json;
-using SqliteWasmBlazor.Crypto.Testing;
+using SqliteWasmBlazor.Crypto.BouncyCastle;
 using SqliteWasmBlazor.CryptoSync.Tests.Fixtures;
 using Xunit;
 

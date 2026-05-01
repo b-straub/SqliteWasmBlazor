@@ -1,4 +1,4 @@
-using SqliteWasmBlazor.Crypto.Testing;
+using SqliteWasmBlazor.Crypto.BouncyCastle;
 using Xunit;
 
 namespace SqliteWasmBlazor.CryptoSync.Tests;

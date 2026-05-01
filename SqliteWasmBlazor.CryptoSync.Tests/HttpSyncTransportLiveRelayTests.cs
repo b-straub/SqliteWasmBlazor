@@ -6,7 +6,7 @@ using System.Text;
 using Microsoft.Data.Sqlite;
 using Org.BouncyCastle.Crypto.Parameters;
 using Org.BouncyCastle.Crypto.Signers;
-using SqliteWasmBlazor.Crypto.Testing;
+using SqliteWasmBlazor.Crypto.BouncyCastle;
 using Xunit;
 
 namespace SqliteWasmBlazor.CryptoSync.Tests;

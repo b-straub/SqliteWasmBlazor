@@ -6,8 +6,8 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Version>$(SqliteWasmBlazorVersion)</Version>
     <Authors>bernisoft</Authors>
-    <Description>BouncyCastle-based cryptographic operations for testing SqliteWasmBlazor.Crypto applications. Provides key generation, encryption, and signing without browser dependencies.</Description>
-    <PackageTags>blazor;prf;encryption;testing;bouncycastle</PackageTags>
+    <Description>BouncyCastle-based server-side ICryptoProvider for SqliteWasmBlazor.Crypto. Use for offline / non-WASM scenarios such as console-based admin seeding and CI fixtures.</Description>
+    <PackageTags>blazor;prf;encryption;bouncycastle;server</PackageTags>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageProjectUrl>https://github.com/b-straub/SqliteWasmBlazor</PackageProjectUrl>
     <RepositoryUrl>https://github.com/b-straub/SqliteWasmBlazor</RepositoryUrl>

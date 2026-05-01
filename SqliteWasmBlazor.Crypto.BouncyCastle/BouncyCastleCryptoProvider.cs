@@ -6,7 +6,7 @@ using Org.BouncyCastle.Security;
 using SqliteWasmBlazor.Crypto.Abstractions;
 using SqliteWasmBlazor.Crypto.Abstractions.Models;
 
-namespace SqliteWasmBlazor.Crypto.Testing;
+namespace SqliteWasmBlazor.Crypto.BouncyCastle;
 
 /// <summary>
 /// BouncyCastle-based crypto provider using AES-256-GCM.

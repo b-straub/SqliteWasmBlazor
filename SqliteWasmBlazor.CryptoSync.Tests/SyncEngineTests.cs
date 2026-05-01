@@ -1,6 +1,6 @@
 using MessagePack;
 using Microsoft.EntityFrameworkCore;
-using SqliteWasmBlazor.Crypto.Testing;
+using SqliteWasmBlazor.Crypto.BouncyCastle;
 using SqliteWasmBlazor.CryptoSync.Tests.Fixtures;
 using Xunit;
 

@@ -8,7 +8,7 @@ using Org.BouncyCastle.Security;
 using SqliteWasmBlazor.Crypto.Abstractions.Extensions;
 using SqliteWasmBlazor.Crypto.Abstractions.Models;
 
-namespace SqliteWasmBlazor.Crypto.Testing;
+namespace SqliteWasmBlazor.Crypto.BouncyCastle;
 
 /// <summary>
 /// Cryptographic operations using BouncyCastle.

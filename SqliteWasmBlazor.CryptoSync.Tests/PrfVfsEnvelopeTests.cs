@@ -1,4 +1,4 @@
-using SqliteWasmBlazor.Crypto.Testing;
+using SqliteWasmBlazor.Crypto.BouncyCastle;
 using MessagePack;
 using MessagePack.Resolvers;
 using Xunit;
@@ -14,7 +14,7 @@ namespace SqliteWasmBlazor.CryptoSync.Tests;
 /// using ChaCha20-Poly1305 with AAD = "prf-vfs-v1|" + dbPath + "|" + slotIndexLE32.
 ///
 /// These tests reproduce the envelope construction on the C# side via
-/// BouncyCastle (SqliteWasmBlazor.Crypto.Testing.CryptoOperations) and verify it
+/// BouncyCastle (SqliteWasmBlazor.Crypto.BouncyCastle.CryptoOperations) and verify it
 /// round-trips. Cross-implementation assurance comes from the observation
 /// that ChaCha20-Poly1305 is deterministic for fixed inputs: if BC produces
 /// matching output for an RFC 8439 vector (covered by SqliteWasmBlazor.Crypto's own

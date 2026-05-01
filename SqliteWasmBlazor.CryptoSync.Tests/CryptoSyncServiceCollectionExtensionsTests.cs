@@ -2,7 +2,7 @@ using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using SqliteWasmBlazor.Crypto.Abstractions;
-using SqliteWasmBlazor.Crypto.Testing;
+using SqliteWasmBlazor.Crypto.BouncyCastle;
 using SqliteWasmBlazor.CryptoSync.Tests.Fixtures;
 using Xunit;
 

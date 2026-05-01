@@ -17,7 +17,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\SqliteWasmBlazor.Crypto.Testing\SqliteWasmBlazor.Crypto.Testing.csproj" />
+    <ProjectReference Include="..\SqliteWasmBlazor.Crypto.BouncyCastle\SqliteWasmBlazor.Crypto.BouncyCastle.csproj" />
   </ItemGroup>
 
   <ItemGroup>

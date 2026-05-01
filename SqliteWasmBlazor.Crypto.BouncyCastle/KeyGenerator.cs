@@ -4,7 +4,7 @@ using Org.BouncyCastle.Crypto.Parameters;
 using Org.BouncyCastle.Security;
 using SqliteWasmBlazor.Crypto.Abstractions.Models;
 
-namespace SqliteWasmBlazor.Crypto.Testing;
+namespace SqliteWasmBlazor.Crypto.BouncyCastle;
 
 /// <summary>
 /// Key derivation utilities for PRF-based key generation.
