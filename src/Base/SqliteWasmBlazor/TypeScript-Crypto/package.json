@@ -9,7 +9,7 @@
   "scripts": {
     "build": "npm run build -w @sqlitewasmblazor/crypto-core && esbuild src/index.ts --bundle --format=esm --sourcemap=inline --outfile=../wwwroot/noble-prf.js",
     "build:release": "npm run build -w @sqlitewasmblazor/crypto-core && esbuild src/index.ts --bundle --format=esm --minify --outfile=../wwwroot/noble-prf.js",
-    "test": "npm test -w @sqlitewasmblazor/crypto-core"
+    "test": "npm test -w @sqlitewasmblazor/crypto-core && vitest run"
   },
   "devDependencies": {
     "esbuild": "0.27.7",
