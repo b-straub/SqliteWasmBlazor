@@ -488,6 +488,27 @@
         // Read the admin contact for FK reference
         var adminContact = await ctx.Contacts.SingleAsync(c => c.IsAdmin);
 
+        // Sign the v2 ShareTarget credential. Without AdminSignature +
+        // GroupAdminEd25519PublicKey the worker's resolveSenderPermissions
+        // rejects every row in Phase 5 as PERMISSION_SENDER_UNAUTHORIZED and
+        // the silent skip surfaces only as "verify rows 0".
+        var signer = new DeclarationSigner(CryptoProvider);
+        var adminEd25519Priv = Convert.FromBase64String(CryptoTestContext.AdminEd25519PrivateKey);
+        byte[] adminSignature;
+        try
+        {
+            adminSignature = await signer.SignShareTargetAsync(
+                adminEd25519Priv,
+                CryptoTestContext.AdminX25519PublicKey,
+                SyncRole.OWNER,
+                newGroupContext,
+                keyVersion: 2);
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(adminEd25519Priv);
+        }
+
         ctx.ShareGroups.Add(new ShareGroup
         {
             Id = Guid.NewGuid(),
@@ -508,6 +529,8 @@
             MemberPublicKey = CryptoTestContext.AdminX25519PublicKey,
             WrappedContentKey = CryptoSyncBootstrap.SerializeWrappedCek(bundle.MemberKeys[0].WrappedContentKey),
             Role = SyncRole.OWNER,
+            AdminSignature = adminSignature,
+            GroupAdminEd25519PublicKey = CryptoTestContext.AdminEd25519PublicKey,
             GrantedByContactId = adminContact.Id,
             UpdatedAt = DateTime.UtcNow,
             SharingScope = SharingScope.PUBLIC,
@@ -622,7 +645,7 @@
 
         using var sha = SHA256.Create();
         using var ms = new MemoryStream();
-        using (var writer = new BinaryWriter(ms, Encoding.UTF8, leaveOpen: true))
+        await using (var writer = new BinaryWriter(ms, Encoding.UTF8, leaveOpen: true))
         {
             foreach (var item in items)
             {
