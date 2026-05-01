@@ -18,6 +18,15 @@
     <EmbedAllSources>true</EmbedAllSources>
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
     <PackageOutputPath>$(MSBuildThisFileDirectory)../../../.nuget</PackageOutputPath>
+
+    <!-- The MessagePack source generator runs in both this assembly and
+         SqliteWasmBlazor.dll (each has its own [MessagePackObject] types),
+         producing two MessagePack.GeneratedMessagePackResolver classes.
+         CS0436 is the benign "imported type wins on the same name" warning;
+         the locally generated resolver in this assembly is the one used at
+         runtime, which is correct. MessagePack 3.x does not expose a
+         resolver-name override via MSBuild props, so we suppress here. -->
+    <NoWarn>$(NoWarn);CS0436</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
