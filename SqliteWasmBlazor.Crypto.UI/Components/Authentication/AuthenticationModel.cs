@@ -2,10 +2,10 @@ using Microsoft.Extensions.Localization;
 using RxBlazorV2.Interface;
 using RxBlazorV2.Model;
 using RxBlazorV2.MudBlazor.Components;
-using SqliteWasmBlazor.CryptoSync.UI.Models;
-using SqliteWasmBlazor.CryptoSync.UI.Services;
+using SqliteWasmBlazor.Crypto.UI.Models;
+using SqliteWasmBlazor.Crypto.UI.Services;
 
-namespace SqliteWasmBlazor.CryptoSync.UI.Components.Authentication;
+namespace SqliteWasmBlazor.Crypto.UI.Components.Authentication;
 
 /// <summary>
 /// Drives the authentication / key-derivation panel. Owns the derived

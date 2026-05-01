@@ -6,6 +6,7 @@
   </Configurations>
   <Project Path="SqliteWasmBlazor.Crypto.Abstractions/SqliteWasmBlazor.Crypto.Abstractions.csproj" />
   <Project Path="SqliteWasmBlazor.Crypto.BouncyCastle/SqliteWasmBlazor.Crypto.BouncyCastle.csproj" />
+  <Project Path="SqliteWasmBlazor.Crypto.UI/SqliteWasmBlazor.Crypto.UI.csproj" />
   <Project Path="SqliteWasmBlazor.Crypto/SqliteWasmBlazor.Crypto.csproj" />
   <Project Path="GeneratorRunner/GeneratorRunner.csproj" />
   <Project Path="SqliteWasmBlazor.AdminSeed/SqliteWasmBlazor.AdminSeed.csproj" />

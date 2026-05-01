@@ -1,6 +1,6 @@
 using Microsoft.AspNetCore.Components;
 
-namespace SqliteWasmBlazor.CryptoSync.UI.Components.Shared;
+namespace SqliteWasmBlazor.Crypto.UI.Components.Shared;
 
 /// <summary>
 /// Component-side glue for <see cref="DatabaseErrorAlertModel"/>.

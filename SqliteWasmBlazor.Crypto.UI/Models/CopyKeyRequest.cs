@@ -1,4 +1,4 @@
-namespace SqliteWasmBlazor.CryptoSync.UI.Models;
+namespace SqliteWasmBlazor.Crypto.UI.Models;
 
 /// <summary>
 /// Reactive copy-to-clipboard signal carried on a model property. The

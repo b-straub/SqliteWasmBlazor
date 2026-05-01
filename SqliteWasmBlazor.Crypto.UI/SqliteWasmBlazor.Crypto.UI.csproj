@@ -1,0 +1,48 @@
+<Project Sdk="Microsoft.NET.Sdk.Razor">
+
+  <!--
+    Base-plane Razor component library carved out of SqliteWasmBlazor.CryptoSync.UI
+    in plane-separation Phase 1.1. Hosts the panels that depend only on the
+    base plane (SQLite + Blazor + encrypted VFS + PRF):
+
+      - AuthenticationPanel + RegistrationPanel  (IPrfAuthenticator seam)
+      - DatabaseErrorAlert                        (boot-status surface)
+      - SessionExpiredPopover                     (re-auth popover)
+
+    Sync-coupled panels (UserProfile / Contacts / Invitation / Push) stay in
+    SqliteWasmBlazor.CryptoSync.UI, which references this project and calls
+    AddCryptoUI() before its own model registrations.
+
+    Architectural invariants (see ~/.claude/plans/plane-separation-and-test-buildup.md):
+      - RxBlazorV2 is mandatory. Each panel is three files: *.razor (markup),
+        *.razor.cs (host glue), *Model.cs (ObservableModel).
+      - MudBlazor is the default skin; no hand-rolled CSS where a primitive suffices.
+      - Identity seams (IPrfAuthenticator, ISessionAuthenticator,
+        IDatabaseResetService) are caller-registered; AddCryptoUI() does not
+        touch them.
+  -->
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <SupportedPlatform Include="browser" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Components.Web" />
+    <PackageReference Include="Microsoft.Extensions.Localization" />
+    <PackageReference Include="MudBlazor" />
+    <PackageReference Include="RxBlazorV2.MudBlazor" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\SqliteWasmBlazor\SqliteWasmBlazor.csproj" />
+    <ProjectReference Include="..\SqliteWasmBlazor.Crypto\SqliteWasmBlazor.Crypto.csproj" />
+  </ItemGroup>
+
+</Project>

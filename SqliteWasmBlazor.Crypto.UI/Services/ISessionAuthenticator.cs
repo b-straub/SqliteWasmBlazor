@@ -1,4 +1,4 @@
-namespace SqliteWasmBlazor.CryptoSync.UI.Services;
+namespace SqliteWasmBlazor.Crypto.UI.Services;
 
 /// <summary>
 /// Host-supplied seam carrying the re-authentication / dismiss actions

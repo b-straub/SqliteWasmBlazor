@@ -1,4 +1,4 @@
-namespace SqliteWasmBlazor.CryptoSync.UI.Components.Authentication;
+namespace SqliteWasmBlazor.Crypto.UI.Components.Authentication;
 
 public partial class RegistrationPanel
 {

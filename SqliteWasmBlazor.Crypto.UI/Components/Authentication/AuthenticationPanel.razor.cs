@@ -2,7 +2,7 @@ using Microsoft.AspNetCore.Components;
 using Microsoft.JSInterop;
 using MudBlazor;
 
-namespace SqliteWasmBlazor.CryptoSync.UI.Components.Authentication;
+namespace SqliteWasmBlazor.Crypto.UI.Components.Authentication;
 
 public partial class AuthenticationPanel
 {

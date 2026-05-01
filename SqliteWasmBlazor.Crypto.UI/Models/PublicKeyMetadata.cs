@@ -1,4 +1,4 @@
-namespace SqliteWasmBlazor.CryptoSync.UI.Models;
+namespace SqliteWasmBlazor.Crypto.UI.Models;
 
 /// <summary>
 /// Optional human-facing labels for a public key shown in the UI. Carried

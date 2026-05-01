@@ -2,7 +2,7 @@ using Microsoft.Extensions.Localization;
 using RxBlazorV2.Interface;
 using RxBlazorV2.Model;
 using RxBlazorV2.MudBlazor.Components;
-using SqliteWasmBlazor.CryptoSync.UI.Models;
+using SqliteWasmBlazor.Crypto.UI.Models;
 
 namespace SqliteWasmBlazor.CryptoSync.UI.Components.Contacts;
 

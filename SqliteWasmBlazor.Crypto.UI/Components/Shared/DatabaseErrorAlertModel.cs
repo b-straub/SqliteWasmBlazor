@@ -2,9 +2,9 @@ using Microsoft.Extensions.Localization;
 using RxBlazorV2.Interface;
 using RxBlazorV2.Model;
 using RxBlazorV2.MudBlazor.Components;
-using SqliteWasmBlazor.CryptoSync.UI.Services;
+using SqliteWasmBlazor.Crypto.UI.Services;
 
-namespace SqliteWasmBlazor.CryptoSync.UI.Components.Shared;
+namespace SqliteWasmBlazor.Crypto.UI.Components.Shared;
 
 /// <summary>
 /// Backing model for <see cref="DatabaseErrorAlert"/>. Holds the current
