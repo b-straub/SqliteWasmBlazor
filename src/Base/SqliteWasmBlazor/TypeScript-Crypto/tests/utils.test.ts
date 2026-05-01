@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { base64ToBytes, bytesToBase64, base64UrlToBase64, clearBytes, concatBytes, generateRandomBytes } from '../src/index.js';
+import { base64ToBytes, bytesToBase64, base64UrlToBase64, clearBytes, concatBytes, generateRandomBytes } from '../src/crypto-core/index.js';
 
 describe('utils', () => {
     it('base64 round-trip', () => {

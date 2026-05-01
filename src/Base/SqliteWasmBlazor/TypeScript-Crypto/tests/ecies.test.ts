@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { encryptAsymmetric, decryptAsymmetric, generateX25519KeyPair } from '../src/index.js';
+import { encryptAsymmetric, decryptAsymmetric, generateX25519KeyPair } from '../src/crypto-core/index.js';
 
 describe('ecies', () => {
     it('encrypt/decrypt round-trip', async () => {

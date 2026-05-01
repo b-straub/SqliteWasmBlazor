@@ -5,8 +5,8 @@ import {
     generateX25519KeyPair, generateEd25519KeyPair,
     deriveDualKeyPair, generateRandomBytes, clearBytes,
     PrfErrorCode,
-} from '../src/index.js';
-import type { SymmetricEncryptedData } from '../src/index.js';
+} from '../src/crypto-core/index.js';
+import type { SymmetricEncryptedData } from '../src/crypto-core/index.js';
 
 // Helper: create a test member with both key pairs
 function createMember() {

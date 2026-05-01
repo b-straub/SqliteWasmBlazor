@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
     deriveX25519KeyPairFromSeed, deriveEd25519KeyPairFromSeed,
     deriveDualKeyPair, deriveHkdfKey, deriveWrappingKey, generateRandomBytes
-} from '../src/index.js';
+} from '../src/crypto-core/index.js';
 
 describe('keyDerivation', () => {
     it('deterministic X25519 derivation from same seed', () => {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { deriveDualKeyPair, bytesToBase64 } from '../src/index.js';
+import { deriveDualKeyPair, bytesToBase64 } from '../src/crypto-core/index.js';
 
 // Cross-language byte-equality vectors for the dual-keypair derivation
 // silently depended on by group encryption and cross-device sync.

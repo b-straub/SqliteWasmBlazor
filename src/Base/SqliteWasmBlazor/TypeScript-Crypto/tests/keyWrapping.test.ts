@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { generateContentKey, wrapContentKey, unwrapContentKey, generateRandomBytes } from '../src/index.js';
+import { generateContentKey, wrapContentKey, unwrapContentKey, generateRandomBytes } from '../src/crypto-core/index.js';
 
 describe('keyWrapping', () => {
     it('wrap/unwrap round-trip preserves CEK', async () => {

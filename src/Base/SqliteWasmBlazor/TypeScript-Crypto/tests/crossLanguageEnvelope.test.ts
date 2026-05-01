@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { buildCanonicalEnvelope } from '../src/group.js';
-import type { SymmetricEncryptedData } from '../src/types.js';
+import { buildCanonicalEnvelope } from '../src/crypto-core/group.js';
+import type { SymmetricEncryptedData } from '../src/crypto-core/types.js';
 
 // Cross-language byte-equality vector for the canonical envelope.
 //

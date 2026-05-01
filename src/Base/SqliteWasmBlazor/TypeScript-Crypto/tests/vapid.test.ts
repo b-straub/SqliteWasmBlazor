@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { generateVapidKeyPair, importVapidPrivateKey, createVapidAuthHeader } from '../src/index.js';
+import { generateVapidKeyPair, importVapidPrivateKey, createVapidAuthHeader } from '../src/crypto-core/index.js';
 
 describe('vapid', () => {
     it('generates valid P-256 key pair', async () => {

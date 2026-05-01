@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { encryptAesGcm, decryptAesGcm, generateRandomBytes } from '../src/index.js';
+import { encryptAesGcm, decryptAesGcm, generateRandomBytes } from '../src/crypto-core/index.js';
 
 describe('aesGcm', () => {
     it('encrypt/decrypt round-trip', async () => {

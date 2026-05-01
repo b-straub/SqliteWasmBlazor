@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { encryptChaCha20Poly1305, decryptChaCha20Poly1305, generateRandomBytes } from '../src/index.js';
-import type { SymmetricEncryptedData } from '../src/index.js';
+import { encryptChaCha20Poly1305, decryptChaCha20Poly1305, generateRandomBytes } from '../src/crypto-core/index.js';
+import type { SymmetricEncryptedData } from '../src/crypto-core/index.js';
 
 describe('chacha20Poly1305', () => {
     it('RFC 8439 §2.8.2 test vector', () => {

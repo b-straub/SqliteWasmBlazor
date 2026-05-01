@@ -1,19 +1,26 @@
 {
-  "name": "sqlitewasmblazor-crypto-typescript",
-  "version": "1.0.0",
-  "description": "Noble.js + SubtleCrypto hybrid for SqliteWasmBlazor.Crypto",
+  "name": "@sqlitewasmblazor/crypto-core",
+  "version": "0.2.0",
+  "description": "TypeScript crypto primitives + bridge for SqliteWasmBlazor.Crypto. Consumed by the worker tree (`TypeScript/`) via the `main` field, and bundled by esbuild into `wwwroot/noble-prf.js` for the C# JSImport bridge.",
   "type": "module",
-  "workspaces": [
-    "packages/*"
-  ],
+  "main": "./src/crypto-core/index.ts",
+  "types": "./src/crypto-core/index.ts",
+  "exports": {
+    ".": {
+      "import": "./src/crypto-core/index.ts",
+      "types": "./src/crypto-core/index.ts"
+    }
+  },
   "scripts": {
     "build": "esbuild src/index.ts --bundle --format=esm --sourcemap=inline --outfile=../wwwroot/noble-prf.js",
     "build:release": "esbuild src/index.ts --bundle --format=esm --minify --outfile=../wwwroot/noble-prf.js",
-    "test": "npm test -w @sqlitewasmblazor/crypto-core && vitest run"
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "devDependencies": {
     "esbuild": "0.27.7",
-    "typescript": "5.9.3"
+    "typescript": "5.9.3",
+    "vitest": "3.2.4"
   },
   "dependencies": {
     "@awasm/noble": "0.1.1",

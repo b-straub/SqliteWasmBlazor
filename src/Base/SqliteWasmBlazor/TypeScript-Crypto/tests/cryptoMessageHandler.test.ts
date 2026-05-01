@@ -14,7 +14,7 @@ import {
     ed25519Verify,
     encryptAsymmetric,
     bytesToBase64,
-} from '../packages/crypto-core/src/index.js';
+} from '../src/crypto-core/index.js';
 
 // R1.5 — round-trip tests for the JS-side crypto bridge that NobleCryptoProvider
 // dispatches to from C# via NobleInterop. The bridge in `src/crypto.ts` is the

@@ -3,7 +3,7 @@ import {
     computeBatchDigest, signBatch, verifyBatch,
     generateEd25519KeyPair, generateRandomBytes,
     encryptAesGcm,
-} from '../src/index.js';
+} from '../src/crypto-core/index.js';
 
 describe('batch signatures', () => {
     // Helper: generate N encrypted rows

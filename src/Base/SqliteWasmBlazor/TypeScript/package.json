@@ -15,7 +15,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@sqlitewasmblazor/crypto-core": "file:../TypeScript-Crypto/packages/crypto-core",
+    "@sqlitewasmblazor/crypto-core": "file:../TypeScript-Crypto",
     "@noble/ciphers": "1.3.0",
     "@noble/curves": "1.9.7",
     "@noble/hashes": "1.8.0",

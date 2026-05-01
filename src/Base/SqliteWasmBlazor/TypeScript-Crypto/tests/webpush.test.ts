@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { encryptPushPayload, generateVapidKeyPair } from '../src/index.js';
-import type { PushSubscriptionKeys } from '../src/index.js';
+import { encryptPushPayload, generateVapidKeyPair } from '../src/crypto-core/index.js';
+import type { PushSubscriptionKeys } from '../src/crypto-core/index.js';
 
 /**
  * Generate a mock push subscription (simulates browser pushManager.subscribe()).

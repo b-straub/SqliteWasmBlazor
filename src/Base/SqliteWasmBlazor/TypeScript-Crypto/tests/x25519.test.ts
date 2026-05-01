@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { generateX25519KeyPair, getX25519PublicKey, x25519SharedSecret } from '../src/index.js';
+import { generateX25519KeyPair, getX25519PublicKey, x25519SharedSecret } from '../src/crypto-core/index.js';
 
 describe('x25519', () => {
     it('generates 32-byte key pair', () => {

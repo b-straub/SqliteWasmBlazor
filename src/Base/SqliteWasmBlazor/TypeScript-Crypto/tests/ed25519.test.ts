@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { generateEd25519KeyPair, getEd25519PublicKey, ed25519Sign, ed25519Verify } from '../src/index.js';
+import { generateEd25519KeyPair, getEd25519PublicKey, ed25519Sign, ed25519Verify } from '../src/crypto-core/index.js';
 
 describe('ed25519', () => {
     it('generates 32-byte key pair', () => {
