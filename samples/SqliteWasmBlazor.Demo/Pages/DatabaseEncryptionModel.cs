@@ -75,6 +75,25 @@ public partial class DatabaseEncryptionModel : ObservableModel
     public partial string PastedArmoredPubkey { get; set; } = string.Empty;
     public partial string? PastedKeyError { get; set; }
 
+    /// <summary>
+    /// True when the active passkey has produced a cached X25519 pubkey.
+    /// Read by the <c>CanEncrypt</c> / <c>CanDecrypt</c> /
+    /// <c>CanExportForRecipient</c> guards.
+    ///
+    /// <para>
+    /// <b>Load-bearing markup gate.</b> The cross-model observation that
+    /// makes this getter reactive depends on a markup read of
+    /// <c>Model.Auth.PublicKey</c> in <c>DatabaseEncryption.razor</c>
+    /// (the auth-required <c>MudAlert</c> wrapper). The SG's auto-
+    /// generated page <c>Filter()</c> only includes properties referenced
+    /// in the razor markup, so the markup gate is what makes
+    /// <see cref="MudButtonAsyncRx"/> bindings re-evaluate when
+    /// <see cref="AuthenticationModel.PublicKey"/> changes. Don't remove
+    /// the <c>@if (string.IsNullOrEmpty(Model.Auth.PublicKey))</c> branch
+    /// without replacing it with another markup-level read of the same
+    /// path, or button enabling will silently break.
+    /// </para>
+    /// </summary>
     public bool HasCachedKey => !string.IsNullOrEmpty(Auth.PublicKey);
 
     [ObservableCommand(nameof(RefreshAsync))]
@@ -95,13 +114,14 @@ public partial class DatabaseEncryptionModel : ObservableModel
     [ObservableCommand(nameof(LockAsync))]
     public partial IObservableCommandAsync Lock { get; }
 
-    [ObservableCommand(nameof(WipeAsync), null, nameof(FormatStateError))]
+    [ObservableCommand(nameof(WipeAsync), nameof(CanWipe), nameof(FormatStateError))]
     public partial IObservableCommandAsync Wipe { get; }
 
     private bool CanEncrypt() => Exists && IsEncrypted == false && HasCachedKey;
     private bool CanDecrypt() => Exists && IsEncrypted == true && HasCachedKey;
     private bool CanExport() => Exists;
     private bool CanExportForRecipient() => Exists && HasCachedKey && TryGetPastedKeyBytes() is not null;
+    private bool CanWipe() => Exists;
 
     /// <summary>
     /// Probe DB existence + state-pill data. The encryption-state probe is

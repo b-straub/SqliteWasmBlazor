@@ -33,13 +33,21 @@ public enum SearchDisplayMode
 /// markup wires straight into <c>MudTable.ServerData</c>.
 ///
 /// <para>
-/// <b>Reload signal pattern.</b> Search-string / mode changes trigger a
-/// counter increment via <see cref="BumpReloadSignal"/>. The counter is
-/// declared with <c>[ObservableComponentTriggerAsync]</c>; the page
-/// partial subscribes via the SG-emitted <c>OnReloadSignalChangedAsync</c>
-/// hook and calls <c>MudTable.ReloadServerData()</c>. This avoids the
-/// model knowing about the table type and keeps the cross-layer reactive
-/// path declarative — no R3 subscriptions in the page partial.
+/// <b>Reload signal pattern (intentional caveat).</b> Search-string / mode
+/// changes trigger a counter increment via <see cref="BumpReloadSignal"/>;
+/// the counter is declared <c>[ObservableComponentTriggerAsync]</c> and
+/// the page partial calls <c>MudTable.ReloadServerData()</c> from the
+/// SG-emitted <c>OnReloadSignalChangedAsync</c> hook. The RxBlazorV2 audit
+/// rules (<c>reactive-patterns.md</c> §6) discourage counter / toggle
+/// properties used as notification signals and ask for a semantic status
+/// property instead. We accept the stylistic deviation here because the
+/// consumer side effect (re-running an opaque MudTable's server-data
+/// callback) genuinely has no semantic state to surface — there's nothing
+/// to encode beyond "do it again." The alternative is fanning out
+/// <c>[ObservableComponentTriggerAsync]</c> across each of <see cref="SearchString"/> /
+/// <see cref="SearchMode"/> / <see cref="QueryMode"/> + the add / delete /
+/// toggle paths and implementing 5+ near-identical hooks, all of which
+/// would call <c>ReloadServerData()</c>. The counter wins on DRY.
 /// </para>
 ///
 /// <para>

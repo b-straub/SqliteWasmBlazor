@@ -148,10 +148,12 @@
                     </MudChip>
                 </MudTd>
                 <MudTd DataLabel="@Model.Localizer[" Col_Actions"]" Style="text-align: right;">
-                    <MudIconButton Icon="@Icons.Material.Filled.Delete"
-                                   Color="Color.Error"
-                                   Size="Size.Small"
-                                   OnClick="@(async () => await Model.DeleteTodo.ExecuteAsync(context))" />
+                    <MudIconButtonAsyncRxOf T="TodoItem"
+                                            Command="@Model.DeleteTodo"
+                                            Parameter="@context"
+                                            Icon="@Icons.Material.Filled.Delete"
+                                            Color="Color.Error"
+                                            Size="Size.Small" />
                 </MudTd>
             </RowTemplate>
             <NoRecordsContent>
