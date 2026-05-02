@@ -52,4 +52,8 @@ internal sealed class FakeDatabaseService : ISqliteWasmDatabaseService
         => throw new NotSupportedException();
     public Task ClearEncryptionKeyAsync(string databaseName, CancellationToken cancellationToken = default)
         => throw new NotSupportedException();
+    public Task EncryptDatabaseInPlaceAsync(string databaseName, ReadOnlyMemory<byte> key, CancellationToken cancellationToken = default)
+        => throw new NotSupportedException();
+    public Task DecryptDatabaseInPlaceAsync(string databaseName, CancellationToken cancellationToken = default)
+        => throw new NotSupportedException();
 }

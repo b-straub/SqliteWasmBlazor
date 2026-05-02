@@ -1112,6 +1112,17 @@ async function exportDatabase(
             );
         }
 
+        // Length-only is insufficient for plain-source paths because
+        // a 1024-page encrypted DB and a 1031-page plain DB share byte
+        // length. Verify the SQLite magic header so an encrypted-at-rest
+        // file that happens to divide by 4096 still gets rejected.
+        if (mode === 'encrypt' && !hasSqliteMagicHeader(raw!)) {
+            throw new Error(
+                `exportDb mode='encrypt' rejected for ${dbName}: file does not start with the ` +
+                `SQLite magic header — refusing to treat ciphertext as plain pages.`,
+            );
+        }
+
         const targetKey = (mode === 'rekey' || mode === 'encrypt') ? newKey : undefined;
         const out = rekeySlots(raw!, dbPath, sourceKey, targetKey);
 
@@ -1163,9 +1174,40 @@ async function exportDatabase(
  * bytes; PRF-VFS encrypted slots are 4124 bytes (4096 ciphertext + 12
  * nonce + 16 tag). A correctly-shaped source for a given mode must be
  * an integer multiple of the corresponding slot size.
+ *
+ * Length-only validation has a known false-positive:
+ *   1024 * 4124 = 4222976 = 1031 * 4096
+ * — i.e. an encrypted DB of 1024 pages and a plain DB of 1031 pages
+ * have the same byte length. Plain-source paths (ENCRYPT mode +
+ * encryptDb) must additionally check the 16-byte SQLite magic header
+ * to refuse an encrypted-at-rest source that happens to divide evenly.
  */
 const PLAIN_SLOT_SIZE = 4096;
 const ENCRYPTED_SLOT_SIZE = 4124;
+
+/**
+ * "SQLite format 3\0" — the canonical 16-byte header at the start of every
+ * SQLite database file (per https://sqlite.org/fileformat.html §1.3). For
+ * an encrypted slot-format file, slot 0 starts with ChaCha20-Poly1305
+ * ciphertext, so the probability of accidentally matching this exact
+ * sequence is ~2^-128 — strong enough to rule out a real encrypted DB.
+ */
+const SQLITE_MAGIC_HEADER = Uint8Array.from([
+    0x53, 0x51, 0x4c, 0x69, 0x74, 0x65, 0x20, 0x66,  // "SQLite f"
+    0x6f, 0x72, 0x6d, 0x61, 0x74, 0x20, 0x33, 0x00,  // "ormat 3\0"
+]);
+
+function hasSqliteMagicHeader(bytes: Uint8Array): boolean {
+    if (bytes.length < SQLITE_MAGIC_HEADER.length) {
+        return false;
+    }
+    for (let i = 0; i < SQLITE_MAGIC_HEADER.length; i++) {
+        if (bytes[i] !== SQLITE_MAGIC_HEADER[i]) {
+            return false;
+        }
+    }
+    return true;
+}
 
 /**
  * Atomic-ish OPFS file replacement using SAHPool's metadata-only
@@ -1285,6 +1327,16 @@ async function encryptDatabaseInPlace(dbName: string, key: Uint8Array) {
             throw new Error(
                 `encryptDb: ${dbName} length ${raw!.length} is not a non-zero multiple of ` +
                 `the plain page size ${PLAIN_SLOT_SIZE}; refusing to encrypt a non-plain source.`,
+            );
+        }
+
+        // Length is necessary but not sufficient — 1024 encrypted slots
+        // and 1031 plain pages have the same byte length. Verify the
+        // SQLite magic header so we can't misclassify ciphertext.
+        if (!hasSqliteMagicHeader(raw!)) {
+            throw new Error(
+                `encryptDb: ${dbName} does not start with the SQLite magic header — ` +
+                `refusing to treat ciphertext as plain pages.`,
             );
         }
 
