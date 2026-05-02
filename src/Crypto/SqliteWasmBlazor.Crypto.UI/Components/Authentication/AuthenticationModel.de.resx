@@ -23,6 +23,12 @@
   <data name="Status_AuthenticationCancelled" xml:space="preserve"><value>Anmeldung wurde abgebrochen.</value></data>
   <data name="Status_KeysDerived" xml:space="preserve"><value>Schlüssel erfolgreich aus dem Passkey abgeleitet.</value></data>
   <data name="Status_PublicKeyCopied" xml:space="preserve"><value>Öffentlicher Schlüssel in die Zwischenablage kopiert!</value></data>
-  <data name="Error_DeriveKeys" xml:space="preserve"><value>Schlüssel-Ableitung fehlgeschlagen: {0}</value></data>
+  <data name="Error_Authenticate_KEY_DERIVATION_FAILED" xml:space="preserve"><value>Schlüsselableitung fehlgeschlagen. Bitte erneut versuchen.</value></data>
+  <data name="Error_Authenticate_AUTHENTICATION_TAG_MISMATCH" xml:space="preserve"><value>Falscher Passkey: die Daten wurden mit einem anderen Schlüssel verschlüsselt.</value></data>
+  <data name="Error_Authenticate_CREDENTIAL_NOT_FOUND" xml:space="preserve"><value>Der Passkey wurde auf diesem Gerät nicht gefunden. Er wurde möglicherweise gelöscht oder ist nur auf einem anderen Gerät verfügbar.</value></data>
+  <data name="Error_Authenticate_INVALID_DATA" xml:space="preserve"><value>Authentifizierungsdaten sind ungültig oder beschädigt.</value></data>
+  <data name="Error_Authenticate_NOT_SUPPORTED" xml:space="preserve"><value>WebAuthn wird auf diesem Gerät oder Browser nicht unterstützt.</value></data>
+  <data name="Error_Authenticate_PRF_NOT_SUPPORTED" xml:space="preserve"><value>Der gewählte Passkey unterstützt PRF nicht. Bitte einen mit PRF-Unterstützung registrierten Passkey verwenden.</value></data>
+  <data name="Error_DeriveKeys_Unknown" xml:space="preserve"><value>Schlüssel-Ableitung fehlgeschlagen: {0}</value></data>
   <data name="Error_ClipboardCopy" xml:space="preserve"><value>Kopieren in die Zwischenablage fehlgeschlagen: {0}</value></data>
 </root>

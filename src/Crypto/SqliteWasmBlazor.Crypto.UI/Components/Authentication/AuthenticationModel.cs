@@ -2,6 +2,7 @@ using Microsoft.Extensions.Localization;
 using RxBlazorV2.Interface;
 using RxBlazorV2.Model;
 using RxBlazorV2.MudBlazor.Components;
+using SqliteWasmBlazor.Crypto.Abstractions.Models;
 using SqliteWasmBlazor.Crypto.UI.Models;
 using SqliteWasmBlazor.Crypto.UI.Services;
 
@@ -147,6 +148,10 @@ public partial class AuthenticationModel : ObservableModel
         PendingCopy = PublicKey;
     }
 
-    private string FormatDeriveKeysError(Exception ex) =>
-        Localizer["Error_DeriveKeys", ex.Message];
+    private string FormatDeriveKeysError(Exception ex) => ex switch
+    {
+        PrfAuthenticatorException { Operation: PrfAuthenticatorOperation.Authenticate, Code: var code } =>
+            Localizer[$"Error_Authenticate_{code}"],
+        _ => Localizer["Error_DeriveKeys_Unknown", ex.Message],
+    };
 }

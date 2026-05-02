@@ -1,4 +1,5 @@
 using Microsoft.Extensions.DependencyInjection;
+using SqliteWasmBlazor.Crypto.UI.Services;
 
 namespace SqliteWasmBlazor.Crypto.UI;
 
@@ -68,6 +69,33 @@ public static class CryptoUiServiceCollectionExtensions
     {
         ObservableModels.Initialize(services);
         RxBlazorV2.MudBlazor.ObservableModels.Initialize(services);
+        return services;
+    }
+
+    /// <summary>
+    /// Opt-in registration of the production <see cref="IPrfAuthenticator"/>
+    /// implementation backed by the base-plane <see cref="Crypto.Services.IPrfService"/>.
+    /// Hosts that ship a real WebAuthn-PRF UX (the demo, downstream consumer
+    /// apps) call this after <c>AddSqliteWasmBlazorCrypto</c> to wire the seam
+    /// consumed by <see cref="Components.Authentication.RegistrationPanel"/> and
+    /// <see cref="Components.Authentication.AuthenticationPanel"/>; test fixtures
+    /// that want a stub skip this call and register their own
+    /// <see cref="IPrfAuthenticator"/>. Mirrors the
+    /// <c>AddCryptoSyncPrfSigners</c> shape from
+    /// <c>SqliteWasmBlazor.CryptoSync</c>.
+    ///
+    /// <para>
+    /// Registered as <see cref="ServiceLifetime.Scoped"/> so it composes with
+    /// either base-plane <see cref="Crypto.Services.IPrfService"/> registration
+    /// (singleton via the
+    /// <c>AddSqliteWasmBlazorCrypto(IConfiguration?, ...)</c> overload, scoped
+    /// via the <c>AddSqliteWasmBlazorCrypto(Action&lt;PrfOptions&gt;, ...)</c>
+    /// overload).
+    /// </para>
+    /// </summary>
+    public static IServiceCollection AddCryptoUIPrfAuthenticator(this IServiceCollection services)
+    {
+        services.AddScoped<IPrfAuthenticator, PrfAuthenticator>();
         return services;
     }
 }

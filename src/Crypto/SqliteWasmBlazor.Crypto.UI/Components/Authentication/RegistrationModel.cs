@@ -2,6 +2,7 @@ using Microsoft.Extensions.Localization;
 using RxBlazorV2.Interface;
 using RxBlazorV2.Model;
 using RxBlazorV2.MudBlazor.Components;
+using SqliteWasmBlazor.Crypto.Abstractions.Models;
 using SqliteWasmBlazor.Crypto.UI.Services;
 
 namespace SqliteWasmBlazor.Crypto.UI.Components.Authentication;
@@ -57,6 +58,10 @@ public partial class RegistrationModel : ObservableModel
             nameof(Register));
     }
 
-    private string FormatRegisterError(Exception ex) =>
-        Localizer["Error_Register", ex.Message];
+    private string FormatRegisterError(Exception ex) => ex switch
+    {
+        PrfAuthenticatorException { Operation: PrfAuthenticatorOperation.Register, Code: var code } =>
+            Localizer[$"Error_Register_{code}"],
+        _ => Localizer["Error_Register_Unknown", ex.Message],
+    };
 }
