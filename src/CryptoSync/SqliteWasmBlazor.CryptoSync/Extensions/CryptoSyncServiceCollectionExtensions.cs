@@ -124,6 +124,31 @@ public static class CryptoSyncServiceCollectionExtensions
         return services;
     }
 
+    /// <summary>
+    /// Registers production PRF-backed implementations of
+    /// <see cref="ISenderAuthSigner"/> and <see cref="IReceiveAuthSigner"/>.
+    /// Both delegate Ed25519 signing to <see cref="ISigningService"/>, which
+    /// routes through the JS-side keyId cache so the priv never crosses the
+    /// C#↔JS boundary.
+    ///
+    /// <para>
+    /// <b>When to call:</b> Production hosts call this after
+    /// <c>AddSqliteWasmBlazorCrypto</c> + <see cref="AddCryptoSync{TContext}"/>
+    /// to opt in to PRF-driven HTTP relay auth. Test fixtures that want stub
+    /// signers simply skip this call and register their stubs directly.
+    /// Caller responsibility: a PRF session must be active (e.g. via
+    /// <c>PrfService.DeriveKeysWithHintAsync</c>) before <see cref="HttpSyncTransport"/>
+    /// touches either signer; otherwise <see cref="ISenderAuthSigner.OwnEd25519PublicKeyBase64"/>
+    /// throws.
+    /// </para>
+    /// </summary>
+    public static IServiceCollection AddCryptoSyncPrfSigners(this IServiceCollection services)
+    {
+        services.AddSingleton<ISenderAuthSigner, PrfBackedSenderAuthSigner>();
+        services.AddSingleton<IReceiveAuthSigner, PrfBackedReceiveAuthSigner>();
+        return services;
+    }
+
     private static Uri ResolveRelayBaseUri(IServiceProvider sp)
     {
         var options = sp.GetRequiredService<IOptions<CryptoSyncOptions>>().Value;
