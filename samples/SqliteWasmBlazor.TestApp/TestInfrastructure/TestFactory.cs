@@ -78,6 +78,19 @@ internal class TestFactory
                         prfFactory, databaseService, provider);
                     _entries.Add(new TestEntry(
                         "VFS Encryption", syntheticRotation.Name, () => syntheticRotation.RunAsync()));
+
+                    // In-place encrypt/decrypt — bytes never cross the
+                    // C#↔JS boundary; symmetric pair completing the
+                    // plain↔encrypted matrix.
+                    var syntheticEncryptInPlace = new SyntheticPrfSeedEncryptInPlaceTest(
+                        prfFactory, databaseService, provider);
+                    _entries.Add(new TestEntry(
+                        "VFS Encryption", syntheticEncryptInPlace.Name, () => syntheticEncryptInPlace.RunAsync()));
+
+                    var syntheticDecryptInPlace = new SyntheticPrfSeedDecryptInPlaceTest(
+                        prfFactory, databaseService, provider);
+                    _entries.Add(new TestEntry(
+                        "VFS Encryption", syntheticDecryptInPlace.Name, () => syntheticDecryptInPlace.RunAsync()));
                 }
             }
         }

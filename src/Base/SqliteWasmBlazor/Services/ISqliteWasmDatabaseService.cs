@@ -59,9 +59,22 @@ public enum VfsExportMode
     /// re-encrypt under a caller-supplied 32-byte ChaCha20-Poly1305 key with
     /// the same path-bound AAD. Requires the <c>newKey</c> argument to be
     /// exactly 32 bytes; AAD binds <c>dbPath</c> so the recipient must
-    /// import to the same database name.
+    /// import to the same database name. Source MUST be encrypted (a key
+    /// must be registered for this path); use <see cref="ENCRYPT"/> for the
+    /// plain-source case.
     /// </summary>
     REKEY = 2,
+
+    /// <summary>
+    /// Encrypt a plain database under a caller-supplied 32-byte
+    /// ChaCha20-Poly1305 key with the path-bound AAD; symmetric with
+    /// <see cref="REKEY"/> but for the byte-shuttle backup / sharing case
+    /// where the source has no registered key. Source MUST be plain (no
+    /// key registered for this path); the worker rejects otherwise. The
+    /// recipient imports the bytes via <see cref="ISqliteWasmDatabaseService.ImportDatabaseAsync"/>
+    /// after registering the same K_target.
+    /// </summary>
+    ENCRYPT = 3,
 }
 
 /// <summary>
@@ -188,13 +201,62 @@ public interface ISqliteWasmDatabaseService
     /// </summary>
     /// <param name="databaseName">The database filename (e.g., "mydb.db").</param>
     /// <param name="mode">Slot-rekey flavour. Defaults to <see cref="VfsExportMode.VERBATIM"/>.</param>
-    /// <param name="newKey">For <see cref="VfsExportMode.REKEY"/> only:
-    /// exactly 32 bytes of new key material. Must be empty for the other modes.</param>
+    /// <param name="newKey">For <see cref="VfsExportMode.REKEY"/> and
+    /// <see cref="VfsExportMode.ENCRYPT"/>: exactly 32 bytes of new key
+    /// material. Must be empty for the other modes.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Raw bytes in the format selected by <paramref name="mode"/>.</returns>
     Task<byte[]> ExportDatabaseAsync(string databaseName,
         VfsExportMode mode = VfsExportMode.VERBATIM,
         ReadOnlyMemory<byte> newKey = default,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// In-place plain → encrypted transition. Reads the OPFS file as plain
+    /// SQLite pages, re-wraps every page under the caller-supplied 32-byte
+    /// ChaCha20-Poly1305 key with the path-bound AAD, and writes the
+    /// encrypted slots back to the same OPFS path. Bytes never cross the
+    /// C#↔JS boundary — symmetric to <see cref="ExportDatabaseAsync"/>
+    /// with <see cref="VfsExportMode.REKEY"/> but local-only, with no
+    /// returned envelope.
+    ///
+    /// <para>
+    /// Caller responsibility: no key may be registered for this path before
+    /// the call (the worker rejects otherwise — call
+    /// <see cref="ClearEncryptionKeyAsync"/> first if needed) and the caller
+    /// must <see cref="InstallEncryptionKeyAsync"/> with the same key
+    /// afterwards before opening — the worker's registry is cleared by the
+    /// implicit close inside this method.
+    /// </para>
+    /// </summary>
+    /// <param name="databaseName">The database filename to encrypt in place.</param>
+    /// <param name="key">Exactly 32 bytes of new key material.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    Task EncryptDatabaseInPlaceAsync(
+        string databaseName,
+        ReadOnlyMemory<byte> key,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// In-place encrypted → plain transition. Reads the OPFS file under the
+    /// currently registered key, decrypts every slot to plain SQLite pages,
+    /// and writes the plain pages back to the same OPFS path. Bytes never
+    /// cross the C#↔JS boundary; the caller should
+    /// <see cref="ClearEncryptionKeyAsync"/> if any state remains (the
+    /// worker's registry is cleared by the implicit close inside this
+    /// method).
+    ///
+    /// <para>
+    /// Caller responsibility: a key must be registered for this path
+    /// before the call (the worker rejects otherwise — typical sequence is
+    /// <see cref="InstallEncryptionKeyAsync"/> with K_old, then
+    /// <c>DecryptDatabaseInPlaceAsync</c>).
+    /// </para>
+    /// </summary>
+    /// <param name="databaseName">The database filename to decrypt in place.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    Task DecryptDatabaseInPlaceAsync(
+        string databaseName,
         CancellationToken cancellationToken = default);
 
     /// <summary>

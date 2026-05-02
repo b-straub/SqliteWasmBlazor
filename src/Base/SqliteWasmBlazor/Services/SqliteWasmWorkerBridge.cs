@@ -335,6 +335,109 @@ internal sealed partial class SqliteWasmWorkerBridge : ISqliteWasmDatabaseServic
         await SendRequestAsync(request, cancellationToken);
     }
 
+    /// <inheritdoc />
+    public Task EncryptDatabaseInPlaceAsync(
+        string databaseName,
+        ReadOnlyMemory<byte> key,
+        CancellationToken cancellationToken = default)
+    {
+        if (!_isInitialized)
+        {
+            throw new InvalidOperationException(
+                "Worker bridge not initialized. Ensure InitializeSqliteWasmAsync ran before encrypting.");
+        }
+        if (key.Length != 32)
+        {
+            throw new ArgumentException(
+                $"key must be exactly 32 bytes, got {key.Length}", nameof(key));
+        }
+
+        // Same zeroization discipline as InstallEncryptionKeyAsync — copy
+        // the span into a managed array, MessagePack-serialize, post to
+        // the worker, then ZeroMemory both buffers in finally regardless
+        // of whether the worker round-trip succeeded.
+        var header = new VfsKeyHeader
+        {
+            Version = 1,
+            Key = key.ToArray(),
+            AadVersion = "v1",
+        };
+
+        var requestId = Interlocked.Increment(ref _nextRequestId);
+        var tcs = new TaskCompletionSource<SqlQueryResult>();
+        _pendingRequests[requestId] = tcs;
+
+        byte[] envelope;
+        try
+        {
+            envelope = MessagePackSerializer.Serialize(header);
+            var metadataJson = JsonSerializer.Serialize(new
+            {
+                id = requestId,
+                data = new { type = "encryptDb", database = databaseName }
+            });
+            SendBinaryToWorker(envelope.AsSpan(), metadataJson);
+        }
+        catch
+        {
+            _pendingRequests.TryRemove(requestId, out _);
+            header.Clear();
+            throw;
+        }
+
+        return WaitAndZeroizeInPlaceEnvelope(tcs.Task, header, envelope, requestId, cancellationToken);
+    }
+
+    private async Task WaitAndZeroizeInPlaceEnvelope(
+        Task<SqlQueryResult> response,
+        VfsKeyHeader header,
+        byte[] envelope,
+        int requestId,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await using var registration = cancellationToken.Register(() =>
+            {
+                _pendingRequests.TryRemove(requestId, out _);
+                response.ContinueWith(_ => { }, TaskScheduler.Default);
+            });
+            var result = await response.WaitAsync(cancellationToken);
+            if (result.RowsAffected != 0)
+            {
+                throw new InvalidOperationException(
+                    $"Worker returned unexpected in-place rekey outcome code {result.RowsAffected}");
+            }
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(envelope);
+            header.Clear();
+            _pendingRequests.TryRemove(requestId, out _);
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task DecryptDatabaseInPlaceAsync(
+        string databaseName,
+        CancellationToken cancellationToken = default)
+    {
+        if (!_isInitialized)
+        {
+            throw new InvalidOperationException(
+                "Worker bridge not initialized. Ensure InitializeSqliteWasmAsync ran before decrypting.");
+        }
+        // No key payload — worker uses its currently-registered K. The
+        // caller is responsible for InstallEncryptionKeyAsync(K_old) first.
+        var request = new { type = "decryptDb", database = databaseName };
+        var result = await SendRequestAsync(request, cancellationToken);
+        if (result.RowsAffected != 0)
+        {
+            throw new InvalidOperationException(
+                $"Worker returned unexpected in-place decrypt outcome code {result.RowsAffected}");
+        }
+    }
+
     /// <summary>
     /// Execute SQL in the worker and return results.
     /// </summary>
@@ -505,7 +608,7 @@ internal sealed partial class SqliteWasmWorkerBridge : ISqliteWasmDatabaseServic
         ReadOnlyMemory<byte> newKey = default,
         CancellationToken cancellationToken = default)
     {
-        if (mode == VfsExportMode.REKEY)
+        if (mode == VfsExportMode.REKEY || mode == VfsExportMode.ENCRYPT)
         {
             if (newKey.Length != 32)
             {
@@ -513,13 +616,13 @@ internal sealed partial class SqliteWasmWorkerBridge : ISqliteWasmDatabaseServic
                     $"newKey must be exactly 32 bytes for mode={mode}, got {newKey.Length}",
                     nameof(newKey));
             }
-            return ExportRekeyAsync(databaseName, newKey, cancellationToken);
+            return ExportWithKeyAsync(databaseName, mode, newKey, cancellationToken);
         }
 
         if (!newKey.IsEmpty)
         {
             throw new ArgumentException(
-                $"newKey must be empty for mode={mode}; only mode={VfsExportMode.REKEY} accepts a key",
+                $"newKey must be empty for mode={mode}; only mode={VfsExportMode.REKEY} and mode={VfsExportMode.ENCRYPT} accept a key",
                 nameof(newKey));
         }
 
@@ -531,8 +634,9 @@ internal sealed partial class SqliteWasmWorkerBridge : ISqliteWasmDatabaseServic
             cancellationToken);
     }
 
-    private Task<byte[]> ExportRekeyAsync(
+    private Task<byte[]> ExportWithKeyAsync(
         string databaseName,
+        VfsExportMode mode,
         ReadOnlyMemory<byte> newKey,
         CancellationToken cancellationToken)
     {
@@ -553,6 +657,8 @@ internal sealed partial class SqliteWasmWorkerBridge : ISqliteWasmDatabaseServic
         var tcs = new TaskCompletionSource<byte[]>();
         _pendingBinaryRequests[requestId] = tcs;
 
+        var modeWire = mode == VfsExportMode.REKEY ? "rekey" : "encrypt";
+
         byte[] envelope;
         try
         {
@@ -560,7 +666,7 @@ internal sealed partial class SqliteWasmWorkerBridge : ISqliteWasmDatabaseServic
             var metadataJson = JsonSerializer.Serialize(new
             {
                 id = requestId,
-                data = new { type = "exportDb", database = databaseName, mode = "rekey" }
+                data = new { type = "exportDb", database = databaseName, mode = modeWire }
             });
             SendBinaryToWorker(envelope.AsSpan(), metadataJson);
         }

@@ -21,6 +21,7 @@ import {
     isPathEncrypted,
 } from './vfs-prf/key-registry';
 import { rekeySlots } from './vfs-prf/rekey';
+import { clearBytes } from '@sqlitewasmblazor/crypto-core';
 
 // Re-export mutable state references for local use
 let sqlite3: any;
@@ -310,22 +311,57 @@ async function handleRequest(data: WorkerRequest['data'], binaryPayload?: ArrayB
             );
 
         case 'exportDb': {
-            // Slot-rekey primitive with three flavours selected by `mode`:
+            // Slot-rekey primitive with four flavours selected by `mode`:
             //   verbatim → raw OPFS bytes (slot-format ciphertext or plain pages)
             //   plain    → decrypt under registered K_old → plain pages
             //   rekey    → decrypt under K_old, re-encrypt under caller-supplied
-            //              K_new (binaryPayload carries VfsKeyHeader)
-            const mode = (data as any).mode as 'verbatim' | 'plain' | 'rekey';
+            //              K_new (binaryPayload carries VfsKeyHeader). Source MUST
+            //              be encrypted (registered K_old).
+            //   encrypt  → encrypt plain source under caller-supplied K_target.
+            //              Source MUST be plain (no registered key). Symmetric
+            //              with rekey but for the plain→encrypted byte-shuttle
+            //              backup/sharing case.
+            const mode = (data as any).mode as 'verbatim' | 'plain' | 'rekey' | 'encrypt';
             let newKey: Uint8Array | undefined;
-            if (mode === 'rekey') {
+            if (mode === 'rekey' || mode === 'encrypt') {
                 if (!binaryPayload) {
                     throw new Error(
-                        "exportDb mode='rekey' requires binaryPayload (VfsKeyHeader for K_new)");
+                        `exportDb mode='${mode}' requires binaryPayload (VfsKeyHeader for K_new)`);
                 }
                 newKey = unpackVfsKeyHeader(new Uint8Array(binaryPayload));
             }
-            return await exportDatabase(database!, mode, newKey);
+            try {
+                return await exportDatabase(database!, mode, newKey);
+            } finally {
+                // newKey is the caller-supplied K_target — wipe before
+                // returning regardless of whether export succeeded.
+                if (newKey !== undefined) {
+                    clearBytes(newKey);
+                }
+            }
         }
+
+        case 'encryptDb': {
+            // In-place plain → encrypted: reads OPFS plain pages, re-wraps
+            // under the caller-supplied 32-byte K, writes back as encrypted
+            // slots. Bytes never leave the worker. Caller must
+            // registerEncryptionKey before the next open.
+            if (!binaryPayload) {
+                throw new Error("encryptDb requires binaryPayload (VfsKeyHeader for K)");
+            }
+            const k = unpackVfsKeyHeader(new Uint8Array(binaryPayload));
+            try {
+                return await encryptDatabaseInPlace(database!, k);
+            } finally {
+                clearBytes(k);
+            }
+        }
+
+        case 'decryptDb':
+            // In-place encrypted → plain: snapshots the registered K,
+            // decrypts to plain pages, writes back as plain. Bytes never
+            // leave the worker.
+            return await decryptDatabaseInPlace(database!);
 
         case 'importRows':
             if (!binaryPayload) {
@@ -1000,46 +1036,208 @@ function snapshotKeyForPath(dbPath: string): Uint8Array | undefined {
  *   verbatim → return raw bytes (plain pages or slot-format ciphertext as-is)
  *   plain    → rekeySlots(raw, sourceKey, undefined) → plain SQLite pages
  *   rekey    → rekeySlots(raw, sourceKey, newKey)    → slot ciphertext under K_new
+ *   encrypt  → rekeySlots(raw, undefined, newKey)    → slot ciphertext under K_new
+ *               from a plain source (no registered K_old). Symmetric to rekey
+ *               but with the opposite source-side precondition.
  *
- * AAD binds dbPath, so REKEY output must be re-imported to the same DB name.
+ * AAD binds dbPath, so REKEY / ENCRYPT output must be re-imported to the
+ * same DB name.
  */
 async function exportDatabase(
     dbName: string,
-    mode: 'verbatim' | 'plain' | 'rekey',
+    mode: 'verbatim' | 'plain' | 'rekey' | 'encrypt',
     newKey?: Uint8Array,
 ) {
     if (!sqlite3 || !poolUtil) {
         throw new Error('SQLite not initialized');
     }
 
-    try {
-        const dbPath = `/databases/${dbName}`;
-        // Verbatim does not touch slot encoding, so the registered key is
-        // irrelevant. Plain and rekey both need K_old to decrypt the source
-        // slots, snapshotted before closeDatabase clears the registry.
-        const sourceKey = mode === 'verbatim' ? undefined : snapshotKeyForPath(dbPath);
+    const dbPath = `/databases/${dbName}`;
 
+    if (mode === 'encrypt' && isPathEncrypted(dbPath)) {
+        // Reject up-front so we don't snapshot any state we need to clear
+        // on the failure path.
+        throw new Error(
+            `exportDb mode='encrypt' rejected for ${dbName}: a key is already registered for this path; use mode='rekey' to re-encrypt under a different key.`,
+        );
+    }
+
+    // verbatim / encrypt do not need a source key (the latter assumes
+    // plain input). plain / rekey decrypt slot bytes under K_old —
+    // snapshot before closeDatabase clears the registry.
+    const sourceKey = (mode === 'verbatim' || mode === 'encrypt')
+        ? undefined
+        : snapshotKeyForPath(dbPath);
+
+    let raw: Uint8Array | null = null;
+
+    try {
         await closeDatabase(dbName);
 
-        const raw: Uint8Array = poolUtil.exportFile(dbPath);
+        raw = poolUtil.exportFile(dbPath);
 
         if (mode === 'verbatim') {
-            logger.info(MODULE_NAME, `✓ Exported verbatim ${dbName}: ${raw.length}B`);
-            return { rawBinary: true, data: raw };
+            logger.info(MODULE_NAME, `✓ Exported verbatim ${dbName}: ${raw!.length}B`);
+            // Return raw directly; not sensitive in verbatim mode (caller
+            // gets whatever was on OPFS — encrypted or plain — and would
+            // expect to retain ownership).
+            const out = raw;
+            raw = null;
+            return { rawBinary: true, data: out };
         }
 
-        const targetKey = mode === 'rekey' ? newKey : undefined;
-        const out = rekeySlots(raw, dbPath, sourceKey, targetKey);
+        const targetKey = (mode === 'rekey' || mode === 'encrypt') ? newKey : undefined;
+        const out = rekeySlots(raw!, dbPath, sourceKey, targetKey);
 
         logger.info(
             MODULE_NAME,
-            `✓ Exported ${mode} ${dbName}: ${raw.length}B → ${out.length}B`,
+            `✓ Exported ${mode} ${dbName}: ${raw!.length}B → ${out.length}B`,
         );
 
         return { rawBinary: true, data: out };
     } catch (error) {
         logger.error(MODULE_NAME, `Failed to export ${mode} ${dbName}:`, error);
         throw error;
+    } finally {
+        // ENCRYPT: raw is plain SQLite pages — sensitive.
+        // PLAIN: raw is encrypted ciphertext — not sensitive, but the
+        //        rekeySlots output IS plaintext returned to the caller
+        //        (caller-owned, can't clear here).
+        // REKEY: raw is encrypted ciphertext — not sensitive.
+        // Clearing raw unconditionally for non-verbatim is the safer
+        // default; it costs one fill per export.
+        if (raw !== null) {
+            clearBytes(raw);
+        }
+        // sourceKey snapshot is a fresh copy — clear it so K_old doesn't
+        // linger past export, regardless of which branch we took.
+        if (sourceKey !== undefined) {
+            clearBytes(sourceKey);
+        }
+        // The caller-supplied newKey came from unpackVfsKeyHeader; its
+        // lifetime is owned by the case-block that called us. Cleared
+        // there to keep ownership clear.
+    }
+}
+
+/**
+ * In-place plain → encrypted transition. Reads the OPFS file as plain SQLite
+ * pages, re-wraps every page under the caller-supplied 32-byte key via
+ * rekeySlots, unlinks the existing file, and writes the encrypted slots
+ * back to the same path via the opaque importDb path. Bytes never leave
+ * the worker — symmetric to ExportDatabaseAsync(REKEY) but local-only.
+ *
+ * Caller responsibility: no key must be registered for this path before
+ * the call (the function rejects otherwise) and the caller must
+ * registerEncryptionKey afterwards before opening — the registry is
+ * cleared by closeDatabase below.
+ */
+async function encryptDatabaseInPlace(dbName: string, key: Uint8Array) {
+    if (!sqlite3 || !poolUtil) {
+        throw new Error('SQLite not initialized');
+    }
+    if (key.length !== 32) {
+        throw new Error(`encryptDb: key must be exactly 32 bytes, got ${key.length}`);
+    }
+
+    const dbPath = `/databases/${dbName}`;
+
+    if (isPathEncrypted(dbPath)) {
+        throw new Error(
+            `encryptDb rejected for ${dbName}: a key is already registered; use rekey-export ceremony to re-encrypt under a different key.`,
+        );
+    }
+
+    const fileNames: string[] = poolUtil.getFileNames();
+    if (!fileNames.includes(dbPath)) {
+        throw new Error(`encryptDb: no existing DB at ${dbPath}`);
+    }
+
+    let raw: Uint8Array | null = null;
+    try {
+        await closeDatabase(dbName);
+
+        raw = poolUtil.exportFile(dbPath);
+        const encrypted = rekeySlots(raw!, dbPath, undefined, key);
+
+        poolUtil.unlink(dbPath);
+        poolUtil.importDb(dbPath, encrypted, /* opaque */ true);
+
+        logger.info(
+            MODULE_NAME,
+            `✓ Encrypted in place ${dbName}: ${raw!.length}B → ${encrypted.length}B`,
+        );
+
+        return { rowsAffected: 0 };
+    } finally {
+        // raw is plain SQLite pages from OPFS — sensitive plaintext.
+        // The encrypted output has been written to OPFS and is no longer
+        // a secret in memory.
+        if (raw !== null) {
+            clearBytes(raw);
+        }
+    }
+}
+
+/**
+ * In-place encrypted → plain transition. Snapshots the registered key,
+ * reads encrypted slots, decrypts to plain pages via rekeySlots, unlinks
+ * the existing file, and writes the plain pages back through the
+ * non-opaque importDb path. Bytes never leave the worker; the caller
+ * should clearEncryptionKey before opening (the registry was already
+ * cleared by closeDatabase below).
+ */
+async function decryptDatabaseInPlace(dbName: string) {
+    if (!sqlite3 || !poolUtil) {
+        throw new Error('SQLite not initialized');
+    }
+
+    const dbPath = `/databases/${dbName}`;
+
+    if (!isPathEncrypted(dbPath)) {
+        throw new Error(
+            `decryptDb rejected for ${dbName}: no key registered for this path; nothing to decrypt.`,
+        );
+    }
+
+    const fileNames: string[] = poolUtil.getFileNames();
+    if (!fileNames.includes(dbPath)) {
+        throw new Error(`decryptDb: no existing DB at ${dbPath}`);
+    }
+
+    // Snapshot K before closeDatabase wipes the registry.
+    const sourceKey = snapshotKeyForPath(dbPath);
+    if (sourceKey === undefined) {
+        // Should be unreachable given isPathEncrypted above, but the API
+        // boundary is worth a defensive check.
+        throw new Error(`decryptDb: registry says encrypted but no key snapshot available for ${dbName}`);
+    }
+
+    let plain: Uint8Array | null = null;
+    try {
+        await closeDatabase(dbName);
+
+        const raw: Uint8Array = poolUtil.exportFile(dbPath);
+        plain = rekeySlots(raw, dbPath, sourceKey, undefined);
+
+        poolUtil.unlink(dbPath);
+        poolUtil.importDb(dbPath, plain!, /* opaque */ false);
+
+        logger.info(
+            MODULE_NAME,
+            `✓ Decrypted in place ${dbName}: ${raw.length}B → ${plain!.length}B`,
+        );
+
+        return { rowsAffected: 0 };
+    } finally {
+        // sourceKey is a fresh snapshot of the registered K — clear so
+        // K_old doesn't linger past the operation.
+        clearBytes(sourceKey);
+        // plain is the decrypted intermediate — file is now plain on
+        // OPFS, but the in-memory buffer is a copy that should be wiped.
+        if (plain !== null) {
+            clearBytes(plain);
+        }
     }
 }
 
