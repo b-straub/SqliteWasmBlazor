@@ -91,6 +91,12 @@ builder.Services.AddLocalization();
 // the alert auto-clears once the boot status is healthy again.
 builder.Services.AddScoped<IDatabaseResetService, DemoDatabaseResetService>();
 
+// Required by SessionExpiredPopoverModel (registered Scoped by AddCryptoUI
+// regardless of whether the popover is mounted in MainLayout) — without
+// this binding the DI validator fails the whole graph at boot with
+// "CannotResolveService ISessionAuthenticator".
+builder.Services.AddScoped<ISessionAuthenticator, DemoSessionAuthenticator>();
+
 // Initialize FileOperations JS module for import/export
 await FileOperationsInterop.InitializeAsync();
 
