@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <resheader name="resmimetype"><value>text/microsoft-resx</value></resheader>
+  <resheader name="version"><value>2.0</value></resheader>
+  <resheader name="reader"><value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e108</value></resheader>
+  <resheader name="writer"><value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e108</value></resheader>
+  <data name="Page_Title" xml:space="preserve"><value>Datenbankverschlüsselung</value></data>
+  <data name="Page_Subtitle" xml:space="preserve"><value>Passkey registrieren, dann diese Datenbank am Ort verschlüsseln, entschlüsseln, exportieren oder mit dem X25519-Pubkey eines Empfängers eine Kopie weitergeben.</value></data>
+  <data name="State_Missing" xml:space="preserve"><value>Nicht in OPFS vorhanden — öffne zuerst die Todo-Liste, um eine Datenbank anzulegen.</value></data>
+  <data name="State_RowCount" xml:space="preserve"><value>{0} Todos</value></data>
+  <data name="Pill_Encrypted" xml:space="preserve"><value>Verschlüsselt</value></data>
+  <data name="Pill_Plain" xml:space="preserve"><value>Klartext</value></data>
+  <data name="Card_ActionsTitle" xml:space="preserve"><value>Zustandsübergänge und Export</value></data>
+  <data name="Card_RecipientTitle" xml:space="preserve"><value>Für einen Empfänger exportieren</value></data>
+  <data name="Card_RecipientSubtitle" xml:space="preserve"><value>Den PFA-gepanzerten X25519-Pubkey des Empfängers einfügen. Klartext-DBs werden an den Empfänger verschlüsselt (Modus ENCRYPT); verschlüsselte DBs werden neu verschlüsselt (Modus REKEY). Der Empfänger muss unter dem gleichen Datenbanknamen importieren und den passenden Schlüssel vor dem Öffnen registrieren.</value></data>
+  <data name="Field_RecipientPubkey" xml:space="preserve"><value>Empfänger-Pubkey (PFA-Armor)</value></data>
+  <data name="Btn_Encrypt" xml:space="preserve"><value>Diese Datenbank verschlüsseln</value></data>
+  <data name="Btn_Decrypt" xml:space="preserve"><value>Diese Datenbank entschlüsseln</value></data>
+  <data name="Btn_Export" xml:space="preserve"><value>Aktuellen Zustand exportieren</value></data>
+  <data name="Btn_ExportForRecipient" xml:space="preserve"><value>An Empfänger exportieren</value></data>
+  <data name="Btn_Lock" xml:space="preserve"><value>Sperren (DB schließen und Schlüssel löschen)</value></data>
+  <data name="Btn_Wipe" xml:space="preserve"><value>Datenbank löschen (destruktiv)</value></data>
+  <data name="Status_Encrypted" xml:space="preserve"><value>Datenbank am Ort mit dem passkey-abgeleiteten Schlüssel verschlüsselt.</value></data>
+  <data name="Status_Decrypted" xml:space="preserve"><value>Datenbank am Ort entschlüsselt. Slot 0 enthält jetzt unverschlüsseltes SQLite.</value></data>
+  <data name="Status_Exported" xml:space="preserve"><value>{0} als {1} exportiert.</value></data>
+  <data name="Status_ExportedForRecipient" xml:space="preserve"><value>{0} als {1} exportiert (an Empfänger-Pubkey verschlüsselt).</value></data>
+  <data name="Status_Locked" xml:space="preserve"><value>Datenbank geschlossen; gecachter Schlüssel gelöscht. Erneut anmelden, um fortzufahren.</value></data>
+  <data name="Status_Wiped" xml:space="preserve"><value>Datenbank aus OPFS gelöscht.</value></data>
+  <data name="Status_OperationCancelled" xml:space="preserve"><value>Vorgang abgebrochen.</value></data>
+  <data name="Error_PastedPubkey_BadArmor" xml:space="preserve"><value>PFA-Armor konnte nicht gelesen werden — bitte einen -----BEGIN PFA PUBLIC KEY------Block einfügen.</value></data>
+  <data name="Error_PastedPubkey_BadBase64" xml:space="preserve"><value>Innerer Schlüssel ist kein gültiges Base64.</value></data>
+  <data name="Error_PastedPubkey_WrongLength" xml:space="preserve"><value>Pubkey muss zu 32 Bytes dekodieren, hat aber {0}.</value></data>
+  <data name="Error_Operation" xml:space="preserve"><value>Vorgang fehlgeschlagen: {0}</value></data>
+</root>

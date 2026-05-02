@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <resheader name="resmimetype"><value>text/microsoft-resx</value></resheader>
+  <resheader name="version"><value>2.0</value></resheader>
+  <resheader name="reader"><value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e108</value></resheader>
+  <resheader name="writer"><value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e108</value></resheader>
+  <data name="Page_Title" xml:space="preserve"><value>Database encryption</value></data>
+  <data name="Page_Subtitle" xml:space="preserve"><value>Register a passkey, then encrypt this database in place, decrypt it, export it, or hand a copy to a recipient using their X25519 pubkey.</value></data>
+  <data name="State_Missing" xml:space="preserve"><value>Not present in OPFS — open the Todo List page first to materialize one.</value></data>
+  <data name="State_RowCount" xml:space="preserve"><value>{0} todos</value></data>
+  <data name="Pill_Encrypted" xml:space="preserve"><value>Encrypted</value></data>
+  <data name="Pill_Plain" xml:space="preserve"><value>Plain</value></data>
+  <data name="Card_ActionsTitle" xml:space="preserve"><value>State transitions and export</value></data>
+  <data name="Card_RecipientTitle" xml:space="preserve"><value>Export for a recipient</value></data>
+  <data name="Card_RecipientSubtitle" xml:space="preserve"><value>Paste the recipient's PFA-armored X25519 pubkey. Plain DBs are encrypted to the recipient (ENCRYPT mode); encrypted DBs are rekeyed (REKEY mode). The recipient must import to the same database name and register the matching key before opening.</value></data>
+  <data name="Field_RecipientPubkey" xml:space="preserve"><value>Recipient pubkey (PFA armor)</value></data>
+  <data name="Btn_Encrypt" xml:space="preserve"><value>Encrypt this database</value></data>
+  <data name="Btn_Decrypt" xml:space="preserve"><value>Decrypt this database</value></data>
+  <data name="Btn_Export" xml:space="preserve"><value>Export current state</value></data>
+  <data name="Btn_ExportForRecipient" xml:space="preserve"><value>Export to recipient</value></data>
+  <data name="Btn_Lock" xml:space="preserve"><value>Lock (close DB and clear cached key)</value></data>
+  <data name="Btn_Wipe" xml:space="preserve"><value>Wipe database (destructive)</value></data>
+  <data name="Status_Encrypted" xml:space="preserve"><value>Database encrypted in place under your passkey-derived key.</value></data>
+  <data name="Status_Decrypted" xml:space="preserve"><value>Database decrypted in place. Slot 0 is now plain SQLite.</value></data>
+  <data name="Status_Exported" xml:space="preserve"><value>Exported {0} as {1}.</value></data>
+  <data name="Status_ExportedForRecipient" xml:space="preserve"><value>Exported {0} as {1} (encrypted to recipient pubkey).</value></data>
+  <data name="Status_Locked" xml:space="preserve"><value>Database closed; cached key cleared. Authenticate again to continue.</value></data>
+  <data name="Status_Wiped" xml:space="preserve"><value>Database wiped from OPFS.</value></data>
+  <data name="Status_OperationCancelled" xml:space="preserve"><value>Operation cancelled.</value></data>
+  <data name="Error_PastedPubkey_BadArmor" xml:space="preserve"><value>Couldn't parse PFA armor — paste a -----BEGIN PFA PUBLIC KEY----- block.</value></data>
+  <data name="Error_PastedPubkey_BadBase64" xml:space="preserve"><value>Inner key payload isn't valid Base64.</value></data>
+  <data name="Error_PastedPubkey_WrongLength" xml:space="preserve"><value>Pubkey must decode to 32 bytes, got {0}.</value></data>
+  <data name="Error_Operation" xml:space="preserve"><value>Operation failed: {0}</value></data>
+</root>

@@ -1,0 +1,166 @@
+@page "/database-encryption"
+@inherits DatabaseEncryptionModelComponent
+
+<PageTitle>Database Encryption</PageTitle>
+
+<MudContainer MaxWidth="MaxWidth.Medium" Class="mt-4">
+    <MudText Typo="Typo.h5" GutterBottom="true">
+        <MudIcon Icon="@Icons.Material.Filled.EnhancedEncryption" Class="mr-1" />
+        @Model.Localizer["Page_Title"]
+    </MudText>
+    <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-4">
+        @Model.Localizer["Page_Subtitle"]
+    </MudText>
+
+    <DatabaseErrorAlert />
+
+    @* 1. Passkey ceremony surface — Crypto.UI panels (cross-assembly, RXBG061-safe). *@
+    <RegistrationPanel />
+
+    <MudDivider Class="my-4" />
+
+    <AuthenticationPanel />
+
+    <MudDivider Class="my-4" />
+
+    @* 2. Database state pill. *@
+    <MudPaper Elevation="2" Class="pa-4 mb-4">
+        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+            <MudStack Spacing="1">
+                <MudText Typo="Typo.h6">
+                    <MudIcon Icon="@Icons.Material.Filled.Storage" Size="Size.Small" Class="mr-1" />
+                    @DatabaseEncryptionModel.DatabaseName
+                </MudText>
+                @if (!Model.Exists)
+                {
+                    <MudText Typo="Typo.body2" Color="Color.Secondary">
+                        @Model.Localizer["State_Missing"]
+                    </MudText>
+                }
+                else
+                {
+                    <MudText Typo="Typo.body2" Color="Color.Secondary">
+                        @if (Model.ItemCount is { } n)
+                        {
+                            @Model.Localizer["State_RowCount", n]
+                        }
+                        @if (Model.SizeBytes > 0)
+                        {
+                            <text> · @FormatSize(Model.SizeBytes)</text>
+                        }
+                    </MudText>
+                }
+            </MudStack>
+            @if (Model.Exists)
+            {
+                @if (Model.IsEncrypted == true)
+                {
+                    <MudChip T="string"
+                             Color="Color.Success"
+                             Icon="@Icons.Material.Filled.Lock"
+                             Variant="Variant.Filled">
+                        @Model.Localizer["Pill_Encrypted"]
+                    </MudChip>
+                }
+                else if (Model.IsEncrypted == false)
+                {
+                    <MudChip T="string"
+                             Color="Color.Warning"
+                             Icon="@Icons.Material.Filled.LockOpen"
+                             Variant="Variant.Filled">
+                        @Model.Localizer["Pill_Plain"]
+                    </MudChip>
+                }
+            }
+        </MudStack>
+    </MudPaper>
+
+    @* 3. State-transition + export actions. *@
+    <MudPaper Elevation="2" Class="pa-4 mb-4">
+        <MudText Typo="Typo.h6" Class="mb-3">
+            <MudIcon Icon="@Icons.Material.Filled.Settings" Size="Size.Small" Class="mr-1" />
+            @Model.Localizer["Card_ActionsTitle"]
+        </MudText>
+        <MudStack Spacing="2">
+            <MudButtonAsyncRx Command="@Model.EncryptInPlace"
+                              Variant="Variant.Filled"
+                              Color="Color.Primary"
+                              StartIcon="@Icons.Material.Filled.Lock"
+                              FullWidth="true">
+                @Model.Localizer["Btn_Encrypt"]
+            </MudButtonAsyncRx>
+            <MudButtonAsyncRx Command="@Model.DecryptInPlace"
+                              Variant="Variant.Filled"
+                              Color="Color.Warning"
+                              StartIcon="@Icons.Material.Filled.LockOpen"
+                              FullWidth="true">
+                @Model.Localizer["Btn_Decrypt"]
+            </MudButtonAsyncRx>
+            <MudButtonAsyncRx Command="@Model.Export"
+                              Variant="Variant.Outlined"
+                              Color="Color.Secondary"
+                              StartIcon="@Icons.Material.Filled.FileDownload"
+                              FullWidth="true">
+                @Model.Localizer["Btn_Export"]
+            </MudButtonAsyncRx>
+        </MudStack>
+    </MudPaper>
+
+    @* 4. Recipient export — paste recipient pubkey, send encrypted-for-them. *@
+    <MudPaper Elevation="2" Class="pa-4 mb-4">
+        <MudText Typo="Typo.h6" Class="mb-2">
+            <MudIcon Icon="@Icons.Material.Filled.GroupAdd" Size="Size.Small" Class="mr-1" />
+            @Model.Localizer["Card_RecipientTitle"]
+        </MudText>
+        <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-3">
+            @Model.Localizer["Card_RecipientSubtitle"]
+        </MudText>
+        <MudTextField @bind-Value="@Model.PastedArmoredPubkey"
+                      Label="@(Model.Localizer["Field_RecipientPubkey"])"
+                      Variant="Variant.Outlined"
+                      Lines="9"
+                      spellcheck="false"
+                      Placeholder="-----BEGIN PFA PUBLIC KEY-----&#10;..."
+                      Class="mb-2" />
+        @if (Model.PastedKeyError is { } err)
+        {
+            <MudText Typo="Typo.caption" Color="Color.Error" Class="mb-2 d-block">@err</MudText>
+        }
+        <MudButtonAsyncRx Command="@Model.ExportForRecipient"
+                          Variant="Variant.Filled"
+                          Color="Color.Tertiary"
+                          StartIcon="@Icons.Material.Filled.Send"
+                          FullWidth="true">
+            @Model.Localizer["Btn_ExportForRecipient"]
+        </MudButtonAsyncRx>
+    </MudPaper>
+
+    @* 5. Lock + Wipe (destructive last). *@
+    <MudPaper Elevation="2" Class="pa-4">
+        <MudStack Spacing="2">
+            <MudButtonAsyncRx Command="@Model.Lock"
+                              Variant="Variant.Outlined"
+                              Color="Color.Default"
+                              StartIcon="@Icons.Material.Filled.Lock"
+                              FullWidth="true">
+                @Model.Localizer["Btn_Lock"]
+            </MudButtonAsyncRx>
+            <MudButtonAsyncRx Command="@Model.Wipe"
+                              Variant="Variant.Outlined"
+                              Color="Color.Error"
+                              StartIcon="@Icons.Material.Filled.DeleteForever"
+                              FullWidth="true">
+                @Model.Localizer["Btn_Wipe"]
+            </MudButtonAsyncRx>
+        </MudStack>
+    </MudPaper>
+</MudContainer>
+
+@code {
+    private static string FormatSize(long bytes) => bytes switch
+    {
+        < 1024 => $"{bytes} B",
+        < 1024 * 1024 => $"{bytes / 1024.0:F1} KB",
+        _ => $"{bytes / 1024.0 / 1024.0:F2} MB",
+    };
+}

@@ -11,6 +11,7 @@
         <!-- Ship every satellite resource assembly so navigator.language drives
              Crypto.UI panel localization (en + de) at boot. -->
         <BlazorWebAssemblyLoadAllGlobalizationData>true</BlazorWebAssemblyLoadAllGlobalizationData>
+        <EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>
         <!-- Suppress known EF Core trimming warning for unused ExecuteUpdateAsync API -->
         <NoWarn>$(NoWarn);IL2037</NoWarn>
     </PropertyGroup>
