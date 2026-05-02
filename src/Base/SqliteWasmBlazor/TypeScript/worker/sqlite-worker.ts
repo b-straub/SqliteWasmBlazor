@@ -1054,11 +1054,25 @@ async function exportDatabase(
 
     const dbPath = `/databases/${dbName}`;
 
+    // Up-front precondition checks before we snapshot any key material —
+    // failure path then has nothing to clear that wouldn't be cleared
+    // anyway by the finally below.
     if (mode === 'encrypt' && isPathEncrypted(dbPath)) {
-        // Reject up-front so we don't snapshot any state we need to clear
-        // on the failure path.
         throw new Error(
             `exportDb mode='encrypt' rejected for ${dbName}: a key is already registered for this path; use mode='rekey' to re-encrypt under a different key.`,
+        );
+    }
+    if ((mode === 'plain' || mode === 'rekey') && !isPathEncrypted(dbPath)) {
+        // Audit fix: REKEY / PLAIN against a plain source would silently
+        // run rekeySlots(raw, undefined, ...) and treat raw as plain
+        // pages. For REKEY that means plain → encrypted, which is the
+        // ENCRYPT mode's job; surfacing the wrong mode here forces
+        // callers to be explicit. For PLAIN it's just a no-op verbatim
+        // export — same outcome — but rejecting here keeps preconditions
+        // symmetric with REKEY and surfaces caller bugs early.
+        throw new Error(
+            `exportDb mode='${mode}' rejected for ${dbName}: no key registered for this path; ` +
+            `use mode='verbatim' for plain DBs or mode='encrypt' to encrypt a plain source.`,
         );
     }
 
@@ -1084,6 +1098,18 @@ async function exportDatabase(
             const out = raw;
             raw = null;
             return { rawBinary: true, data: out };
+        }
+
+        // Shape validation before we hand bytes to rekeySlots — keeps a
+        // mode/file-shape mismatch (e.g. ENCRYPT against a real
+        // encrypted-at-rest file after registry loss) from corrupting
+        // the output.
+        const expectedSourceSlot = (mode === 'encrypt') ? PLAIN_SLOT_SIZE : ENCRYPTED_SLOT_SIZE;
+        if (raw!.length === 0 || raw!.length % expectedSourceSlot !== 0) {
+            throw new Error(
+                `exportDb mode='${mode}' rejected for ${dbName}: file length ${raw!.length} is ` +
+                `not a non-zero multiple of expected source slot size ${expectedSourceSlot}.`,
+            );
         }
 
         const targetKey = (mode === 'rekey' || mode === 'encrypt') ? newKey : undefined;
@@ -1132,6 +1158,96 @@ async function exportDatabase(
  * registerEncryptionKey afterwards before opening — the registry is
  * cleared by closeDatabase below.
  */
+/**
+ * Slot-size constants for shape validation. Plain SQLite pages are 4096
+ * bytes; PRF-VFS encrypted slots are 4124 bytes (4096 ciphertext + 12
+ * nonce + 16 tag). A correctly-shaped source for a given mode must be
+ * an integer multiple of the corresponding slot size.
+ */
+const PLAIN_SLOT_SIZE = 4096;
+const ENCRYPTED_SLOT_SIZE = 4124;
+
+/**
+ * Atomic-ish OPFS file replacement using SAHPool's metadata-only
+ * renameFile. Steps: write new bytes to a temp slot, rename original
+ * aside as a backup, rename temp into the original's place, unlink
+ * backup. On any failure we attempt to roll back so the original
+ * survives — the only way the original is destroyed is a successful
+ * rekey followed by a successful renameFile pair, which is the
+ * intended outcome.
+ *
+ * Caller responsibility: the worker has already closed the DB and is
+ * holding the raw input bytes / new bytes. This helper only touches
+ * OPFS.
+ */
+function replaceOpfsFileAtomically(
+    dbPath: string,
+    newBytes: Uint8Array,
+    opaque: boolean,
+) {
+    const tempPath = `${dbPath}.rekey-tmp`;
+    const backupPath = `${dbPath}.rekey-bak`;
+
+    // Defensive: clean up leftovers from any prior crashed attempt
+    // before starting. unlink is no-op when the file doesn't exist.
+    const before: string[] = poolUtil.getFileNames();
+    for (const stale of [tempPath, backupPath]) {
+        if (before.includes(stale)) {
+            try { poolUtil.unlink(stale); } catch { /* best-effort */ }
+        }
+    }
+
+    let tempWritten = false;
+    let originalRenamed = false;
+    try {
+        // 1. Write new bytes to a temp slot. importDb performs basic
+        //    well-formedness checks (and verify-on-write when the path
+        //    has a registered key — note the temp path doesn't, so
+        //    the verify-on-write branch doesn't fire here regardless of
+        //    `opaque`).
+        poolUtil.importDb(tempPath, newBytes, opaque);
+        tempWritten = true;
+
+        // 2. Move the original aside as a backup so the original path
+        //    is free for the temp rename.
+        poolUtil.renameFile(dbPath, backupPath);
+        originalRenamed = true;
+
+        // 3. Promote temp into the original's place. SAHPool renameFile
+        //    is metadata-only — no file copy.
+        poolUtil.renameFile(tempPath, dbPath);
+        tempWritten = false;
+
+        // 4. Cleanup the backup; original is now the new content.
+        try { poolUtil.unlink(backupPath); } catch (e) {
+            // Step 4 failure is non-fatal: the original path holds the
+            // intended new content; the backup is orphaned but harmless
+            // (subsequent in-place ops clean it up at start).
+            logger.warn(MODULE_NAME, `replaceOpfsFileAtomically: cleanup of ${backupPath} failed`, e);
+        }
+        originalRenamed = false;
+    } catch (error) {
+        // Roll back as far as we got. Order matters:
+        //   - If originalRenamed: backup holds the original; move it
+        //     back so dbPath points at the unmodified file.
+        //   - If tempWritten: temp slot has data we no longer want.
+        if (originalRenamed) {
+            try { poolUtil.renameFile(backupPath, dbPath); } catch (rollbackErr) {
+                logger.error(
+                    MODULE_NAME,
+                    `replaceOpfsFileAtomically: rollback rename ${backupPath}→${dbPath} failed; ` +
+                    `original DB is at ${backupPath}, manual recovery required`,
+                    rollbackErr,
+                );
+            }
+        }
+        if (tempWritten) {
+            try { poolUtil.unlink(tempPath); } catch { /* best-effort */ }
+        }
+        throw error;
+    }
+}
+
 async function encryptDatabaseInPlace(dbName: string, key: Uint8Array) {
     if (!sqlite3 || !poolUtil) {
         throw new Error('SQLite not initialized');
@@ -1154,14 +1270,29 @@ async function encryptDatabaseInPlace(dbName: string, key: Uint8Array) {
     }
 
     let raw: Uint8Array | null = null;
+    let encrypted: Uint8Array | null = null;
     try {
         await closeDatabase(dbName);
 
         raw = poolUtil.exportFile(dbPath);
-        const encrypted = rekeySlots(raw!, dbPath, undefined, key);
 
-        poolUtil.unlink(dbPath);
-        poolUtil.importDb(dbPath, encrypted, /* opaque */ true);
+        // Shape check: source must be plain SQLite pages. The registry
+        // says no key, but a real encrypted-at-rest file after a registry
+        // loss would still be slot-format ciphertext (4124-byte slots).
+        // Reject before rekeySlots so we can't accidentally treat the
+        // ciphertext as plain pages and corrupt it.
+        if (raw!.length === 0 || raw!.length % PLAIN_SLOT_SIZE !== 0) {
+            throw new Error(
+                `encryptDb: ${dbName} length ${raw!.length} is not a non-zero multiple of ` +
+                `the plain page size ${PLAIN_SLOT_SIZE}; refusing to encrypt a non-plain source.`,
+            );
+        }
+
+        encrypted = rekeySlots(raw!, dbPath, undefined, key);
+
+        // Non-destructive replace: temp-write + double-rename means the
+        // original survives any failure inside replaceOpfsFileAtomically.
+        replaceOpfsFileAtomically(dbPath, encrypted, /* opaque */ true);
 
         logger.info(
             MODULE_NAME,
@@ -1171,21 +1302,24 @@ async function encryptDatabaseInPlace(dbName: string, key: Uint8Array) {
         return { rowsAffected: 0 };
     } finally {
         // raw is plain SQLite pages from OPFS — sensitive plaintext.
-        // The encrypted output has been written to OPFS and is no longer
-        // a secret in memory.
         if (raw !== null) {
             clearBytes(raw);
+        }
+        // encrypted is ciphertext (post-write) — not sensitive, but
+        // clearing it costs almost nothing and keeps the GC heap clean.
+        if (encrypted !== null) {
+            clearBytes(encrypted);
         }
     }
 }
 
 /**
  * In-place encrypted → plain transition. Snapshots the registered key,
- * reads encrypted slots, decrypts to plain pages via rekeySlots, unlinks
- * the existing file, and writes the plain pages back through the
- * non-opaque importDb path. Bytes never leave the worker; the caller
- * should clearEncryptionKey before opening (the registry was already
- * cleared by closeDatabase below).
+ * reads encrypted slots, decrypts to plain pages via rekeySlots, and
+ * writes the plain pages back via the atomic-replace helper. Bytes never
+ * leave the worker. The caller need not call ClearEncryptionKey
+ * separately — this method ALWAYS clears the registry in finally so the
+ * post-state reflects the on-disk reality (plain).
  */
 async function decryptDatabaseInPlace(dbName: string) {
     if (!sqlite3 || !poolUtil) {
@@ -1205,34 +1339,56 @@ async function decryptDatabaseInPlace(dbName: string) {
         throw new Error(`decryptDb: no existing DB at ${dbPath}`);
     }
 
-    // Snapshot K before closeDatabase wipes the registry.
+    // Snapshot K before closeDatabase wipes the registry — except
+    // closeDatabase only wipes when openDatabases.has(dbName), so a
+    // caller that only InstallEncryptionKey-ed without opening will
+    // leave the registry populated after close. We unconditionally
+    // clearKeyForPath in finally to make the post-state deterministic.
     const sourceKey = snapshotKeyForPath(dbPath);
     if (sourceKey === undefined) {
-        // Should be unreachable given isPathEncrypted above, but the API
-        // boundary is worth a defensive check.
+        // Should be unreachable given isPathEncrypted above, but defensive.
         throw new Error(`decryptDb: registry says encrypted but no key snapshot available for ${dbName}`);
     }
 
     let plain: Uint8Array | null = null;
+    let raw: Uint8Array | null = null;
     try {
         await closeDatabase(dbName);
 
-        const raw: Uint8Array = poolUtil.exportFile(dbPath);
-        plain = rekeySlots(raw, dbPath, sourceKey, undefined);
+        raw = poolUtil.exportFile(dbPath);
 
-        poolUtil.unlink(dbPath);
-        poolUtil.importDb(dbPath, plain!, /* opaque */ false);
+        // Shape check: source must be slot-format ciphertext.
+        if (raw!.length === 0 || raw!.length % ENCRYPTED_SLOT_SIZE !== 0) {
+            throw new Error(
+                `decryptDb: ${dbName} length ${raw!.length} is not a non-zero multiple of ` +
+                `the encrypted slot size ${ENCRYPTED_SLOT_SIZE}; registry says encrypted but ` +
+                `the file shape says plain — refusing to decrypt a non-encrypted source.`,
+            );
+        }
+
+        plain = rekeySlots(raw!, dbPath, sourceKey, undefined);
+
+        replaceOpfsFileAtomically(dbPath, plain!, /* opaque */ false);
 
         logger.info(
             MODULE_NAME,
-            `✓ Decrypted in place ${dbName}: ${raw.length}B → ${plain!.length}B`,
+            `✓ Decrypted in place ${dbName}: ${raw!.length}B → ${plain!.length}B`,
         );
 
         return { rowsAffected: 0 };
     } finally {
-        // sourceKey is a fresh snapshot of the registered K — clear so
-        // K_old doesn't linger past the operation.
+        // The registry MUST end empty for this path: the on-disk DB is
+        // now plain. closeDatabase above only clears when the DB was
+        // open; an Install-then-Decrypt sequence would otherwise leave
+        // K_old registered against a now-plain file. Always clear here.
+        clearKeyForPath(dbPath);
+        // sourceKey is the fresh snapshot — wipe so K_old doesn't
+        // linger past the operation.
         clearBytes(sourceKey);
+        // raw is encrypted ciphertext from OPFS — not a secret.
+        if (raw !== null) {
+            clearBytes(raw);
+        }
         // plain is the decrypted intermediate — file is now plain on
         // OPFS, but the in-memory buffer is a copy that should be wiped.
         if (plain !== null) {

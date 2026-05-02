@@ -16,6 +16,7 @@
 import {
     encryptChaCha20Poly1305,
     decryptChaCha20Poly1305,
+    clearBytes,
 } from '@sqlitewasmblazor/crypto-core';
 import { buildPageAad } from './aad.js';
 
@@ -50,7 +51,15 @@ export function rekeySlots(
         const srcStart = i * sourceSlotSize;
         const aad = buildPageAad(dbPath, i);
 
+        // When sourceKey is undefined the plaintext is a Uint8Array view
+        // INTO bytesIn (no fresh allocation, callers own the lifetime).
+        // When sourceKey is defined the plaintext is a fresh allocation
+        // returned by decryptChaCha20Poly1305 — that copy is real secret
+        // material and must be wiped after the slot's encrypt/copy step.
+        // Per-slot try/finally so an encrypt failure mid-loop still wipes
+        // the slot's plaintext.
         let plaintext: Uint8Array;
+        const ownsPlaintext = sourceKey !== undefined;
         if (sourceKey === undefined) {
             plaintext = bytesIn.subarray(srcStart, srcStart + SECTOR_SIZE);
         } else {
@@ -73,18 +82,24 @@ export function rekeySlots(
             );
         }
 
-        const dstStart = i * targetSlotSize;
-        if (targetKey === undefined) {
-            out.set(plaintext, dstStart);
-        } else {
-            const enc = encryptChaCha20Poly1305(plaintext, targetKey, aad);
-            // enc.ciphertext = ciphertext(4096) || tag(16) — length 4112.
-            out.set(enc.ciphertext.subarray(0, PAGE_PLAINTEXT_LEN), dstStart);
-            out.set(enc.nonce, dstStart + PAGE_PLAINTEXT_LEN);
-            out.set(
-                enc.ciphertext.subarray(PAGE_PLAINTEXT_LEN),
-                dstStart + PAGE_PLAINTEXT_LEN + PAGE_NONCE_LEN,
-            );
+        try {
+            const dstStart = i * targetSlotSize;
+            if (targetKey === undefined) {
+                out.set(plaintext, dstStart);
+            } else {
+                const enc = encryptChaCha20Poly1305(plaintext, targetKey, aad);
+                // enc.ciphertext = ciphertext(4096) || tag(16) — length 4112.
+                out.set(enc.ciphertext.subarray(0, PAGE_PLAINTEXT_LEN), dstStart);
+                out.set(enc.nonce, dstStart + PAGE_PLAINTEXT_LEN);
+                out.set(
+                    enc.ciphertext.subarray(PAGE_PLAINTEXT_LEN),
+                    dstStart + PAGE_PLAINTEXT_LEN + PAGE_NONCE_LEN,
+                );
+            }
+        } finally {
+            if (ownsPlaintext) {
+                clearBytes(plaintext);
+            }
         }
     }
 
