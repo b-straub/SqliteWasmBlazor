@@ -69,6 +69,7 @@ public sealed class EncryptedDatabaseLifecycle : IDisposable
     private readonly IDbInitializationStatus _dbInitStatus;
     private readonly IDbInitializationReporter _dbInitReporter;
     private readonly IDisposable _keyExpiredSubscription;
+    private readonly SemaphoreSlim _operationGate = new(1, 1);
     private bool _disposed;
 
     public EncryptedDatabaseLifecycle(
@@ -94,14 +95,24 @@ public sealed class EncryptedDatabaseLifecycle : IDisposable
 
         // Belt-and-braces: also subscribe to KeyExpired so a TTL elapse
         // unwires the worker registry even if the cascade hasn't fired yet.
+        // Routes through the operation gate so it serializes with auth-state-
+        // driven runs.
         _keyExpiredSubscription = _prf.KeyExpired
             .Subscribe(cacheKey =>
             {
                 if (cacheKey.StartsWith("prf-seed:", StringComparison.Ordinal))
                 {
-                    _ = CloseAllRegisteredAsync(default);
+                    _ = RunGatedAsync(() => CloseAllRegisteredAsync(default));
                 }
             });
+    }
+
+    private async Task RunGatedAsync(Func<Task> action)
+    {
+        await _operationGate.WaitAsync();
+        try { await action(); }
+        catch { /* surfaces via next EF touch */ }
+        finally { _operationGate.Release(); }
     }
 
     /// <summary>
@@ -142,6 +153,16 @@ public sealed class EncryptedDatabaseLifecycle : IDisposable
 
     private async void OnAuthStateChanged(Task<AuthenticationState> task)
     {
+        // Serialize all lifecycle operations. Two concurrent triggers happen
+        // routinely: AuthenticationModel.ApplySessionAsync sets CredentialId
+        // then PublicKey, each fires PushAuthState → state-provider notify →
+        // this handler. Without serialization the second run's IsEncryptedAsync
+        // probe closes the worker DB mid-flight (ExportDatabaseAsync internally
+        // calls closeDatabase for a stable snapshot), opening the "not open"
+        // window for in-flight EF Core queries that happen during the brief
+        // window the AuthorizeView is Authorized but before the second run
+        // re-installs the key.
+        await _operationGate.WaitAsync();
         try
         {
             var state = await task;
@@ -160,10 +181,27 @@ public sealed class EncryptedDatabaseLifecycle : IDisposable
             // others; a real consumer-facing error happens at the next
             // EF Core touch and surfaces through the page status sink.
         }
+        finally
+        {
+            _operationGate.Release();
+        }
     }
 
     private async Task TryInstallAllAsync(CancellationToken cancellationToken)
     {
+        // Re-entrancy guard. Promoting state to READY fires
+        // IDbInitializationStatus.Changed → PrfAuthenticationStateProvider.
+        // OnDbStateChanged → NotifyAuthenticationStateChanged → this handler
+        // fires AGAIN. The re-entry would re-run IsEncryptedAsync, which
+        // internally closes the worker DB (ExportDatabaseAsync VERBATIM
+        // calls closeDatabase for a stable snapshot), opening a window
+        // where in-flight EF Core queries hit "Database not open".
+        // Skip when the DB is already known-open at the worker.
+        if (_dbInitStatus.State == DbInitState.READY)
+        {
+            return;
+        }
+
         var pubBase64 = _prf.GetCachedPublicKey();
         if (string.IsNullOrEmpty(pubBase64))
         {
@@ -198,11 +236,21 @@ public sealed class EncryptedDatabaseLifecycle : IDisposable
                     continue;
                 }
 
-                // Close-then-install: registerEncryptionKey rejects when
-                // the worker DB is open (audit-fix `257e155`).
+                // Close-then-install-then-open: registerEncryptionKey rejects
+                // when the worker DB is open (audit-fix `257e155`); the
+                // explicit open after install eagerly puts the worker DB in
+                // openDatabases so the next EF Core connection.OpenAsync
+                // short-circuits cleanly via the bridge-tracked state and
+                // doesn't race with worker-side lazy open.
                 try { await _database.CloseDatabaseAsync(db, cancellationToken); }
                 catch { /* idempotent */ }
                 var result = await _database.InstallEncryptionKeyAsync(db, ck, cancellationToken);
+                if (result == VfsKeyInstallResult.MATCH
+                    || result == VfsKeyInstallResult.NO_EXISTING_DB)
+                {
+                    try { await _database.OpenDatabaseAsync(db, cancellationToken); }
+                    catch { /* surfaced by the next EF query if it really fails */ }
+                }
 
                 if (result == VfsKeyInstallResult.MATCH
                     && _dbInitStatus.State == DbInitState.ENCRYPTED_LOCKED)
@@ -224,10 +272,44 @@ public sealed class EncryptedDatabaseLifecycle : IDisposable
         {
             snapshot = [.. _databases];
         }
+
+        // Probe each DB BEFORE closing so we know whether to downgrade global
+        // state. Once closed, the registry is empty and IsEncryptedAsync
+        // becomes ambiguous (still magic-header-shaped check, still correct,
+        // but probing first keeps the intent obvious).
+        var anyEncrypted = false;
         foreach (var db in snapshot)
         {
+            bool encrypted;
+            try
+            {
+                encrypted = await IsEncryptedAsync(db, cancellationToken) == true;
+            }
+            catch
+            {
+                encrypted = false;
+            }
+
             try { await _database.CloseDatabaseAsync(db, cancellationToken); }
             catch { /* idempotent */ }
+
+            if (encrypted)
+            {
+                anyEncrypted = true;
+            }
+        }
+
+        // Downgrade global state if any closed DB was encrypted. This drives
+        // the DatabaseOpen policy to fail, AuthorizeViews snap to NotAuthorized,
+        // and consumer pages re-render the AuthenticationPanel. Plain-only
+        // close (no encrypted DB in the registered set) leaves state alone.
+        if (anyEncrypted && _dbInitStatus.State == DbInitState.READY)
+        {
+            // The failure carries the registered DB name(s); for a single-DB
+            // app it's just the one name. Multi-DB consumers see a comma list.
+            _dbInitReporter.Report(
+                DbInitState.ENCRYPTED_LOCKED,
+                new EncryptedDatabaseLockedFailure(string.Join(",", snapshot)));
         }
     }
 
@@ -240,5 +322,6 @@ public sealed class EncryptedDatabaseLifecycle : IDisposable
         _disposed = true;
         _authState.AuthenticationStateChanged -= OnAuthStateChanged;
         _keyExpiredSubscription.Dispose();
+        _operationGate.Dispose();
     }
 }

@@ -39,6 +39,8 @@ internal sealed class FakeDatabaseService : ISqliteWasmDatabaseService
         => throw new NotSupportedException();
     public Task CloseDatabaseAsync(string databaseName, CancellationToken cancellationToken = default)
         => throw new NotSupportedException();
+    public Task OpenDatabaseAsync(string databaseName, CancellationToken cancellationToken = default)
+        => throw new NotSupportedException();
     public Task<VfsImportResult> ImportDatabaseAsync(string databaseName, byte[] data, CancellationToken cancellationToken = default)
         => throw new NotSupportedException();
     public Task<byte[]> ExportDatabaseAsync(string databaseName, VfsExportMode mode = VfsExportMode.VERBATIM, ReadOnlyMemory<byte> newKey = default, CancellationToken cancellationToken = default)

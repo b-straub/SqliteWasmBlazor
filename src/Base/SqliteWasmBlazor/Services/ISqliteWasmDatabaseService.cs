@@ -151,6 +151,19 @@ public interface ISqliteWasmDatabaseService
     Task CloseDatabaseAsync(string databaseName, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Opens a database in the worker (no encryption-key envelope). Idempotent
+    /// — short-circuits when the bridge already tracks the database as open.
+    /// Use this after <see cref="InstallEncryptionKeyAsync"/> to eagerly open
+    /// the DB at the worker so subsequent EF Core <c>connection.OpenAsync</c>
+    /// calls short-circuit on the bridge-tracked state instead of racing with
+    /// the worker's lazy open path; the worker reads the just-registered key
+    /// from the path registry at xOpen time.
+    /// </summary>
+    /// <param name="databaseName">The database filename to open.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    Task OpenDatabaseAsync(string databaseName, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Imports a raw .db file into OPFS. The database is not opened after
     /// import — caller must re-open when ready (e.g., after cleaning up
     /// backup files to avoid SAH pool exhaustion).

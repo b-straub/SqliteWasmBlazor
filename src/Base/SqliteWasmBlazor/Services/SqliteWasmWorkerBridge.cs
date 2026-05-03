@@ -120,6 +120,15 @@ internal sealed partial class SqliteWasmWorkerBridge : ISqliteWasmDatabaseServic
     /// identical to base-library behavior. CryptoSync callers supply the key;
     /// non-CryptoSync consumers omit it.
     /// </param>
+    /// <summary>
+    /// <see cref="ISqliteWasmDatabaseService.OpenDatabaseAsync"/> — no-key
+    /// overload that delegates to the keyed variant with a null payload.
+    /// </summary>
+    Task ISqliteWasmDatabaseService.OpenDatabaseAsync(
+        string databaseName,
+        CancellationToken cancellationToken)
+        => OpenDatabaseAsync(databaseName, encryptionKey: null, cancellationToken);
+
     public async Task OpenDatabaseAsync(
         string database,
         ReadOnlyMemory<byte>? encryptionKey = null,

@@ -1,9 +1,11 @@
 @page "/multidatabase"
+@implements IDisposable
 @using Microsoft.EntityFrameworkCore
 @using SqliteWasmBlazor.Models
 @using SqliteWasmBlazor.Models.Models
 @inject IDbContextFactory<TodoDbContext> TodoFactory
 @inject IDbContextFactory<NoteDbContext> NoteFactory
+@inject IDbInitializationStatus DbStatus
 
 <PageTitle>Multi-Database Demo</PageTitle>
 
@@ -170,6 +172,28 @@
 
     protected override async Task OnInitializedAsync()
     {
+        // Page-level lifecycle hooks run BEFORE AuthorizeView decides which
+        // branch to render — we'd hit SQLITE_NOTADB on an encrypted-locked
+        // DB. Defer DB work until the boot status reaches READY (lifecycle
+        // service promotes after the install), then auto-load.
+        DbStatus.Changed += OnStatusChanged;
+        if (DbStatus.State == DbInitState.READY)
+        {
+            await BootstrapAsync();
+        }
+    }
+
+    private async void OnStatusChanged()
+    {
+        if (DbStatus.State == DbInitState.READY && _defaultListId == Guid.Empty)
+        {
+            await InvokeAsync(BootstrapAsync);
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task BootstrapAsync()
+    {
         await using var todoContext = await TodoFactory.CreateDbContextAsync();
         var list = await todoContext.TodoLists.FirstOrDefaultAsync();
         if (list is null)
@@ -187,6 +211,8 @@
 
         await LoadDataAsync();
     }
+
+    public void Dispose() => DbStatus.Changed -= OnStatusChanged;
 
     private async Task LoadDataAsync()
     {
