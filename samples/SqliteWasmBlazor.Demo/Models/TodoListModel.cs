@@ -9,7 +9,7 @@ using SqliteWasmBlazor.Models;
 using SqliteWasmBlazor.Models.Extensions;
 using SqliteWasmBlazor.Models.Models;
 
-namespace SqliteWasmBlazor.Demo.Pages;
+namespace SqliteWasmBlazor.Demo.Models;
 
 /// <summary>
 /// FTS5 highlight rendering mode. Was previously the local

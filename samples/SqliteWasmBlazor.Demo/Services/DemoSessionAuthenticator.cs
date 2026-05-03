@@ -1,5 +1,4 @@
 using Microsoft.AspNetCore.Components;
-using SqliteWasmBlazor.Crypto.Services;
 using SqliteWasmBlazor.Crypto.UI.Components.Authentication;
 using SqliteWasmBlazor.Crypto.UI.Services;
 
@@ -21,16 +20,13 @@ namespace SqliteWasmBlazor.Demo.Services;
 /// </summary>
 public sealed class DemoSessionAuthenticator : ISessionAuthenticator
 {
-    private readonly IPrfService _prfService;
     private readonly AuthenticationModel _auth;
     private readonly NavigationManager _navigation;
 
     public DemoSessionAuthenticator(
-        IPrfService prfService,
         AuthenticationModel auth,
         NavigationManager navigation)
     {
-        _prfService = prfService;
         _auth = auth;
         _navigation = navigation;
     }
@@ -38,7 +34,6 @@ public sealed class DemoSessionAuthenticator : ISessionAuthenticator
     public ValueTask ReAuthenticateAsync(CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        _prfService.ClearKeys();
         _auth.ClearKeysCommand.Execute();
         return ValueTask.CompletedTask;
     }

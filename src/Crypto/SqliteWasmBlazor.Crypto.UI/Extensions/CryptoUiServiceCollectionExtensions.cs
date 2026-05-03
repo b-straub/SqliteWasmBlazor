@@ -19,7 +19,6 @@ namespace SqliteWasmBlazor.Crypto.UI;
 /// Registers the <see cref="ServiceLifetime.Scoped"/> <c>ObservableModel</c>
 /// instances backing each base-plane panel
 /// (<see cref="Components.Authentication.AuthenticationModel"/>,
-/// <see cref="Components.Authentication.RegistrationModel"/>,
 /// <see cref="Components.Shared.DatabaseErrorAlertModel"/>,
 /// <see cref="Components.Shared.SessionExpiredPopoverModel"/>) plus the
 /// singleton <see cref="RxBlazorV2.MudBlazor.Components.StatusModel"/>
@@ -34,9 +33,9 @@ namespace SqliteWasmBlazor.Crypto.UI;
 /// touch them so a non-WebAuthn host (e.g. test fixture) can wire stubs:
 /// <list type="bullet">
 ///   <item><see cref="Services.IPrfAuthenticator"/> — backs the
-///         <see cref="Components.Authentication.AuthenticationPanel"/> and
-///         <see cref="Components.Authentication.RegistrationPanel"/>.
-///         Production impl arrives in plane-separation Phase 3.</item>
+///         <see cref="Components.Authentication.AuthenticationPanel"/>.
+///         Production impl arrives via
+///         <see cref="AddCryptoUIPrfAuthenticator"/>.</item>
 ///   <item><see cref="Services.IDatabaseResetService"/> — boot-status
 ///         recovery callback; register
 ///         <see cref="Services.NullDatabaseResetService.Instance"/> for
@@ -78,8 +77,9 @@ public static class CryptoUiServiceCollectionExtensions
         // (so consumer hosts get <AuthorizeView> + [CascadingParameter]
         // Task<AuthenticationState> for free, no hand-rolled R3
         // subscriptions in page partials).
-        services.AddScoped<PrfAuthenticationStateProvider>();
-        services.AddScoped<AuthenticationStateProvider>(
+        services.AddAuthorizationCore();
+        services.AddSingleton<PrfAuthenticationStateProvider>();
+        services.AddSingleton<AuthenticationStateProvider>(
             sp => sp.GetRequiredService<PrfAuthenticationStateProvider>());
 
         return services;
@@ -90,8 +90,8 @@ public static class CryptoUiServiceCollectionExtensions
     /// implementation backed by the base-plane <see cref="Crypto.Services.IPrfService"/>.
     /// Hosts that ship a real WebAuthn-PRF UX (the demo, downstream consumer
     /// apps) call this after <c>AddSqliteWasmBlazorCrypto</c> to wire the seam
-    /// consumed by <see cref="Components.Authentication.RegistrationPanel"/> and
-    /// <see cref="Components.Authentication.AuthenticationPanel"/>; test fixtures
+    /// consumed by <see cref="Components.Authentication.AuthenticationPanel"/>;
+    /// test fixtures
     /// that want a stub skip this call and register their own
     /// <see cref="IPrfAuthenticator"/>. Mirrors the
     /// <c>AddCryptoSyncPrfSigners</c> shape from
@@ -108,7 +108,7 @@ public static class CryptoUiServiceCollectionExtensions
     /// </summary>
     public static IServiceCollection AddCryptoUIPrfAuthenticator(this IServiceCollection services)
     {
-        services.AddScoped<IPrfAuthenticator, PrfAuthenticator>();
+        services.AddSingleton<IPrfAuthenticator, PrfAuthenticator>();
         return services;
     }
 }

@@ -4,10 +4,9 @@ namespace SqliteWasmBlazor.Crypto.UI.Services;
 
 /// <summary>
 /// Which PrfAuthenticator operation failed. Lets the per-command error
-/// formatter (<see cref="Components.Authentication.RegistrationModel.FormatRegisterError"/>
-/// / <see cref="Components.Authentication.AuthenticationModel.FormatDeriveKeysError"/>)
-/// pick the right localized resx prefix without re-deriving from the
-/// stack.
+/// formatter on <see cref="Components.Authentication.AuthenticationModel"/>
+/// pick the right localized resx prefix (<c>Error_Register_{code}</c> /
+/// <c>Error_Authenticate_{code}</c>) without re-deriving from the stack.
 /// </summary>
 public enum PrfAuthenticatorOperation
 {

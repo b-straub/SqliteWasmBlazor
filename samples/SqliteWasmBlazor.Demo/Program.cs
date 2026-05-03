@@ -1,6 +1,5 @@
 using Microsoft.AspNetCore.Components.Web;
 using Microsoft.AspNetCore.Components.WebAssembly.Hosting;
-using Microsoft.Extensions.DependencyInjection;
 using MudBlazor.Services;
 using SqliteWasmBlazor.Crypto.Extensions;
 using SqliteWasmBlazor.Crypto.UI;
@@ -64,10 +63,13 @@ var baseHref = new Uri(builder.HostEnvironment.BaseAddress).AbsolutePath;
 builder.Services.AddSqliteWasm(o => o.BaseHref = baseHref);
 
 // Base-plane crypto (Noble.js + SubtleCrypto) and the production
-// IPrfAuthenticator bridge consumed by Crypto.UI's RegistrationPanel +
-// AuthenticationPanel. Salt defaults to PrfOptions.Salt (no user identity
-// in the demo); change it if shipping under a different RP.
-builder.Services.AddSqliteWasmBlazorCrypto(configure: o => o.BaseHref = baseHref);
+// IPrfAuthenticator bridge consumed by Crypto.UI's AuthenticationPanel.
+// Salt defaults to PrfOptions.Salt (no user identity in the demo);
+// change it if shipping under a different RP.
+builder.Services.AddSqliteWasmBlazorCrypto(                                                                                                                                                           
+    configurePrf: _ => { },                       // PrfOptions defaults are fine                                                                                                                     
+    configureCache: c => c.TtlMs = 15_000,         // 15-second session for testing                                                                                                                   
+    configure:      o => o.BaseHref = baseHref);  
 builder.Services.AddCryptoUIPrfAuthenticator();
 
 // Crypto.UI panel models + the singleton StatusModel that every command in

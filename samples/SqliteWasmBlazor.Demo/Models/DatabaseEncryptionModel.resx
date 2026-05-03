@@ -11,7 +11,6 @@
   <data name="Pill_Encrypted" xml:space="preserve"><value>Encrypted</value></data>
   <data name="Pill_Plain" xml:space="preserve"><value>Plain</value></data>
   <data name="Card_ActionsTitle" xml:space="preserve"><value>State transitions and export</value></data>
-  <data name="Alert_AuthRequired" xml:space="preserve"><value>Authenticate above to enable encrypt / decrypt / export-for-recipient. The hint provider remembers your most recent passkey across page reloads, so the platform skips the picker on subsequent ceremonies.</value></data>
   <data name="Card_RecipientTitle" xml:space="preserve"><value>Export for a recipient</value></data>
   <data name="Card_RecipientSubtitle" xml:space="preserve"><value>Paste the recipient's PFA-armored X25519 pubkey. Plain DBs are encrypted to the recipient (ENCRYPT mode); encrypted DBs are rekeyed (REKEY mode). The recipient must import to the same database name and register the matching key before opening.</value></data>
   <data name="Field_RecipientPubkey" xml:space="preserve"><value>Recipient pubkey (PFA armor)</value></data>

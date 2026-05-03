@@ -1,5 +1,4 @@
 using System.Security.Cryptography;
-using System.Text;
 using SqliteWasmBlazor.Crypto.Abstractions.Models;
 
 namespace SqliteWasmBlazor.Crypto.Abstractions.Services;

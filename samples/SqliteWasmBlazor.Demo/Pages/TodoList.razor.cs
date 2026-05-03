@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Components.Web;
+using SqliteWasmBlazor.Demo.Models;
 
 namespace SqliteWasmBlazor.Demo.Pages;
 

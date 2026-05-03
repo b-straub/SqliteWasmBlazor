@@ -1,4 +1,5 @@
 using SqliteWasmBlazor.Components.Interop;
+using SqliteWasmBlazor.Demo.Models;
 
 namespace SqliteWasmBlazor.Demo.Pages;
 

@@ -11,7 +11,6 @@
   <data name="Pill_Encrypted" xml:space="preserve"><value>Verschlüsselt</value></data>
   <data name="Pill_Plain" xml:space="preserve"><value>Klartext</value></data>
   <data name="Card_ActionsTitle" xml:space="preserve"><value>Zustandsübergänge und Export</value></data>
-  <data name="Alert_AuthRequired" xml:space="preserve"><value>Bitte oben anmelden, um Verschlüsseln / Entschlüsseln / Empfänger-Export zu aktivieren. Der Hint-Provider merkt sich den zuletzt verwendeten Passkey über Seitenneuladen hinweg, sodass die Plattform den Auswahldialog danach überspringt.</value></data>
   <data name="Card_RecipientTitle" xml:space="preserve"><value>Für einen Empfänger exportieren</value></data>
   <data name="Card_RecipientSubtitle" xml:space="preserve"><value>Den PFA-gepanzerten X25519-Pubkey des Empfängers einfügen. Klartext-DBs werden an den Empfänger verschlüsselt (Modus ENCRYPT); verschlüsselte DBs werden neu verschlüsselt (Modus REKEY). Der Empfänger muss unter dem gleichen Datenbanknamen importieren und den passenden Schlüssel vor dem Öffnen registrieren.</value></data>
   <data name="Field_RecipientPubkey" xml:space="preserve"><value>Empfänger-Pubkey (PFA-Armor)</value></data>

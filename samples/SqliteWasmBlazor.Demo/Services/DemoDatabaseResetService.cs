@@ -1,5 +1,4 @@
 using Microsoft.EntityFrameworkCore;
-using SqliteWasmBlazor;
 using SqliteWasmBlazor.Crypto.UI.Services;
 using SqliteWasmBlazor.Models;
 

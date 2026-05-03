@@ -1,5 +1,4 @@
 using MessagePack;
-using SqliteWasmBlazor;
 
 namespace SqliteWasmBlazor.CryptoSync.Tests.Fixtures;
 

@@ -1,5 +1,4 @@
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.DependencyInjection;
 using SqliteWasmBlazor.Models;
 
 namespace SqliteWasmBlazor.TestApp.TestInfrastructure.Tests.Migrations.Recovery;

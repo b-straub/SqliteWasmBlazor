@@ -5,9 +5,8 @@ namespace SqliteWasmBlazor.Crypto.UI.Services;
 
 /// <summary>
 /// Production <see cref="IPrfAuthenticator"/> implementation that bridges the
-/// host-supplied seam consumed by <see cref="Components.Authentication.RegistrationPanel"/>
-/// and <see cref="Components.Authentication.AuthenticationPanel"/> onto the
-/// base-plane <see cref="IPrfService"/>. No new TS surface — the underlying
+/// host-supplied seam consumed by <see cref="Components.Authentication.AuthenticationPanel"/>
+/// onto the base-plane <see cref="IPrfService"/>. No new TS surface — the underlying
 /// WebAuthn-PRF pipeline (<c>noble-prf.ts</c>, <c>navigator.credentials.create/get</c>,
 /// X25519 derivation, <c>SecureKeyCache</c>) is already production-grade and
 /// exercised end-to-end by the R2 / R3 Playwright suites.

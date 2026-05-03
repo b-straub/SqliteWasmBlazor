@@ -2,11 +2,10 @@ namespace SqliteWasmBlazor.Crypto.UI.Services;
 
 /// <summary>
 /// Host-supplied seam carrying the WebAuthn-PRF authentication / key
-/// derivation pipeline behind <see cref="Components.Authentication.AuthenticationPanel"/>
-/// and <see cref="Components.Authentication.RegistrationPanel"/>. The
-/// CryptoSync.UI library does not register a default implementation —
+/// derivation pipeline behind <see cref="Components.Authentication.AuthenticationPanel"/>.
+/// The Crypto.UI library does not register a default implementation —
 /// the consumer wires either a stub (test fixtures) or the production
-/// PRF-backed implementation that lands in the post-Stage-2 demo step.
+/// PRF-backed implementation via <c>AddCryptoUIPrfAuthenticator</c>.
 ///
 /// <para>
 /// Implementations must be safe to call from a Blazor render context

@@ -11,7 +11,7 @@ using SqliteWasmBlazor.Crypto.UI.Components.Authentication;
 using SqliteWasmBlazor.Models;
 using PublicKeyMetadata = SqliteWasmBlazor.Crypto.Abstractions.Formatting.PublicKeyMetadata;
 
-namespace SqliteWasmBlazor.Demo.Pages;
+namespace SqliteWasmBlazor.Demo.Models;
 
 /// <summary>
 /// Drives the <c>DatabaseEncryption.razor</c> page — the WebAuthn-PRF demo
@@ -19,20 +19,24 @@ namespace SqliteWasmBlazor.Demo.Pages;
 /// pre-3.a (in-place encrypt / decrypt + <c>VfsExportMode.ENCRYPT</c>).
 ///
 /// <para>
-/// The page embeds <c>&lt;RegistrationPanel/&gt;</c> +
-/// <c>&lt;AuthenticationPanel/&gt;</c> from Crypto.UI for the passkey
-/// ceremony surface; this model owns the DB-state pill + the encrypt /
-/// decrypt / export / lock / wipe commands. The cross-assembly composition
-/// is RXBG061-safe (the panels live in <c>SqliteWasmBlazor.Crypto.UI</c>).
+/// The page is gated by <c>&lt;AuthorizeView&gt;</c> driven by
+/// <see cref="PrfAuthenticationStateProvider"/>: the NotAuthorized branch
+/// shows <c>&lt;AuthenticationPanel/&gt;</c> + <c>&lt;RegistrationPanel/&gt;</c>
+/// from Crypto.UI; the Authorized branch shows the DB-state pill + the
+/// encrypt / decrypt / export / lock / wipe commands this model owns. The
+/// cross-assembly composition is RXBG061-safe (the panels live in
+/// <c>SqliteWasmBlazor.Crypto.UI</c>).
 /// </para>
 ///
 /// <para>
 /// <b>Auth-state reactivity.</b> <see cref="AuthenticationModel"/> is
-/// injected so <c>Auth.PublicKey</c> reads inside <c>CanEncrypt</c> /
-/// <c>CanDecrypt</c> / <c>CanExportForRecipient</c> register as observed
-/// properties — the SG wires the predicate recomputation on change so the
-/// button <c>Disabled</c> bindings flip the moment the user authenticates
-/// (or locks).
+/// injected so <see cref="OnContextReadyAsync(System.Threading.CancellationToken)"/>
+/// can subscribe to <see cref="AuthenticationModel.PublicKey"/> changes and
+/// re-run <see cref="RefreshAsync(System.Threading.CancellationToken)"/>;
+/// without that, an encrypted DB's <see cref="ItemCount"/> stays null after
+/// the user authenticates because the initial pre-auth refresh ran without
+/// a registered key. The <c>&lt;AuthorizeView&gt;</c> handles the visual
+/// transition; the model handles the data refresh.
 /// </para>
 ///
 /// <para>
@@ -78,21 +82,13 @@ public partial class DatabaseEncryptionModel : ObservableModel
     /// <summary>
     /// True when the active passkey has produced a cached X25519 pubkey.
     /// Read by the <c>CanEncrypt</c> / <c>CanDecrypt</c> /
-    /// <c>CanExportForRecipient</c> guards.
-    ///
-    /// <para>
-    /// <b>Load-bearing markup gate.</b> The cross-model observation that
-    /// makes this getter reactive depends on a markup read of
-    /// <c>Model.Auth.PublicKey</c> in <c>DatabaseEncryption.razor</c>
-    /// (the auth-required <c>MudAlert</c> wrapper). The SG's auto-
-    /// generated page <c>Filter()</c> only includes properties referenced
-    /// in the razor markup, so the markup gate is what makes
-    /// <see cref="MudButtonAsyncRx"/> bindings re-evaluate when
-    /// <see cref="AuthenticationModel.PublicKey"/> changes. Don't remove
-    /// the <c>@if (string.IsNullOrEmpty(Model.Auth.PublicKey))</c> branch
-    /// without replacing it with another markup-level read of the same
-    /// path, or button enabling will silently break.
-    /// </para>
+    /// <c>CanExportForRecipient</c> guards. Cross-model reactivity to
+    /// <see cref="AuthenticationModel.PublicKey"/> is handled by the
+    /// <see cref="OnContextReadyAsync(System.Threading.CancellationToken)"/>
+    /// subscription that re-runs <see cref="RefreshAsync(System.Threading.CancellationToken)"/>
+    /// on every auth-state flip; the page itself is gated by
+    /// <c>&lt;AuthorizeView&gt;</c> via <c>PrfAuthenticationStateProvider</c>,
+    /// so these guards are belt-and-braces inside the Authorized branch.
     /// </summary>
     public bool HasCachedKey => !string.IsNullOrEmpty(Auth.PublicKey);
 
@@ -122,6 +118,22 @@ public partial class DatabaseEncryptionModel : ObservableModel
     private bool CanExport() => Exists;
     private bool CanExportForRecipient() => Exists && HasCachedKey && TryGetPastedKeyBytes() is not null;
     private bool CanWipe() => Exists;
+
+    /// <summary>
+    /// Auto-detected internal observer (RxBlazorV2): private async method
+    /// that reads <see cref="AuthenticationModel.PublicKey"/>; the SG wires
+    /// a subscription so this runs every time auth state flips. Without it,
+    /// an encrypted DB's <see cref="ItemCount"/> stays null after auth
+    /// because the initial pre-auth <see cref="RefreshAsync"/> call ran
+    /// without a registered key. Page-side gating via
+    /// <c>&lt;AuthorizeView&gt;</c> hides the controls when anonymous, but
+    /// the model still owns the data refresh contract.
+    /// </summary>
+    private async Task OnAuthPublicKeyChangedAsync(CancellationToken cancellationToken)
+    {
+        _ = Auth.PublicKey;
+        await RefreshAsync(cancellationToken);
+    }
 
     /// <summary>
     /// Probe DB existence + state-pill data. The encryption-state probe is
@@ -248,7 +260,6 @@ public partial class DatabaseEncryptionModel : ObservableModel
     {
         await DatabaseService.CloseDatabaseAsync(DatabaseName, cancellationToken);
         await DatabaseService.ClearEncryptionKeyAsync(DatabaseName, cancellationToken);
-        PrfService.ClearKeys();
         Auth.ClearKeysCommand.Execute();
         OwnArmoredPubkey = null;
         await RefreshAsync(cancellationToken);

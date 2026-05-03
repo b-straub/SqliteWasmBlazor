@@ -109,17 +109,23 @@ public static class ServiceCollectionExtensions
         // Register crypto provider
         services.AddSingleton<ICryptoProvider, NobleCryptoProvider>();
 
-        // Register services
-        services.AddScoped<ISecureKeyCache, SecureKeyCache>();
-        services.AddScoped<PrfService>();
-        services.AddScoped<IPrfService>(sp => sp.GetRequiredService<PrfService>());
-        services.AddScoped<IEd25519PublicKeyProvider>(sp => sp.GetRequiredService<PrfService>());
-        services.AddScoped<ISymmetricEncryption, SymmetricEncryptionService>();
-        services.AddScoped<IAsymmetricEncryption, AsymmetricEncryptionService>();
-        services.AddScoped<ISigningService, SigningService>();
+        // Register services — Singleton across the board: SecureKeyCache holds
+        // the canonical key bundle for the app's lifetime, and downstream
+        // consumers (IPrfAuthenticator, AuthenticationModel, signing /
+        // encryption services) are Singleton too. A Scoped cache would
+        // contradict the caching contract — re-deriving keys per scope
+        // defeats the TtlMinutes / TtlMs window. Mirrors the lifetimes of
+        // the IConfiguration overload above.
+        services.AddSingleton<ISecureKeyCache, SecureKeyCache>();
+        services.AddSingleton<PrfService>();
+        services.AddSingleton<IPrfService>(sp => sp.GetRequiredService<PrfService>());
+        services.AddSingleton<IEd25519PublicKeyProvider>(sp => sp.GetRequiredService<PrfService>());
+        services.AddSingleton<ISymmetricEncryption, SymmetricEncryptionService>();
+        services.AddSingleton<IAsymmetricEncryption, AsymmetricEncryptionService>();
+        services.AddSingleton<ISigningService, SigningService>();
 
         // Default passkey-hint provider: browser localStorage keyed by salt.
-        services.AddScoped<IPasskeyHintProvider, LocalStoragePasskeyHintProvider>();
+        services.AddSingleton<IPasskeyHintProvider, LocalStoragePasskeyHintProvider>();
 
         return services;
     }

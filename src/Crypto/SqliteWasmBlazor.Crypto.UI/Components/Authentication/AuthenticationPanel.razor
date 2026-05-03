@@ -1,120 +1,100 @@
 @inherits AuthenticationModelComponent
 
-<MudCard>
-    <MudCardHeader>
-        <CardHeaderAvatar>
-            <MudIcon Icon="@Icons.Material.Filled.Key" Color="Color.Primary" />
-        </CardHeaderAvatar>
-        <CardHeaderContent>
-            <MudText Typo="Typo.h6">@Model.Localizer["Header_Title"]</MudText>
-            <MudText Typo="Typo.body2" Class="mud-text-secondary">@Model.Localizer["Header_Subtitle"]</MudText>
-        </CardHeaderContent>
-    </MudCardHeader>
+@* BlazorPRF.Sample/Pages/Home.razor NotAuthorized branch — 1:1 shape with
+   inline Register section (no /setup navigation). The consumer wraps this
+   panel in <AuthorizeView><NotAuthorized>...</NotAuthorized></AuthorizeView>;
+   the panel pushes session state through PrfAuthenticationStateProvider
+   so the AuthorizeView flips to Authorized on success. *@
+<MudContainer MaxWidth="MaxWidth.Small" Class="d-flex flex-column align-center justify-center" Style="min-height: 60vh;">
+    <MudIcon Icon="@Icons.Material.Filled.Security"
+             Color="Color.Primary"
+             Style="font-size: 6rem;"
+             Class="mb-4" />
 
-    <MudCardContent>
-        <MudTextField @bind-Value="@Model.CredentialId"
-                      Label="@(Model.Localizer["Field_CredentialIdLabel"])"
-                      Variant="Variant.Outlined"
-                      HelperText="@(Model.Localizer["Field_CredentialIdHelper"])"
-                      Class="mb-4"
-                      Disabled="@Model.IsExecuting" />
+    <MudText Typo="Typo.h4" Align="Align.Center" GutterBottom="true">
+        @Model.Localizer["Header_Title"]
+    </MudText>
 
-        @if (Model is { HasKeys: true, PublicKey: not null })
-        {
-            <MudPaper Class="pa-4 mt-4" Elevation="0" Outlined="true">
-                <MudStack Row="true" AlignItems="AlignItems.Start" Justify="Justify.SpaceBetween">
-                    <div Style="flex: 1; overflow: hidden;">
-                        <MudText Typo="Typo.caption" Class="mud-text-secondary">@Model.Localizer["Field_PublicKeyCaption"]</MudText>
-                        <MudText Typo="Typo.body2" Style="font-family: monospace; white-space: pre-wrap; word-break: break-all;">@Model.PublicKey</MudText>
+    <MudText Typo="Typo.body1" Align="Align.Center" Class="mb-6 mud-text-secondary">
+        @Model.Localizer["Header_Subtitle"]
+    </MudText>
 
-                        @if (Model.Metadata is { } metadata)
-                        {
-                            <MudStack Row="true" Spacing="1" Class="mt-2" Wrap="Wrap.Wrap">
-                                @if (!string.IsNullOrWhiteSpace(metadata.Name))
-                                {
-                                    <MudChip T="string" Size="Size.Small" Icon="@Icons.Material.Filled.Person">@metadata.Name</MudChip>
-                                }
-                                @if (!string.IsNullOrWhiteSpace(metadata.Email))
-                                {
-                                    <MudChip T="string" Size="Size.Small" Icon="@Icons.Material.Filled.Mail">@metadata.Email</MudChip>
-                                }
-                                @if (!string.IsNullOrWhiteSpace(metadata.Comment))
-                                {
-                                    <MudChip T="string" Size="Size.Small" Icon="@Icons.Material.Filled.Comment">@metadata.Comment</MudChip>
-                                }
-                                @if (metadata.Created is { } created)
-                                {
-                                    <MudChip T="string" Size="Size.Small" Icon="@Icons.Material.Filled.CalendarToday">@created.ToString("yyyy-MM-dd")</MudChip>
-                                }
-                            </MudStack>
-                        }
-                    </div>
-                    <MudStack Row="true" Spacing="0">
-                        <MudTooltip Text="@(Model.Localizer["Tooltip_EditMetadata"])">
-                            <MudIconButtonRx Command="@Model.OpenMetadataDialogCommand"
-                                             Icon="@Icons.Material.Filled.Edit"
-                                             Color="Color.Default" />
-                        </MudTooltip>
-                        <MudTooltip Text="@(Model.Localizer["Tooltip_CopyKey"])">
-                            <MudIconButtonRx Command="@Model.RequestCopyCommand"
-                                             Icon="@Icons.Material.Filled.ContentCopy"
-                                             Color="Color.Primary" />
-                        </MudTooltip>
-                    </MudStack>
-                </MudStack>
-            </MudPaper>
-        }
-    </MudCardContent>
+    @if (Model.IsPrfSupported is null)
+    {
+        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="mb-4">
+            <MudProgressCircular Indeterminate="true" Size="Size.Small" />
+            <MudText>@Model.Localizer["Status_CheckingPrf"]</MudText>
+        </MudStack>
+    }
+    else if (Model.IsPrfSupported == false)
+    {
+        <MudAlert Severity="Severity.Error" Class="mb-4" Variant="Variant.Outlined">
+            @Model.Localizer["Alert_PrfNotSupported"]
+        </MudAlert>
+    }
+    else if (Model.DiscoverableCancelled)
+    {
+        @* User cancelled discoverable picker — show register section + try again. *@
+        <MudAlert Severity="Severity.Info" Class="mb-4" Variant="Variant.Outlined">
+            @Model.Localizer["Alert_DiscoverableCancelled"]
+        </MudAlert>
 
-    <MudCardActions>
+        <MudPaper Elevation="0" Outlined="true" Class="pa-4 mb-4" Style="width: 100%;">
+            <MudStack Spacing="2">
+                <MudText Typo="Typo.subtitle1">@Model.Localizer["Register_Header"]</MudText>
+                <MudText Typo="Typo.body2" Color="Color.Secondary">
+                    @Model.Localizer["Register_Description"]
+                </MudText>
+                <MudTextField @bind-Value="@Model.RegisterDisplayName"
+                              Label="@(Model.Localizer["Field_DisplayNameLabel"])"
+                              Variant="Variant.Outlined"
+                              HelperText="@(Model.Localizer["Field_DisplayNameHelper"])"
+                              Disabled="@Model.Register.Executing" />
+                <MudButtonAsyncRx Command="@Model.Register"
+                                  Variant="Variant.Filled"
+                                  Color="Color.Primary"
+                                  Size="Size.Large"
+                                  StartIcon="@Icons.Material.Filled.PersonAdd"
+                                  FullWidth="true">
+                    @Model.Localizer["Btn_Register"]
+                </MudButtonAsyncRx>
+            </MudStack>
+        </MudPaper>
+
+        <MudButtonAsyncRx Command="@Model.DeriveKeysDiscoverable"
+                          Variant="Variant.Outlined"
+                          Color="Color.Primary"
+                          Size="Size.Large"
+                          StartIcon="@Icons.Material.Filled.Fingerprint">
+            @Model.Localizer["Btn_TryAgain"]
+        </MudButtonAsyncRx>
+    }
+    else if (!string.IsNullOrWhiteSpace(Model.CredentialId))
+    {
+        @* Returning user — direct auth using stored credential hint. *@
         <MudButtonAsyncRx Command="@Model.DeriveKeys"
                           Variant="Variant.Filled"
                           Color="Color.Primary"
+                          Size="Size.Large"
                           StartIcon="@Icons.Material.Filled.Fingerprint">
-            @Model.Localizer["Btn_DeriveKeys"]
+            @Model.Localizer["Btn_Authenticate"]
         </MudButtonAsyncRx>
-
-        @if (Model.HasKeys)
-        {
-            <MudButtonRx Command="@Model.ClearKeysCommand"
-                         Color="Color.Secondary"
-                         Variant="Variant.Outlined"
-                         StartIcon="@Icons.Material.Filled.Clear"
-                         Class="ml-2">
-                @Model.Localizer["Btn_ClearKeys"]
-            </MudButtonRx>
-        }
-    </MudCardActions>
-</MudCard>
-
-<MudDialog @bind-Visible="@Model.DialogVisible" Options="@_dialogOptions">
-    <TitleContent>
-        <MudText Typo="Typo.h6">
-            <MudIcon Icon="@Icons.Material.Filled.Person" Class="mr-2" Style="vertical-align: middle;" />
-            @Model.Localizer["Dialog_MetadataTitle"]
+        <MudText Typo="Typo.caption" Class="mt-2 mud-text-secondary">
+            @Model.Localizer["Caption_UsingHint"]
         </MudText>
-    </TitleContent>
-    <DialogContent>
-        <MudText Typo="Typo.body2" Class="mb-4 mud-text-secondary">
-            @Model.Localizer["Dialog_MetadataDescription"]
+    }
+    else
+    {
+        @* No hint stored — discoverable picker. *@
+        <MudButtonAsyncRx Command="@Model.DeriveKeysDiscoverable"
+                          Variant="Variant.Filled"
+                          Color="Color.Primary"
+                          Size="Size.Large"
+                          StartIcon="@Icons.Material.Filled.Fingerprint">
+            @Model.Localizer["Btn_Authenticate"]
+        </MudButtonAsyncRx>
+        <MudText Typo="Typo.caption" Class="mt-2 mud-text-secondary">
+            @Model.Localizer["Caption_DiscoverablePicker"]
         </MudText>
-        <MudTextField @bind-Value="@Model.EditName"
-                      Label="@(Model.Localizer["Field_NameLabel"])"
-                      Variant="Variant.Outlined"
-                      Class="mb-3" />
-        <MudTextField @bind-Value="@Model.EditEmail"
-                      Label="@(Model.Localizer["Field_EmailLabel"])"
-                      Variant="Variant.Outlined"
-                      Class="mb-3" />
-        <MudTextField @bind-Value="@Model.EditComment"
-                      Label="@(Model.Localizer["Field_CommentLabel"])"
-                      Variant="Variant.Outlined"
-                      Class="mb-3" />
-    </DialogContent>
-    <DialogActions>
-        <MudButtonRx Command="@Model.CancelMetadataDialogCommand">@Model.Localizer["Btn_Cancel"]</MudButtonRx>
-        <MudButtonRx Command="@Model.SaveMetadataCommand"
-                     Color="Color.Primary"
-                     Variant="Variant.Filled">@Model.Localizer["Btn_Save"]</MudButtonRx>
-    </DialogActions>
-</MudDialog>
+    }
+</MudContainer>

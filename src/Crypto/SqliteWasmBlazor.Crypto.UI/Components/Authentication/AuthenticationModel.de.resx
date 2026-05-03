@@ -4,31 +4,38 @@
   <resheader name="version"><value>2.0</value></resheader>
   <resheader name="reader"><value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e108</value></resheader>
   <resheader name="writer"><value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e108</value></resheader>
-  <data name="Header_Title" xml:space="preserve"><value>Schlüssel ableiten</value></data>
-  <data name="Header_Subtitle" xml:space="preserve"><value>Mit Passkey anmelden, um Verschlüsselungsschlüssel abzuleiten</value></data>
-  <data name="Field_CredentialIdLabel" xml:space="preserve"><value>Anmeldedaten-ID (optional)</value></data>
-  <data name="Field_CredentialIdHelper" xml:space="preserve"><value>Leer lassen, um den Plattform-Passkey-Dialog zu nutzen</value></data>
-  <data name="Field_PublicKeyCaption" xml:space="preserve"><value>Öffentlicher Schlüssel (zum Weitergeben)</value></data>
-  <data name="Tooltip_EditMetadata" xml:space="preserve"><value>Metadaten bearbeiten</value></data>
-  <data name="Tooltip_CopyKey" xml:space="preserve"><value>Öffentlichen Schlüssel in die Zwischenablage kopieren</value></data>
-  <data name="Btn_DeriveKeys" xml:space="preserve"><value>Schlüssel ableiten</value></data>
-  <data name="Btn_ClearKeys" xml:space="preserve"><value>Schlüssel löschen</value></data>
-  <data name="Dialog_MetadataTitle" xml:space="preserve"><value>Schlüssel-Metadaten</value></data>
-  <data name="Dialog_MetadataDescription" xml:space="preserve"><value>Optionale Informationen zur Identifikation dieses Schlüssels.</value></data>
-  <data name="Field_NameLabel" xml:space="preserve"><value>Name</value></data>
-  <data name="Field_EmailLabel" xml:space="preserve"><value>E-Mail</value></data>
-  <data name="Field_CommentLabel" xml:space="preserve"><value>Kommentar</value></data>
-  <data name="Btn_Cancel" xml:space="preserve"><value>Abbrechen</value></data>
-  <data name="Btn_Save" xml:space="preserve"><value>Speichern</value></data>
-  <data name="Status_AuthenticationCancelled" xml:space="preserve"><value>Anmeldung wurde abgebrochen.</value></data>
-  <data name="Status_KeysDerived" xml:space="preserve"><value>Schlüssel erfolgreich aus dem Passkey abgeleitet.</value></data>
-  <data name="Status_PublicKeyCopied" xml:space="preserve"><value>Öffentlicher Schlüssel in die Zwischenablage kopiert!</value></data>
-  <data name="Error_Authenticate_KEY_DERIVATION_FAILED" xml:space="preserve"><value>Schlüsselableitung fehlgeschlagen. Bitte erneut versuchen.</value></data>
-  <data name="Error_Authenticate_AUTHENTICATION_TAG_MISMATCH" xml:space="preserve"><value>Falscher Passkey: die Daten wurden mit einem anderen Schlüssel verschlüsselt.</value></data>
-  <data name="Error_Authenticate_CREDENTIAL_NOT_FOUND" xml:space="preserve"><value>Der Passkey wurde auf diesem Gerät nicht gefunden. Er wurde möglicherweise gelöscht oder ist nur auf einem anderen Gerät verfügbar.</value></data>
-  <data name="Error_Authenticate_INVALID_DATA" xml:space="preserve"><value>Authentifizierungsdaten sind ungültig oder beschädigt.</value></data>
-  <data name="Error_Authenticate_NOT_SUPPORTED" xml:space="preserve"><value>WebAuthn wird auf diesem Gerät oder Browser nicht unterstützt.</value></data>
-  <data name="Error_Authenticate_PRF_NOT_SUPPORTED" xml:space="preserve"><value>Der gewählte Passkey unterstützt PRF nicht. Bitte einen mit PRF-Unterstützung registrierten Passkey verwenden.</value></data>
-  <data name="Error_DeriveKeys_Unknown" xml:space="preserve"><value>Schlüssel-Ableitung fehlgeschlagen: {0}</value></data>
-  <data name="Error_ClipboardCopy" xml:space="preserve"><value>Kopieren in die Zwischenablage fehlgeschlagen: {0}</value></data>
+  <data name="Header_Title" xml:space="preserve"><value>Mit Passkey anmelden</value></data>
+  <data name="Header_Subtitle" xml:space="preserve"><value>Nutze Fingerabdruck, Gesichtserkennung oder die Geräte-PIN. Dein Passkey erzeugt die Schlüssel für diese App — sie verlassen das Gerät nie.</value></data>
+  <data name="Status_CheckingPrf" xml:space="preserve"><value>Passkey-Unterstützung wird geprüft…</value></data>
+  <data name="Alert_PrfNotSupported" xml:space="preserve"><value>Passkeys mit PRF werden auf diesem Browser oder Gerät nicht unterstützt. Probiere einen aktuellen Chrome / Edge / Safari oder ein Gerät mit Plattform-Authenticator.</value></data>
+  <data name="Alert_DiscoverableCancelled" xml:space="preserve"><value>Kein Passkey ausgewählt. Registriere einen neuen oder versuche es nochmal, um einen vorhandenen zu wählen.</value></data>
+  <data name="Register_Header" xml:space="preserve"><value>Neuen Passkey registrieren</value></data>
+  <data name="Register_Description" xml:space="preserve"><value>Füge einen Passkey für dieses Gerät hinzu. Der optionale Anzeigename erscheint im Auswahldialog der Plattform und als Label deines öffentlichen Schlüssels.</value></data>
+  <data name="Field_DisplayNameLabel" xml:space="preserve"><value>Anzeigename (optional)</value></data>
+  <data name="Field_DisplayNameHelper" xml:space="preserve"><value>Wird im Passwortmanager und Auswahldialog angezeigt.</value></data>
+  <data name="Btn_Authenticate" xml:space="preserve"><value>Anmelden</value></data>
+  <data name="Btn_Register" xml:space="preserve"><value>Passkey registrieren</value></data>
+  <data name="Btn_TryAgain" xml:space="preserve"><value>Erneut versuchen</value></data>
+  <data name="Caption_UsingHint" xml:space="preserve"><value>Letzter verwendeter Passkey wird verwendet — der Auswahldialog wird übersprungen.</value></data>
+  <data name="Caption_DiscoverablePicker" xml:space="preserve"><value>Wähle einen Passkey aus der Liste der Plattform.</value></data>
+  <data name="Status_Registered" xml:space="preserve"><value>Passkey registriert. Du bist angemeldet.</value></data>
+  <data name="Status_AuthenticationCancelled" xml:space="preserve"><value>Anmeldung abgebrochen.</value></data>
+  <data name="Status_DiscoverableCancelled" xml:space="preserve"><value>Kein Passkey ausgewählt.</value></data>
+  <data name="Status_RegisterCancelled" xml:space="preserve"><value>Registrierung abgebrochen.</value></data>
+  <data name="Error_Authenticate_REGISTRATION_FAILED" xml:space="preserve"><value>Anmeldung fehlgeschlagen: ungültige Registrierungsdaten. Bitte einen neuen Passkey registrieren.</value></data>
+  <data name="Error_Authenticate_KEY_DERIVATION_FAILED" xml:space="preserve"><value>Schlüssel konnten nicht aus diesem Passkey abgeleitet werden. Bitte einen neuen registrieren.</value></data>
+  <data name="Error_Authenticate_AUTHENTICATION_TAG_MISMATCH" xml:space="preserve"><value>Falscher Passkey für diese App. Bitte einen anderen wählen oder einen neuen registrieren.</value></data>
+  <data name="Error_Authenticate_CREDENTIAL_NOT_FOUND" xml:space="preserve"><value>Dieser Passkey ist auf diesem Gerät nicht verfügbar. Bitte einen neuen registrieren oder erneut versuchen, um aus der Liste zu wählen.</value></data>
+  <data name="Error_Authenticate_INVALID_DATA" xml:space="preserve"><value>Der Passkey hat unerwartete Daten zurückgegeben. Bitte erneut versuchen oder einen neuen Passkey registrieren.</value></data>
+  <data name="Error_Authenticate_NOT_SUPPORTED" xml:space="preserve"><value>Dieser Passkey unterstützt PRF nicht. Bitte einen neuen mit einem PRF-fähigen Plattform-Authenticator registrieren.</value></data>
+  <data name="Error_Authenticate_PRF_NOT_SUPPORTED" xml:space="preserve"><value>Dieser Browser oder dieses Gerät unterstützt PRF nicht.</value></data>
+  <data name="Error_Authenticate_Unknown" xml:space="preserve"><value>Anmeldung fehlgeschlagen: {0}</value></data>
+  <data name="Error_Register_REGISTRATION_FAILED" xml:space="preserve"><value>Passkey konnte nicht registriert werden. Bitte erneut versuchen oder einen anderen Authenticator wählen.</value></data>
+  <data name="Error_Register_KEY_DERIVATION_FAILED" xml:space="preserve"><value>Der neue Passkey hat keine ableitbaren Schlüssel erzeugt.</value></data>
+  <data name="Error_Register_AUTHENTICATION_TAG_MISMATCH" xml:space="preserve"><value>Authentifizierungs-Tag-Konflikt während Register-then-Derive. Bitte erneut versuchen.</value></data>
+  <data name="Error_Register_CREDENTIAL_NOT_FOUND" xml:space="preserve"><value>Der frisch erstellte Passkey ist verschwunden. Bitte erneut versuchen.</value></data>
+  <data name="Error_Register_INVALID_DATA" xml:space="preserve"><value>Der neue Passkey hat unerwartete Daten zurückgegeben.</value></data>
+  <data name="Error_Register_NOT_SUPPORTED" xml:space="preserve"><value>Der gewählte Authenticator unterstützt PRF nicht.</value></data>
+  <data name="Error_Register_PRF_NOT_SUPPORTED" xml:space="preserve"><value>Dieser Browser oder dieses Gerät unterstützt PRF nicht.</value></data>
+  <data name="Error_Register_Unknown" xml:space="preserve"><value>Registrierung fehlgeschlagen: {0}</value></data>
 </root>
