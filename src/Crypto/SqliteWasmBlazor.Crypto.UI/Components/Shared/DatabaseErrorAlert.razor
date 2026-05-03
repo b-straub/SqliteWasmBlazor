@@ -1,6 +1,9 @@
 @inherits DatabaseErrorAlertModelComponent
 
-@if (Model.Failure is { } failure)
+@* Encrypted-locked is not an error the user can resolve via reset — the
+   cure is sign-in, handled by AuthenticationPanel. Suppress the alert and
+   let the consumer page route the user to the encryption page. *@
+@if (Model.Failure is { } failure and not EncryptedDatabaseLockedFailure)
 {
     <MudAlert Severity="Severity.Error" Class="mb-6" Variant="Variant.Filled">
         <MudText Typo="Typo.h6" Class="mb-2">@Model.Localizer["Header_Title"]</MudText>

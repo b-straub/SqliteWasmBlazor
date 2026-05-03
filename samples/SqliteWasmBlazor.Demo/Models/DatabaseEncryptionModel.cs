@@ -58,6 +58,8 @@ public partial class DatabaseEncryptionModel : ObservableModel
         IDbContextFactory<TodoDbContext> contextFactory,
         IPrfService prfService,
         IOptions<PrfOptions> prfOptions,
+        IDbInitializationStatus dbInitStatus,
+        IDbInitializationReporter dbInitReporter,
         AuthenticationModel auth,
         StatusModel statusModel,
         IStringLocalizer<DatabaseEncryptionModel> localizer);
@@ -191,6 +193,15 @@ public partial class DatabaseEncryptionModel : ObservableModel
         // Re-probe so ItemCount populates via EF Core, which now opens the DB
         // with the just-registered K on the first read.
         await RefreshAsync(cancellationToken);
+
+        // If boot-time init reported ENCRYPTED_LOCKED, this successful
+        // post-install probe confirms the DB is now readable — promote
+        // back to READY so the suppressed alert remains hidden and any
+        // other consumer probing IDbInitializationStatus sees green.
+        if (DbInitStatus.State == DbInitState.ENCRYPTED_LOCKED && ItemCount is not null)
+        {
+            DbInitReporter.Report(DbInitState.READY);
+        }
     }
 
     /// <summary>

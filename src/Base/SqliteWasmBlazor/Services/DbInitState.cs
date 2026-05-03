@@ -31,4 +31,17 @@ public enum DbInitState
 
     /// <summary>Catch-all for unexpected init failures (see <see cref="IDbInitFailure"/>).</summary>
     FAILED = 6,
+
+    /// <summary>
+    /// The on-disk file is encrypted (slot 0 ChaCha20 ciphertext, no SQLite
+    /// magic) but the worker registry has no key registered for it — boot
+    /// init can't read schema until the user authenticates and the key is
+    /// installed. Distinct from <see cref="FAILED"/> because this is not an
+    /// error the user can resolve via reset; the cure is sign-in. UI: alert
+    /// stays silent, navigation should land on the encryption page so the
+    /// user can authenticate. Promotes to <see cref="READY"/> automatically
+    /// when an authenticated session installs K and a successful EF read
+    /// confirms the schema.
+    /// </summary>
+    ENCRYPTED_LOCKED = 7,
 }

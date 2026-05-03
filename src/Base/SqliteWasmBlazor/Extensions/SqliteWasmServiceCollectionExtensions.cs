@@ -101,7 +101,8 @@ Please close any other tabs running this application and refresh the page.
         if (status.State is DbInitState.TAB_LOCKED
                           or DbInitState.SCHEMA_INCOMPATIBLE
                           or DbInitState.TIMEOUT
-                          or DbInitState.FAILED)
+                          or DbInitState.FAILED
+                          or DbInitState.ENCRYPTED_LOCKED)
         {
             return;
         }
@@ -155,10 +156,45 @@ Please close any other tabs running this application and refresh the page.
         {
             reporter.Report(DbInitState.TIMEOUT, new TimeoutFailure(databaseName));
         }
+        catch (Exception ex) when (LooksLikeEncryptedLockedDb(ex))
+        {
+            // EF Core attempted a page read on an encrypted file with no
+            // worker-side key registered → SQLITE_NOTADB. Not an error the
+            // user can resolve via reset; the cure is sign-in. The
+            // AuthenticationPanel install path will promote the state to
+            // READY once K is registered and a successful read confirms it.
+            reporter.Report(
+                DbInitState.ENCRYPTED_LOCKED,
+                new EncryptedDatabaseLockedFailure(databaseName));
+        }
         catch (Exception ex)
         {
             reporter.Report(DbInitState.FAILED, new GenericInitFailure(databaseName, ex));
         }
+    }
+
+    /// <summary>
+    /// Heuristic: did this exception come from EF Core trying to read schema
+    /// off an encrypted file the worker has no key for? Worker surfaces this
+    /// as <c>SQLITE_NOTADB</c> (sqlite3 result code 26) wrapped in a
+    /// "Worker error" prefix before bubbling through EF.
+    /// </summary>
+    private static bool LooksLikeEncryptedLockedDb(Exception ex)
+    {
+        for (var e = ex; e is not null; e = e.InnerException!)
+        {
+            if (e.Message.Contains("SQLITE_NOTADB", StringComparison.OrdinalIgnoreCase)
+                || e.Message.Contains("file is not a database", StringComparison.OrdinalIgnoreCase)
+                || e.Message.Contains("result code 26", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+            if (e.InnerException is null)
+            {
+                return false;
+            }
+        }
+        return false;
     }
 
     private static string GetDatabaseName<TContext>(IServiceProvider services, Exception? _)

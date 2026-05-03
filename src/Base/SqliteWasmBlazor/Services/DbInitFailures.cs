@@ -81,3 +81,18 @@ public sealed record GenericInitFailure(string DatabaseName, Exception Exception
     public string DefaultMessage =>
         $"Database initialization failed: {Exception.GetType().Name}: {Exception.Message}";
 }
+
+/// <summary>
+/// On-disk file is encrypted (slot 0 ciphertext, no SQLite magic) but the
+/// worker registry has no key for it — EF migrations couldn't read schema
+/// because the worker returned <c>SQLITE_NOTADB</c> on the first page read.
+/// Maps to <see cref="DbInitState.ENCRYPTED_LOCKED"/>. The cure is for the
+/// user to authenticate so the encryption-key install path can run; the UI
+/// should stay quiet and route the user to the encryption page rather than
+/// surface this as a generic error.
+/// </summary>
+public sealed record EncryptedDatabaseLockedFailure(string DatabaseName) : IDbInitFailure
+{
+    public string DefaultMessage =>
+        "Database is encrypted; sign in with your passkey to unlock it.";
+}
