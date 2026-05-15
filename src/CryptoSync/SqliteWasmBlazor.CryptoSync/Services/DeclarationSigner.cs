@@ -1,0 +1,315 @@
+using SqliteWasmBlazor.Crypto.Abstractions;
+
+namespace SqliteWasmBlazor.CryptoSync;
+
+/// <summary>
+/// Constructs canonical payloads and signs/verifies Ed25519 declarations
+/// for the CryptoSync authorization model. All methods delegate to
+/// <see cref="ICryptoProvider.SignAsync"/> / <see cref="ICryptoProvider.VerifyAsync"/>
+/// — no new crypto primitives needed.
+///
+/// <para>
+/// Canonical format: pipe-delimited UTF-8 string. Integers are decimal
+/// strings. Deterministic and debuggable.
+/// </para>
+/// </summary>
+public class DeclarationSigner(ICryptoProvider crypto)
+{
+    // ================================================================
+    // ShareTarget credential (GroupAdmin signs)
+    // ================================================================
+
+    /// <summary>
+    /// GroupAdmin signs a credential granting a member a role in a group.
+    /// Canonical: <c>memberPublicKey | role | groupContext | keyVersion</c>
+    /// </summary>
+    public async ValueTask<byte[]> SignShareTargetAsync(
+        ReadOnlyMemory<byte> groupAdminEd25519PrivateKey,
+        string memberPublicKeyBase64,
+        SyncRole role,
+        string groupContext,
+        int keyVersion)
+    {
+        var canonical = BuildShareTargetCanonical(memberPublicKeyBase64, role, groupContext, keyVersion);
+        var result = await crypto.SignAsync(canonical, groupAdminEd25519PrivateKey);
+        if (!result.Success || result.Value is null)
+        {
+            throw new InvalidOperationException($"DeclarationSigner: SignShareTargetAsync failed: {result.ErrorCode}");
+        }
+        return Convert.FromBase64String(result.Value);
+    }
+
+    /// <summary>
+    /// Verify a GroupAdmin's signature on a ShareTarget credential.
+    /// </summary>
+    public async ValueTask<bool> VerifyShareTargetAsync(
+        string groupAdminEd25519PublicKeyBase64,
+        string memberPublicKeyBase64,
+        SyncRole role,
+        string groupContext,
+        int keyVersion,
+        byte[] adminSignature)
+    {
+        var canonical = BuildShareTargetCanonical(memberPublicKeyBase64, role, groupContext, keyVersion);
+        return await crypto.VerifyAsync(canonical, Convert.ToBase64String(adminSignature), groupAdminEd25519PublicKeyBase64);
+    }
+
+    private static string BuildShareTargetCanonical(string memberPublicKeyBase64, SyncRole role, string groupContext, int keyVersion)
+        => $"{memberPublicKeyBase64}|{(int)role}|{groupContext}|{keyVersion}";
+
+    // ================================================================
+    // Whitelist ops (System Admin signs, relay verifies)
+    // ================================================================
+
+    /// <summary>
+    /// System Admin signs a whitelist-ops push for the broadcast relay. The
+    /// canonical string is byte-identical to the PHP relay's
+    /// <c>buildWhitelistOpsCanonical</c>: each op rendered as
+    /// <c>add:{pubkey_hash}</c> or <c>revoke:{pubkey_hash}:{revoked_at}</c>,
+    /// joined in admin-supplied order by <c>|</c>, prefixed with
+    /// <c>"whitelist-ops-v1|{version}|"</c>.
+    /// </summary>
+    /// <remarks>
+    /// Order is significant: <c>add</c> then <c>revoke</c> on the same hash
+    /// has a different effect than the reverse, so the canonical preserves
+    /// admin order rather than sorting. Tampering reorders the bytes and
+    /// breaks the sig.
+    /// </remarks>
+    public async ValueTask<byte[]> SignWhitelistOpsAsync(
+        ReadOnlyMemory<byte> adminEd25519PrivateKey,
+        long version,
+        IReadOnlyList<WhitelistOp> operations)
+    {
+        var canonical = BuildWhitelistOpsCanonical(version, operations);
+        var result = await crypto.SignAsync(canonical, adminEd25519PrivateKey);
+        if (!result.Success || result.Value is null)
+        {
+            throw new InvalidOperationException($"DeclarationSigner: SignWhitelistOpsAsync failed: {result.ErrorCode}");
+        }
+        return Convert.FromBase64String(result.Value);
+    }
+
+    /// <summary>
+    /// Verify an admin's signature on a whitelist-ops push. Mirrors the PHP
+    /// relay's verification path — useful for parity tests.
+    /// </summary>
+    public async ValueTask<bool> VerifyWhitelistOpsAsync(
+        string adminEd25519PublicKeyBase64,
+        long version,
+        IReadOnlyList<WhitelistOp> operations,
+        byte[] adminSignature)
+    {
+        var canonical = BuildWhitelistOpsCanonical(version, operations);
+        return await crypto.VerifyAsync(canonical, Convert.ToBase64String(adminSignature), adminEd25519PublicKeyBase64);
+    }
+
+    internal static string BuildWhitelistOpsCanonical(long version, IReadOnlyList<WhitelistOp> operations)
+    {
+        var rows = new string[operations.Count];
+        for (var i = 0; i < operations.Count; i++)
+        {
+            rows[i] = operations[i] switch
+            {
+                WhitelistOp.AddOp a => $"add:{a.PubkeyHash}",
+                WhitelistOp.RevokeOp r => $"revoke:{r.PubkeyHash}:{r.RevokedAt}",
+                _ => throw new ArgumentOutOfRangeException(nameof(operations), operations[i]?.GetType(), null),
+            };
+        }
+        return $"whitelist-ops-v1|{version}|{string.Join("|", rows)}";
+    }
+
+    // ================================================================
+    // Delta pin (System Admin signs, relay verifies)
+    // ================================================================
+
+    /// <summary>
+    /// System Admin signs an authorization to pin (and reseed against) a
+    /// delta envelope. The pin sig is carried alongside the regular sender
+    /// sig on <c>POST /api/delta</c> via the <c>X-Admin-Pin-Sig</c> header.
+    /// On the relay, presence of the header opts the POST into reseed
+    /// semantics: every prior row in <c>deltas</c> is purged atomically and
+    /// the new envelope is stored with <c>pinned=1</c> (survives time-based
+    /// GC). Replay-defense rides the existing timestamp window — no version
+    /// concept exists for pins.
+    /// </summary>
+    /// <remarks>
+    /// Canonical: <c>"deltapin-v1|" + timestamp + "|" + sha256(envelope) hex</c>.
+    /// Byte-identical to PHP's <c>$pinSigningInput</c> in
+    /// <c>handleDeltaPost</c>.
+    /// </remarks>
+    public async ValueTask<byte[]> SignDeltaPinAsync(
+        ReadOnlyMemory<byte> adminEd25519PrivateKey,
+        long timestamp,
+        string envelopeSha256Hex)
+    {
+        var canonical = BuildDeltaPinCanonical(timestamp, envelopeSha256Hex);
+        var result = await crypto.SignAsync(canonical, adminEd25519PrivateKey);
+        if (!result.Success || result.Value is null)
+        {
+            throw new InvalidOperationException($"DeclarationSigner: SignDeltaPinAsync failed: {result.ErrorCode}");
+        }
+        return Convert.FromBase64String(result.Value);
+    }
+
+    /// <summary>
+    /// Verify an admin's delta-pin signature. Mirrors the PHP relay's
+    /// pin-sig path — useful for parity tests.
+    /// </summary>
+    public async ValueTask<bool> VerifyDeltaPinAsync(
+        string adminEd25519PublicKeyBase64,
+        long timestamp,
+        string envelopeSha256Hex,
+        byte[] adminSignature)
+    {
+        var canonical = BuildDeltaPinCanonical(timestamp, envelopeSha256Hex);
+        return await crypto.VerifyAsync(canonical, Convert.ToBase64String(adminSignature), adminEd25519PublicKeyBase64);
+    }
+
+    internal static string BuildDeltaPinCanonical(long timestamp, string envelopeSha256Hex)
+        => $"deltapin-v1|{timestamp}|{envelopeSha256Hex}";
+
+    // ================================================================
+    // Leave declaration (member signs)
+    // ================================================================
+
+    /// <summary>
+    /// Member signs a voluntary leave declaration.
+    /// Canonical: <c>groupContext | keyVersion | "leave"</c>
+    /// </summary>
+    public async ValueTask<byte[]> SignLeaveDeclarationAsync(
+        ReadOnlyMemory<byte> memberEd25519PrivateKey,
+        string groupContext,
+        int keyVersion)
+    {
+        var canonical = $"{groupContext}|{keyVersion}|leave";
+        var result = await crypto.SignAsync(canonical, memberEd25519PrivateKey);
+        if (!result.Success || result.Value is null)
+        {
+            throw new InvalidOperationException($"DeclarationSigner: SignLeaveDeclarationAsync failed: {result.ErrorCode}");
+        }
+        return Convert.FromBase64String(result.Value);
+    }
+
+    /// <summary>
+    /// Verify a member's leave declaration.
+    /// </summary>
+    public async ValueTask<bool> VerifyLeaveDeclarationAsync(
+        string memberEd25519PublicKeyBase64,
+        string groupContext,
+        int keyVersion,
+        byte[] signature)
+    {
+        var canonical = $"{groupContext}|{keyVersion}|leave";
+        return await crypto.VerifyAsync(canonical, Convert.ToBase64String(signature), memberEd25519PublicKeyBase64);
+    }
+
+    // ================================================================
+    // Transfer declaration (old GroupAdmin signs)
+    // ================================================================
+
+    /// <summary>
+    /// Current GroupAdmin signs a declaration transferring ownership.
+    /// Canonical: <c>groupContext | "transfer-admin" | newGroupAdminEd25519PublicKey</c>
+    /// </summary>
+    public async ValueTask<byte[]> SignTransferDeclarationAsync(
+        ReadOnlyMemory<byte> oldGroupAdminEd25519PrivateKey,
+        string groupContext,
+        string newGroupAdminEd25519PublicKeyBase64)
+    {
+        var canonical = $"{groupContext}|transfer-admin|{newGroupAdminEd25519PublicKeyBase64}";
+        var result = await crypto.SignAsync(canonical, oldGroupAdminEd25519PrivateKey);
+        if (!result.Success || result.Value is null)
+        {
+            throw new InvalidOperationException($"DeclarationSigner: SignTransferDeclarationAsync failed: {result.ErrorCode}");
+        }
+        return Convert.FromBase64String(result.Value);
+    }
+
+    /// <summary>
+    /// Verify a GroupAdmin transfer declaration.
+    /// </summary>
+    public async ValueTask<bool> VerifyTransferDeclarationAsync(
+        string oldGroupAdminEd25519PublicKeyBase64,
+        string groupContext,
+        string newGroupAdminEd25519PublicKeyBase64,
+        byte[] signature)
+    {
+        var canonical = $"{groupContext}|transfer-admin|{newGroupAdminEd25519PublicKeyBase64}";
+        return await crypto.VerifyAsync(canonical, Convert.ToBase64String(signature), oldGroupAdminEd25519PublicKeyBase64);
+    }
+
+    // ================================================================
+    // Revocation declaration (Domain Admin signs)
+    // ================================================================
+
+    /// <summary>
+    /// Domain Admin signs a revocation of trust for a contact.
+    /// Canonical: <c>contactEd25519PublicKey | "revoke" | timestamp(ISO 8601 UTC)</c>
+    /// </summary>
+    public async ValueTask<byte[]> SignRevocationDeclarationAsync(
+        ReadOnlyMemory<byte> adminEd25519PrivateKey,
+        string contactEd25519PublicKeyBase64,
+        DateTimeOffset timestamp)
+    {
+        var canonical = BuildRevocationCanonical(contactEd25519PublicKeyBase64, timestamp);
+        var result = await crypto.SignAsync(canonical, adminEd25519PrivateKey);
+        if (!result.Success || result.Value is null)
+        {
+            throw new InvalidOperationException($"DeclarationSigner: SignRevocationDeclarationAsync failed: {result.ErrorCode}");
+        }
+        return Convert.FromBase64String(result.Value);
+    }
+
+    /// <summary>
+    /// Verify a Domain Admin's revocation declaration.
+    /// </summary>
+    public async ValueTask<bool> VerifyRevocationDeclarationAsync(
+        string adminEd25519PublicKeyBase64,
+        string contactEd25519PublicKeyBase64,
+        DateTimeOffset timestamp,
+        byte[] adminSignature)
+    {
+        var canonical = BuildRevocationCanonical(contactEd25519PublicKeyBase64, timestamp);
+        return await crypto.VerifyAsync(canonical, Convert.ToBase64String(adminSignature), adminEd25519PublicKeyBase64);
+    }
+
+    private static string BuildRevocationCanonical(string contactEd25519PublicKeyBase64, DateTimeOffset timestamp)
+        => $"{contactEd25519PublicKeyBase64}|revoke|{timestamp.UtcDateTime:O}";
+
+    // ================================================================
+    // Admin override transfer (Domain Admin signs)
+    // ================================================================
+
+    /// <summary>
+    /// Domain Admin forcibly transfers a group away from a revoked GroupAdmin.
+    /// Canonical: <c>groupContext | "admin-override-transfer" | revokedGroupAdminEd25519PublicKey | newGroupAdminEd25519PublicKey</c>
+    /// </summary>
+    public async ValueTask<byte[]> SignAdminOverrideTransferAsync(
+        ReadOnlyMemory<byte> adminEd25519PrivateKey,
+        string groupContext,
+        string revokedGroupAdminEd25519PublicKeyBase64,
+        string newGroupAdminEd25519PublicKeyBase64)
+    {
+        var canonical = $"{groupContext}|admin-override-transfer|{revokedGroupAdminEd25519PublicKeyBase64}|{newGroupAdminEd25519PublicKeyBase64}";
+        var result = await crypto.SignAsync(canonical, adminEd25519PrivateKey);
+        if (!result.Success || result.Value is null)
+        {
+            throw new InvalidOperationException($"DeclarationSigner: SignAdminOverrideTransferAsync failed: {result.ErrorCode}");
+        }
+        return Convert.FromBase64String(result.Value);
+    }
+
+    /// <summary>
+    /// Verify a Domain Admin's override transfer declaration.
+    /// </summary>
+    public async ValueTask<bool> VerifyAdminOverrideTransferAsync(
+        string adminEd25519PublicKeyBase64,
+        string groupContext,
+        string revokedGroupAdminEd25519PublicKeyBase64,
+        string newGroupAdminEd25519PublicKeyBase64,
+        byte[] adminSignature)
+    {
+        var canonical = $"{groupContext}|admin-override-transfer|{revokedGroupAdminEd25519PublicKeyBase64}|{newGroupAdminEd25519PublicKeyBase64}";
+        return await crypto.VerifyAsync(canonical, Convert.ToBase64String(adminSignature), adminEd25519PublicKeyBase64);
+    }
+}

@@ -1,0 +1,68 @@
+<Project Sdk="Microsoft.NET.Sdk.Razor">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+
+    <Version>$(SqliteWasmBlazorVersion)</Version>
+    <Authors>bernisoft</Authors>
+    <Description>End-to-end encrypted delta sync for SqliteWasmBlazor: ShareGroup / Contact / Whitelist primitives, HTTP relay transport, group encryption, signing, push (VAPID). All sync metadata stays inside the encrypted SQLite database.</Description>
+    <PackageTags>blazor;wasm;sqlite;sync;delta;e2e;encryption;crypto;webpush</PackageTags>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/b-straub/SqliteWasmBlazor</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/b-straub/SqliteWasmBlazor</RepositoryUrl>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <GeneratePackageOnBuild Condition="'$(Configuration)' == 'Release'">true</GeneratePackageOnBuild>
+    <IncludeSymbols>true</IncludeSymbols>
+    <EmbedAllSources>true</EmbedAllSources>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <PackageOutputPath>$(MSBuildThisFileDirectory)../../../.nuget</PackageOutputPath>
+
+    <!-- The MessagePack source generator runs in both this assembly and
+         SqliteWasmBlazor.dll (each has its own [MessagePackObject] types),
+         producing two MessagePack.GeneratedMessagePackResolver classes.
+         CS0436 is the benign "imported type wins on the same name" warning;
+         the locally generated resolver in this assembly is the one used at
+         runtime, which is correct. MessagePack 3.x does not expose a
+         resolver-name override via MSBuild props, so we suppress here. -->
+    <NoWarn>$(NoWarn);CS0436</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="../../../README.md" Pack="true" PackagePath="/" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- xUnit tests construct internal services (SyncEngine, SyncOrchestrator,
+         CryptoSyncBootstrap, DeclarationSigner, etc.) directly. -->
+    <InternalsVisibleTo Include="SqliteWasmBlazor.CryptoSync.Tests" />
+    <!-- TestApp harness (CryptoSyncActor) drives end-to-end scenarios by
+         constructing the same services. -->
+    <InternalsVisibleTo Include="SqliteWasmBlazor.TestApp" />
+    <!-- AdminSeed tool (offline console exe) builds seed data using
+         CryptoSyncBootstrap + DeclarationSigner directly. -->
+    <InternalsVisibleTo Include="SqliteWasmBlazor.AdminSeed" />
+    <!-- UI sub-assembly composes panels against internal sync services. -->
+    <InternalsVisibleTo Include="SqliteWasmBlazor.CryptoSync.UI" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <SupportedPlatform Include="browser" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\Base\SqliteWasmBlazor\SqliteWasmBlazor.csproj" />
+    <ProjectReference Include="..\..\Crypto\SqliteWasmBlazor.Crypto\SqliteWasmBlazor.Crypto.csproj" />
+    <ProjectReference Include="..\SqliteWasmBlazor.CryptoSync.Generator\SqliteWasmBlazor.CryptoSync.Generator.csproj"
+                      OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="MessagePack" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" />
+  </ItemGroup>
+
+</Project>
