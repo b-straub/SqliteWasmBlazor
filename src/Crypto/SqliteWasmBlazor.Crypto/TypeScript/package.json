@@ -1,0 +1,31 @@
+{
+  "name": "sqlitewasmblazor-crypto-typescript",
+  "version": "1.0.0",
+  "description": "Plane-2 worker bundle: plain SQLite engine + PRF-keyed at-rest encryption (vfs-prf, crypto-header, crypto-permissions, crypto-delta, worker-manifest). Plane-2-only consumers ship this bundle from _content/SqliteWasmBlazor.Crypto/; plane-1-only consumers ship a smaller bundle from _content/SqliteWasmBlazor/.",
+  "type": "module",
+  "scripts": {
+    "build": "npm run build:worker && npm run build:bridge && npm run copy:wasm",
+    "build:worker": "esbuild worker/sqlite-worker.ts --bundle --format=esm --sourcemap=inline --outfile=../wwwroot/sqlite-wasm-worker.js",
+    "build:bridge": "esbuild bridge/worker-bridge.ts --bundle --format=esm --sourcemap=inline --outfile=../wwwroot/sqlite-wasm-bridge.js",
+    "build:release": "npm run build:worker:release && npm run build:bridge:release && npm run copy:wasm",
+    "build:worker:release": "esbuild worker/sqlite-worker.ts --bundle --format=esm --minify --outfile=../wwwroot/sqlite-wasm-worker.js",
+    "build:bridge:release": "esbuild bridge/worker-bridge.ts --bundle --format=esm --minify --outfile=../wwwroot/sqlite-wasm-bridge.js",
+    "copy:wasm": "cp node_modules/@sqlite.org/sqlite-wasm/dist/sqlite3.wasm ../wwwroot/",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint ."
+  },
+  "dependencies": {
+    "@sqlitewasmblazor/crypto-core": "file:../../../Base/SqliteWasmBlazor/TypeScript-Crypto",
+    "@sqlitewasmblazor/worker-common": "file:../../../Base/SqliteWasmBlazor/TypeScript-Common",
+    "@sqlite.org/sqlite-wasm": "3.53.0-build1",
+    "msgpackr": "1.11.10"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.0",
+    "eslint": "9.39.0",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.59.3",
+    "vitest": "4.1.6"
+  }
+}

@@ -9,6 +9,9 @@
     <Project Path="src/Base/SqliteWasmBlazor.Components/SqliteWasmBlazor.Components.csproj" />
     <Project Path="src/Base/SqliteWasmBlazor.Models/SqliteWasmBlazor.Models.csproj" />
   </Folder>
+  <Folder Name="/src/Crypto/">
+    <Project Path="src/Crypto/SqliteWasmBlazor.Crypto/SqliteWasmBlazor.Crypto.csproj" />
+  </Folder>
   <Folder Name="/samples/">
     <Project Path="samples/SqliteWasmBlazor.AdoNetSample/SqliteWasmBlazor.AdoNetSample.csproj" />
     <Project Path="samples/SqliteWasmBlazor.FloatingWindow/SqliteWasmBlazor.FloatingWindow.csproj" />
