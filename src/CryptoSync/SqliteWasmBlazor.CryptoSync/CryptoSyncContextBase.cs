@@ -1,0 +1,208 @@
+using Microsoft.EntityFrameworkCore;
+
+namespace SqliteWasmBlazor.CryptoSync;
+
+/// <summary>
+/// Base DbContext for any CryptoSync-enabled application.
+/// Provides system tables for contacts, group encryption, permissions, and sync tracking.
+/// Domain apps inherit this and add their own DbSets.
+/// </summary>
+public abstract class CryptoSyncContextBase : DbContext
+{
+    protected CryptoSyncContextBase(DbContextOptions options) : base(options)
+    {
+    }
+
+    /// <summary>
+    /// Returns FK child relations for the given parent table. Implemented by
+    /// the generator-emitted partial via <c>SyncableFkMap</c>.
+    /// </summary>
+    public abstract (string ChildTable, string FkColumn)[] GetChildFkRelations(string parentTable);
+
+    /// <summary>
+    /// Clone a <see cref="SyncableEntity"/> for transfer: copies all domain
+    /// properties, remaps FK columns via <paramref name="idMap"/>, leaves
+    /// sync metadata for the interceptor. Implemented by the generator-emitted
+    /// partial with a per-entity-type switch.
+    /// </summary>
+    public abstract SyncableEntity CloneForTransfer(SyncableEntity source, Dictionary<Guid, Guid> idMap);
+
+    /// <summary>
+    /// Registers the <see cref="CryptoSyncSaveChangesInterceptor"/> on every
+    /// <see cref="CryptoSyncContextBase"/> derivative. Domain contexts that
+    /// override <see cref="OnConfiguring"/> must call
+    /// <c>base.OnConfiguring(optionsBuilder)</c> first to inherit the
+    /// auto-metadata pipeline.
+    /// </summary>
+    protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
+    {
+        base.OnConfiguring(optionsBuilder);
+        optionsBuilder.AddInterceptors(new CryptoSyncSaveChangesInterceptor());
+    }
+
+    // Contacts
+    public DbSet<TrustedContact> Contacts => Set<TrustedContact>();
+
+    // Pending admin-initiated invitations
+    public DbSet<Invitation> Invitations => Set<Invitation>();
+
+    // Group encryption & key distribution
+    public DbSet<ShareGroup> ShareGroups => Set<ShareGroup>();
+    public DbSet<ShareTarget> ShareTargets => Set<ShareTarget>();
+
+    // Permissions (compile-time schema, seeded via HasData)
+    public DbSet<SyncPermission> Permissions => Set<SyncPermission>();
+    public DbSet<PermissionTableSignature> PermissionSignatures => Set<PermissionTableSignature>();
+
+    // Lifecycle declarations
+    public DbSet<LeaveDeclaration> LeaveDeclarations => Set<LeaveDeclaration>();
+    public DbSet<TransferDeclaration> TransferDeclarations => Set<TransferDeclaration>();
+
+    // Schema metadata (seeded by generator, queried by worker at import time)
+    public DbSet<ColumnRegistryEntry> ColumnRegistry => Set<ColumnRegistryEntry>();
+
+    // Local-only
+    public DbSet<SyncState> SyncStates => Set<SyncState>();
+    public DbSet<DeviceSettings> DeviceSettings => Set<DeviceSettings>();
+
+    protected override void OnModelCreating(ModelBuilder modelBuilder)
+    {
+        base.OnModelCreating(modelBuilder);
+
+        modelBuilder.Entity<TrustedContact>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => e.Ed25519PublicKey).IsUnique();
+            entity.HasIndex(e => e.X25519PublicKey).IsUnique();
+            entity.HasQueryFilter(e => !e.IsDeleted);
+        });
+
+        modelBuilder.Entity<Invitation>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasQueryFilter(e => !e.IsDeleted);
+        });
+
+        modelBuilder.Entity<ShareGroup>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => e.GroupContext).IsUnique();
+            entity.HasQueryFilter(e => !e.IsDeleted);
+        });
+
+        modelBuilder.Entity<ShareTarget>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => new { e.ShareGroupId, e.KeyVersion, e.MemberPublicKey }).IsUnique();
+            entity.HasIndex(e => e.MemberPublicKey);
+            entity.HasOne(e => e.ShareGroup)
+                .WithMany()
+                .HasForeignKey(e => e.ShareGroupId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(e => e.GrantedByContact)
+                .WithMany()
+                .HasForeignKey(e => e.GrantedByContactId)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasQueryFilter(e => !e.IsDeleted);
+        });
+
+        modelBuilder.Entity<SyncPermission>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => new { e.SharingScope, e.SharingId, e.TableName, e.RecordId, e.Role }).IsUnique();
+            entity.HasQueryFilter(e => !e.IsDeleted);
+        });
+
+        modelBuilder.Entity<ColumnRegistryEntry>(entity =>
+        {
+            entity.ToTable("_column_registry");
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => new { e.TableName, e.ColumnIndex }).IsUnique();
+        });
+
+        modelBuilder.Entity<SyncState>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+        });
+
+        modelBuilder.Entity<DeviceSettings>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+        });
+
+        modelBuilder.Entity<PermissionTableSignature>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+        });
+
+        modelBuilder.Entity<LeaveDeclaration>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => new { e.GroupContext, e.MemberEd25519PublicKey });
+            entity.HasQueryFilter(e => !e.IsDeleted);
+        });
+
+        modelBuilder.Entity<TransferDeclaration>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => e.GroupContext);
+            entity.HasQueryFilter(e => !e.IsDeleted);
+        });
+
+        SeedSystemTablePermissions(modelBuilder);
+    }
+
+    private static void SeedSystemTablePermissions(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<SyncPermission>().HasData(GetSystemPermissions());
+    }
+
+    /// <summary>
+    /// Returns the hardcoded system-table permission rows. Used by both
+    /// HasData seeding and the AdminSeed tool for permission table hash.
+    /// </summary>
+    public static SyncPermission[] GetSystemPermissions()
+    {
+        var systemTables = new[] { "Contacts", "ShareGroups", "ShareTargets", "Invitations" };
+        var seeds = new List<SyncPermission>();
+
+        foreach (var table in systemTables)
+        {
+            seeds.Add(CreateSystemPermission(table, SyncRole.OWNER,
+                canInsert: true, canRead: true, canUpdate: true, canDelete: true));
+            seeds.Add(CreateSystemPermission(table, SyncRole.EDITOR,
+                canInsert: false, canRead: true, canUpdate: false, canDelete: false));
+            seeds.Add(CreateSystemPermission(table, SyncRole.VIEWER,
+                canInsert: false, canRead: true, canUpdate: false, canDelete: false));
+        }
+
+        return seeds.ToArray();
+    }
+
+    private static SyncPermission CreateSystemPermission(
+        string tableName, SyncRole role,
+        bool canInsert, bool canRead, bool canUpdate, bool canDelete)
+    {
+        return new SyncPermission
+        {
+            Id = DeterministicGuid($"SystemPermission:{(int)role}:{tableName}"),
+            Role = role,
+            TableName = tableName,
+            CanInsert = canInsert,
+            CanRead = canRead,
+            CanUpdate = canUpdate,
+            CanDelete = canDelete,
+            SharingScope = SharingScope.PUBLIC,
+            SharingId = "system",
+            UpdatedAt = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc)
+        };
+    }
+
+    public static Guid DeterministicGuid(string input)
+    {
+        var hash = System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(input));
+        var guidBytes = new byte[16];
+        Array.Copy(hash, guidBytes, 16);
+        return new Guid(guidBytes);
+    }
+}
