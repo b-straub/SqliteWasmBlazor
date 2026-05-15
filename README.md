@@ -16,11 +16,11 @@ SqliteWasmBlazor is part of a family of libraries for building offline-first Bla
 | Project | Description |
 |---------|-------------|
 | **[RxBlazorV2](https://github.com/b-straub/RxBlazorV2)** | Reactive programming framework for Blazor built on [R3](https://github.com/Cysharp/R3). Uses Roslyn source generators for observable models with reactive property bindings, command patterns, and automatic component generation. |
-| **[BlazorPRF](https://github.com/b-straub/BlazorPRF)** | _Superseded — see **CryptoSync** below._ PRF-based deterministic encryption for Blazor WebAssembly using the WebAuthn PRF extension. The WebAuthn-PRF key-derivation primitives now ship inside `SqliteWasmBlazor.Crypto`, and the broader multi-device story moves into CryptoSync. |
+| **[BlazorPRF](https://github.com/b-straub/BlazorPRF)** | _Absorbed into this repo as `SqliteWasmBlazor.Crypto`._ Originally a standalone library for PRF-based deterministic encryption in Blazor WebAssembly via the WebAuthn PRF extension; the primitives + key-derivation flow now ship as the `SqliteWasmBlazor.Crypto` package and back the encryption VFS directly. |
 
 Together these enable a complete offline-first stack: persistent local storage with optional at-rest encryption (`SqliteWasmBlazor` + `SqliteWasmBlazor.Crypto`) + reactive state management (`RxBlazorV2`).
 
-**Coming soon:** **CryptoSync** — end-to-end encrypted multi-device delta sync for SqliteWasmBlazor. Builds on the encryption VFS to ship per-row delta sync with permission enforcement, per-group keys, an admin invitation flow, and a whitelist-authenticated PHP relay that never sees plaintext. Subsumes BlazorPRF's PRF-derivation primitives and extends them to cross-device data flow.
+**Coming soon:** **CryptoSync** — end-to-end encrypted multi-device delta sync, built on top of `SqliteWasmBlazor.Crypto`. Per-row delta sync with permission enforcement, per-group keys, an admin invitation flow, and a whitelist-authenticated PHP relay that never sees plaintext.
 
 ## About This Project
 
