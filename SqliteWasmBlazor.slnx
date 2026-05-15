@@ -4,13 +4,20 @@
     <Platform Name="x64" />
     <Platform Name="x86" />
   </Configurations>
-  <Project Path="SqliteWasmBlazor.AdoNetSample/SqliteWasmBlazor.AdoNetSample.csproj" />
-  <Project Path="SqliteWasmBlazor.Components/SqliteWasmBlazor.Components.csproj" />
-  <Project Path="SqliteWasmBlazor.Demo/SqliteWasmBlazor.Demo.csproj" />
-  <Project Path="SqliteWasmBlazor.FloatingWindow/SqliteWasmBlazor.FloatingWindow.csproj" />
-  <Project Path="SqliteWasmBlazor.Models/SqliteWasmBlazor.Models.csproj" />
-  <Project Path="SqliteWasmBlazor.TestApp/SqliteWasmBlazor.TestApp.csproj" />
-  <Project Path="SqliteWasmBlazor.TestHost/SqliteWasmBlazor.TestHost.csproj" />
-  <Project Path="SqliteWasmBlazor.Tests/SqliteWasmBlazor.Tests.csproj" />
-  <Project Path="SqliteWasmBlazor/SqliteWasmBlazor.csproj" />
+  <Folder Name="/src/Base/">
+    <Project Path="src/Base/SqliteWasmBlazor/SqliteWasmBlazor.csproj" />
+    <Project Path="src/Base/SqliteWasmBlazor.Components/SqliteWasmBlazor.Components.csproj" />
+    <Project Path="src/Base/SqliteWasmBlazor.Models/SqliteWasmBlazor.Models.csproj" />
+  </Folder>
+  <Folder Name="/samples/">
+    <Project Path="samples/SqliteWasmBlazor.AdoNetSample/SqliteWasmBlazor.AdoNetSample.csproj" />
+    <Project Path="samples/SqliteWasmBlazor.FloatingWindow/SqliteWasmBlazor.FloatingWindow.csproj" />
+  </Folder>
+  <Folder Name="/tools/">
+    <Project Path="tools/GeneratorRunner/GeneratorRunner.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/SqliteWasmBlazor.TestHost/SqliteWasmBlazor.TestHost.csproj" />
+    <Project Path="tests/SqliteWasmBlazor.Tests/SqliteWasmBlazor.Tests.csproj" />
+  </Folder>
 </Solution>

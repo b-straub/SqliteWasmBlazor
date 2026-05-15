@@ -1,11 +1,7 @@
 <Project>
   <PropertyGroup>
     <!-- Centralized version management -->
-    <DotNetVersion>10.0.2</DotNetVersion>
-    <MudBlazorVersion>8.15.0</MudBlazorVersion>
-    <SqlitePCLRawVersion>2.1.11</SqlitePCLRawVersion>
-    <MessagePackVersion>3.1.4</MessagePackVersion>
-    <SqliteWasmBlazorVersion>0.9.0-pre</SqliteWasmBlazorVersion>
+    <SqliteWasmBlazorVersion>0.9.1-pre</SqliteWasmBlazorVersion>
 
     <!-- Suppress WASM warnings globally for all projects in the solution -->
 
@@ -15,6 +11,10 @@
     <!-- CA1416: Validate platform compatibility -->
     <!-- Blazor WASM apps are always browser-only, platform checks are unnecessary -->
 
-    <NoWarn>$(NoWarn);WASM0001;WASM0060;WASM0062;CA1416</NoWarn>
+    <!-- NU1608: transitive Roslyn version mismatch from EF Core Design's
+         MSBuild bits (Workspaces.MSBuild 5.0.0 wants Workspaces.Common = 5.0.0,
+         we resolve 5.3.0 via GeneratorRunner). 5.3.0 is API-compatible with
+         5.0.0 for our use, so the resolution is intentional. -->
+    <NoWarn>$(NoWarn);WASM0001;WASM0060;WASM0062;CA1416;NU1608</NoWarn>
   </PropertyGroup>
 </Project>

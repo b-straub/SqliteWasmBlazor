@@ -36,7 +36,6 @@ The public API surface is intentionally kept minimal to reduce the risk of break
 
 - **V2 Worker-Side Bulk Import/Export** - Worker-side prepared statement loops for 10-50x faster import. Self-describing V2 MessagePack format with column metadata. Memory-safe streaming for large datasets [(details)](CHANGELOG.md#v2-worker-side-bulk-importexport)
 - **Multi-Part Export** - Large databases automatically split into manageable parts with a meta file. Adaptive part sizing based on configurable MB limit
-- **Seed Server** - PHP REST API + Blazor UI for uploading/downloading seed files to/from a server. One-click database provisioning for new clients [(details)](#seed-server)
 - **Raw Database Import/Export** - Export and import complete .db files directly from/to OPFS with schema validation and automatic backup/restore on failure [(details)](CHANGELOG.md#raw-database-importexport)
 - **Multi-Database Support** - Run multiple independent SQLite databases simultaneously in the same Web Worker [(details)](docs/multi-database.md)
 - **Incremental Database Export/Import** - File-based delta sync with checkpoint management and conflict resolution [(details)](CHANGELOG.md#incremental-database-exportimport-delta-sync)
@@ -50,7 +49,8 @@ The public API surface is intentionally kept minimal to reduce the risk of break
 
   Apps deployed on a **sub-path** must now opt in explicitly:
   ```csharp
-  builder.Services.AddSqliteWasm(o => o.HostEnvironment = builder.HostEnvironment);
+  builder.Services.AddSqliteWasm(o => o.BaseHref =
+      new Uri(builder.HostEnvironment.BaseAddress).AbsolutePath);
   ```
   This derives `BaseHref` from the runtime `<base href>` exactly as the old auto-probe did,
   but without the CSP-blocked `data:` import. Root-path (`/`) deployments need no change.
@@ -350,57 +350,9 @@ var expensive = await dbContext.Products
 | [Advanced Features](docs/advanced-features.md) | Migrations, FTS5 search, JSON collections, logging |
 | [Multi-Database](docs/multi-database.md) | Running multiple databases, cross-database references |
 | [Bulk Import/Export](docs/bulk-import-export.md) | V2 format, multi-part export, delta sync, type conversions |
-| [Seed Server](docs/seed-server.md) | PHP API setup, cloud seeding, Herd/Apache configuration |
 | [Recommended Patterns](docs/patterns.md) | Multi-view pattern, data initialization best practices |
 | [FAQ](docs/faq.md) | Common questions and browser support |
 | [Changelog](CHANGELOG.md) | Release notes and version history |
-
-## Seed Server
-
-The Seed Server enables cloud-based database provisioning — upload seed data from one client and download it on another. Useful for initial client-side database setup without building the data locally.
-
-### Setup
-
-The `SeedApi/` folder contains a PHP REST API:
-
-```bash
-# Local development with Herd/Valet
-cd SeedApi
-herd link seed-api
-herd secure seed-api
-
-# Production (Apache) — just copy these files:
-# seed-api.php, index.php, .htaccess
-```
-
-Configure the client in `wwwroot/appsettings.json`:
-```json
-{
-  "seedApiUrl": "seed-api.test",
-  "exportPartSizeMb": 250,
-  "cloudPartSizeMb": 40
-}
-```
-
-The `seedApiUrl` is the server domain (without protocol). It can be temporarily overridden on the Seed Server page — useful for testing with the deployed GitHub Pages demo.
-
-### API Endpoints
-
-| Method | URL | Description |
-|--------|-----|-------------|
-| GET | `/api/seeds` | List all seeds |
-| GET | `/api/seeds/{name}` | Seed metadata |
-| GET | `/api/seeds/{name}/{file}` | Download file |
-| POST | `/api/seeds/{name}` | Upload file (multipart form) |
-| DELETE | `/api/seeds/{name}` | Delete seed + all parts |
-
-### Configuration
-
-- `exportPartSizeMb` — max part size in MB for local file export (default: 250)
-- `cloudPartSizeMb` — max part size in MB for cloud upload (auto-synced from `.htaccess` at build time, default: 40)
-- PHP upload limits in `SeedApi/.htaccess` control the server-side maximum
-
-See [Seed Server docs](docs/seed-server.md) for detailed setup instructions.
 
 ## Browser Support
 

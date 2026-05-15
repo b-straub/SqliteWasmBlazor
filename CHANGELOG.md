@@ -15,16 +15,15 @@ Removes the `data:text/javascript` JS import previously used to auto-probe `<bas
 builder.Services.AddSqliteWasm();
 
 // Sub-path deployment — derive BaseHref from <base href>
-builder.Services.AddSqliteWasm(o => o.HostEnvironment = builder.HostEnvironment);
+builder.Services.AddSqliteWasm(o => o.BaseHref = new Uri(builder.HostEnvironment.BaseAddress).AbsolutePath);
 
 // Browser-extension build — override the static-asset root
 builder.Services.AddSqliteWasm(o => o.AssetRoot = "content/SqliteWasmBlazor/");
 ```
 
 **`SqliteWasmOptions`:**
-- `BaseHref` — origin-side path prefix, default `"/"`
+- `BaseHref` — origin-side path prefix, default `"/"`. For sub-path deployments set to `new Uri(builder.HostEnvironment.BaseAddress).AbsolutePath`.
 - `AssetRoot` — segment between `BaseHref` and package files, default `"_content/SqliteWasmBlazor/"`
-- `HostEnvironment` (setter) — convenience that derives `BaseHref` from `IWebAssemblyHostEnvironment.BaseAddress`
 
 **Companion packages** gained the same pattern:
 - `SqliteWasmBlazor.Components`: `FileOperationsInterop.InitializeAsync(Action<SqliteWasmComponentsOptions>?)`
