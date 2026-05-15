@@ -1,0 +1,467 @@
+theory VfsCacheImportLifecycle
+begin
+
+/*
+ * Disk-level model for key-mgmt-v2 PRF cache expiry and whole-disk import.
+ *
+ * Implementation references:
+ *   src/Crypto/SqliteWasmBlazor.Crypto/Services/PrfService.cs
+ *   src/Crypto/SqliteWasmBlazor.Crypto/Services/SecureKeyCache.cs
+ *   src/Crypto/SqliteWasmBlazor.Crypto.UI/Services/EncryptedDiskLifecycle.cs
+ *   src/Crypto/SqliteWasmBlazor.Crypto/Services/EncryptedSqliteWasmDatabaseService.cs
+ *   src/Base/SqliteWasmBlazor/Services/SqliteWasmWorkerBridge.cs
+ *   src/Base/SqliteWasmBlazor/TypeScript/worker/sqlite-worker.ts
+ *
+ * Concrete contract modeled:
+ *   - PRF authentication installs a C# seed cache entry and a JS key bundle.
+ *     SESSION/TIMED cache entries are modeled as persistent facts; NONE is
+ *     modeled as one-shot linear facts consumed by the first VFS-key use.
+ *   - The VFS key is derived from the cached seed and installed as the
+ *     worker-wide globalKey only while the disk is Encrypted+Unlocked.
+ *   - A public unlock is accepted only after the disk manifest MAC verifies
+ *     under the installed globalKey. Failed verification clears globalKey and
+ *     leaves the disk Encrypted+Locked.
+ *   - Expiry of the seed cache while unlocked clears globalKey and leaves the
+ *     disk Encrypted+Locked with the passkey hint preserved.
+ *   - Whole-disk import preflights every file before deleting the existing
+ *     pool. Plain ZIP imports are accepted on Plain, Encrypted+Locked, and
+ *     Encrypted+Unlocked disks after a full plain-entry preflight; Locked
+ *     breaks encryption and ends Plain, Unlocked re-encrypts and stays
+ *     Encrypted+Unlocked. Cipher envelopes require ECIES unwrap + AEAD
+ *     preflight before any wipe; guided imports from Plain/Locked then bind
+ *     the disk to the imported credential.
+ *
+ * Out of scope:
+ *   - WebAuthn ceremony details and HKDF byte equality.
+ *   - Per-slot AEAD secrecy/authenticity; see vfs.spthy.
+ *   - Multi-file iteration; one envelope fact represents "all files passed
+ *     the same predicate".
+ */
+
+// ---------------------------------------------------------------------------
+// Disk, cache, manifest-hint, and worker key states.
+// ---------------------------------------------------------------------------
+
+// Disk(Device, State) where State is 'plain', 'encryptedLocked',
+// or 'encryptedUnlocked'.
+// Hint(Device) models a readable disk-bound manifest body. It is only a
+// pre-unlock routing hint until ManifestMacVerified fires.
+// !SeedCache(Device, Seed) models a live SecureKeyCache prf-seed:{salt}
+// at the instant a transition uses it. It is persistent here to avoid
+// recursive source chains in this disk-level abstraction; the expiry rules
+// model the observable security effect (globalKey cleared + disk locked).
+// !JsCache(Device) models JS prf-keys:{salt}. Session-lifetime under
+// every strategy — the JS-side non-extractable handles + X25519 priv
+// buffer are what makes the ceremony's own cached ops work, so NONE
+// does not narrow this fact.
+// SeedCacheOnce models KeyCacheStrategy.NONE's *C# seed* one-shot entry;
+// the JS bundle stays persistent (see AuthenticatePrfNone).
+// GlobalKey(Device, Key) models worker key-registry globalKey.
+
+rule InitPlainDisk:
+    [ ]
+  --[ DiskState($Device, 'plain') ]->
+    [ Disk($Device, 'plain') ]
+
+rule InitEncryptedLockedDisk:
+    [ ]
+  --[ DiskState($Device, 'encryptedLocked')
+    , HintPresent($Device)
+    ]->
+    [ Disk($Device, 'encryptedLocked')
+    , Hint($Device)
+    ]
+
+rule AuthenticatePrfSession:
+    [ Fr(~seed) ]
+  --[ SeedCached($Device, ~seed)
+    , JsBundleCached($Device)
+    , AuthSessionEstablished($Device)
+    ]->
+    [ !SeedCache($Device, ~seed)
+    , !JsCache($Device)
+    ]
+
+// AuthenticatePrfNone differs from AuthenticatePrfSession only in the C#
+// seed entry: SeedCacheOnce is a *linear* fact (consumed on first use),
+// while the JS bundle stays persistent (!JsCache). This matches the
+// runtime: a zero-TTL JS cache would render the ceremony's own cached
+// crypto ops inoperable, so NONE only constrains the C#-side HKDF seed.
+rule AuthenticatePrfNone:
+    [ Fr(~seed) ]
+  --[ SeedCached($Device, ~seed)
+    , JsBundleCached($Device)
+    , CacheStrategy($Device, 'none')
+    , AuthSessionEstablished($Device)
+    ]->
+    [ SeedCacheOnce($Device, ~seed)
+    , !JsCache($Device)
+    ]
+
+rule EnterEncrypted:
+    [ Disk($Device, 'plain')
+    , !SeedCache($Device, seed)
+    , !JsCache($Device)
+    , Fr(~k)
+    ]
+  --[ VfsKeyDerived($Device, seed, ~k)
+    , DiskEncrypted($Device)
+    , GlobalKeyInstalled($Device, ~k)
+    , HintWritten($Device)
+    , ManifestMacWritten($Device, ~k)
+    , ManifestMacVerified($Device, ~k)
+    , DiskState($Device, 'encryptedUnlocked')
+    ]->
+    [ Disk($Device, 'encryptedUnlocked')
+    , Hint($Device)
+    , GlobalKey($Device, ~k)
+    ]
+
+rule EnterEncryptedNone:
+    [ Disk($Device, 'plain')
+    , SeedCacheOnce($Device, seed)
+    , !JsCache($Device)
+    , Fr(~k)
+    ]
+  --[ VfsKeyDerived($Device, seed, ~k)
+    , SeedConsumed($Device, seed)
+    , DiskEncrypted($Device)
+    , GlobalKeyInstalled($Device, ~k)
+    , HintWritten($Device)
+    , ManifestMacWritten($Device, ~k)
+    , ManifestMacVerified($Device, ~k)
+    , DiskState($Device, 'encryptedUnlocked')
+    ]->
+    [ Disk($Device, 'encryptedUnlocked')
+    , Hint($Device)
+    , GlobalKey($Device, ~k)
+    ]
+
+rule UnlockFromCachedSeed:
+    [ Disk($Device, 'encryptedLocked')
+    , Hint($Device)
+    , !SeedCache($Device, seed)
+    , !JsCache($Device)
+    , Fr(~k)
+    ]
+  --[ UnlockAccepted($Device)
+    , VfsKeyDerived($Device, seed, ~k)
+    , DiskEncrypted($Device)
+    , GlobalKeyInstalled($Device, ~k)
+    , ManifestMacVerified($Device, ~k)
+    , DiskState($Device, 'encryptedUnlocked')
+    ]->
+    [ Disk($Device, 'encryptedUnlocked')
+    , Hint($Device)
+    , GlobalKey($Device, ~k)
+    ]
+
+rule UnlockFromCachedSeedNone:
+    [ Disk($Device, 'encryptedLocked')
+    , Hint($Device)
+    , SeedCacheOnce($Device, seed)
+    , !JsCache($Device)
+    , Fr(~k)
+    ]
+  --[ UnlockAccepted($Device)
+    , VfsKeyDerived($Device, seed, ~k)
+    , SeedConsumed($Device, seed)
+    , DiskEncrypted($Device)
+    , GlobalKeyInstalled($Device, ~k)
+    , ManifestMacVerified($Device, ~k)
+    , DiskState($Device, 'encryptedUnlocked')
+    ]->
+    [ Disk($Device, 'encryptedUnlocked')
+    , Hint($Device)
+    , GlobalKey($Device, ~k)
+    ]
+
+rule RejectUnlockBadManifestMac:
+    [ Disk($Device, 'encryptedLocked')
+    , Hint($Device)
+    , !SeedCache($Device, seed)
+    , !JsCache($Device)
+    , Fr(~k)
+    ]
+  --[ VfsKeyDerived($Device, seed, ~k)
+    , GlobalKeyInstalled($Device, ~k)
+    , ManifestMacRejected($Device, ~k)
+    , GlobalKeyCleared($Device, ~k)
+    , UnlockRejected($Device)
+    , DiskState($Device, 'encryptedLocked')
+    ]->
+    [ Disk($Device, 'encryptedLocked')
+    , Hint($Device)
+    ]
+
+rule RejectUnlockBadManifestMacNone:
+    [ Disk($Device, 'encryptedLocked')
+    , Hint($Device)
+    , SeedCacheOnce($Device, seed)
+    , !JsCache($Device)
+    , Fr(~k)
+    ]
+  --[ VfsKeyDerived($Device, seed, ~k)
+    , SeedConsumed($Device, seed)
+    , GlobalKeyInstalled($Device, ~k)
+    , ManifestMacRejected($Device, ~k)
+    , GlobalKeyCleared($Device, ~k)
+    , UnlockRejected($Device)
+    , DiskState($Device, 'encryptedLocked')
+    ]->
+    [ Disk($Device, 'encryptedLocked')
+    , Hint($Device)
+    ]
+
+rule LockDisk:
+    [ Disk($Device, 'encryptedUnlocked')
+    , Hint($Device)
+    , GlobalKey($Device, k)
+    ]
+  --[ GlobalKeyCleared($Device, k)
+    , DiskLocked($Device)
+    , DiskState($Device, 'encryptedLocked')
+    ]->
+    [ Disk($Device, 'encryptedLocked')
+    , Hint($Device)
+    ]
+
+rule CacheExpiresWhileUnlocked:
+    [ Disk($Device, 'encryptedUnlocked')
+    , Hint($Device)
+    , GlobalKey($Device, k)
+    , !SeedCache($Device, seed)
+    , !JsCache($Device)
+    ]
+  --[ SeedExpired($Device, seed)
+    , CacheExpiredWhileUnlocked($Device, seed)
+    , JsBundleExpired($Device)
+    , GlobalKeyCleared($Device, k)
+    , DiskLocked($Device)
+    , DiskState($Device, 'encryptedLocked')
+    , HintPresent($Device)
+    ]->
+    [ Disk($Device, 'encryptedLocked')
+    , Hint($Device)
+    ]
+
+rule CacheExpiresWhileLocked:
+    [ Disk($Device, 'encryptedLocked')
+    , Hint($Device)
+    , !SeedCache($Device, seed)
+    , !JsCache($Device)
+    ]
+  --[ SeedExpired($Device, seed)
+    , JsBundleExpired($Device)
+    , DiskState($Device, 'encryptedLocked')
+    , HintPresent($Device)
+    ]->
+    [ Disk($Device, 'encryptedLocked')
+    , Hint($Device)
+    ]
+
+// ---------------------------------------------------------------------------
+// Whole-disk import preflight.
+// ---------------------------------------------------------------------------
+
+rule ImportPlainZipOnPlain:
+    [ Disk($Device, 'plain') ]
+  --[ ImportSourceState($Device, 'plain')
+    , PlainImportPreflightOk($Device)
+    , ImportAccepted($Device, 'plain', 'plain')
+    , DiskState($Device, 'plain')
+    ]->
+    [ Disk($Device, 'plain') ]
+
+rule ImportPlainZipOnUnlocked:
+    [ Disk($Device, 'encryptedUnlocked')
+    , Hint($Device)
+    , GlobalKey($Device, k)
+    ]
+  --[ ImportSourceState($Device, 'encryptedUnlocked')
+    , PlainImportPreflightOk($Device)
+    , ImportAccepted($Device, 'encryptedUnlocked', 'plain')
+    , DiskState($Device, 'encryptedUnlocked')
+    ]->
+    [ Disk($Device, 'encryptedUnlocked')
+    , Hint($Device)
+    , GlobalKey($Device, k)
+    ]
+
+rule ImportPlainZipOnLockedBreaksEncryption:
+    [ Disk($Device, 'encryptedLocked')
+    , Hint($Device)
+    ]
+  --[ ImportSourceState($Device, 'encryptedLocked')
+    , PlainImportPreflightOk($Device)
+    , EncryptionBrokenByPlainImport($Device)
+    , ImportAccepted($Device, 'encryptedLocked', 'plain')
+    , DiskState($Device, 'plain')
+    ]->
+    [ Disk($Device, 'plain') ]
+
+rule RejectCipherEnvelopeOnPlainUnguided:
+    [ Disk($Device, 'plain') ]
+  --[ ImportSourceState($Device, 'plain')
+    , ImportRejected($Device, 'plain', 'cipher', 'wrongKey')
+    , DiskState($Device, 'plain')
+    ]->
+    [ Disk($Device, 'plain') ]
+
+rule ImportCipherEnvelopeOnUnlocked:
+    [ Disk($Device, 'encryptedUnlocked')
+    , Hint($Device)
+    , GlobalKey($Device, k)
+    , Fr(~wrap)
+    ]
+  --[ ImportSourceState($Device, 'encryptedUnlocked')
+    , EncryptedImportPreflightOk($Device, ~wrap)
+    , ImportAccepted($Device, 'encryptedUnlocked', 'cipher')
+    , DiskState($Device, 'encryptedUnlocked')
+    ]->
+    [ Disk($Device, 'encryptedUnlocked')
+    , Hint($Device)
+    , GlobalKey($Device, k)
+    ]
+
+rule ImportCipherEnvelopeGuidedOnPlain:
+    [ Disk($Device, 'plain')
+    , !SeedCache($Device, seed)
+    , !JsCache($Device)
+    , Fr(~k)
+    , Fr(~wrap)
+    ]
+  --[ ImportSourceState($Device, 'plain')
+    , VfsKeyDerived($Device, seed, ~k)
+    , DiskEncrypted($Device)
+    , GlobalKeyInstalled($Device, ~k)
+    , EncryptedImportPreflightOk($Device, ~wrap)
+    , HintWritten($Device)
+    , ManifestMacWritten($Device, ~k)
+    , ManifestMacVerified($Device, ~k)
+    , ImportAccepted($Device, 'plain', 'cipher')
+    , DiskState($Device, 'encryptedUnlocked')
+    ]->
+    [ Disk($Device, 'encryptedUnlocked')
+    , Hint($Device)
+    , GlobalKey($Device, ~k)
+    ]
+
+rule ImportCipherEnvelopeGuidedOnLocked:
+    [ Disk($Device, 'encryptedLocked')
+    , Hint($Device)
+    , !SeedCache($Device, seed)
+    , !JsCache($Device)
+    , Fr(~k)
+    , Fr(~wrap)
+    ]
+  --[ ImportSourceState($Device, 'encryptedLocked')
+    , VfsKeyDerived($Device, seed, ~k)
+    , DiskEncrypted($Device)
+    , GlobalKeyInstalled($Device, ~k)
+    , EncryptedImportPreflightOk($Device, ~wrap)
+    , HintWritten($Device)
+    , ManifestMacWritten($Device, ~k)
+    , ManifestMacVerified($Device, ~k)
+    , ImportAccepted($Device, 'encryptedLocked', 'cipher')
+    , DiskState($Device, 'encryptedUnlocked')
+    ]->
+    [ Disk($Device, 'encryptedUnlocked')
+    , Hint($Device)
+    , GlobalKey($Device, ~k)
+    ]
+
+// ---------------------------------------------------------------------------
+// Lemmas.
+// ---------------------------------------------------------------------------
+
+lemma hint_write_is_after_disk_encryption:
+    "All Device #t.
+        HintWritten(Device) @ #t
+        ==> DiskEncrypted(Device) @ #t
+          & DiskState(Device, 'encryptedUnlocked') @ #t"
+
+lemma unlock_requires_seed_cache:
+    "All Device #t.
+        UnlockAccepted(Device) @ #t
+        ==> Ex seed k #t2.
+              VfsKeyDerived(Device, seed, k) @ #t
+            & SeedCached(Device, seed) @ #t2
+            & #t2 < #t"
+
+lemma accepted_unlock_requires_manifest_mac_verified:
+    "All Device #t.
+        UnlockAccepted(Device) @ #t
+        ==> Ex k. ManifestMacVerified(Device, k) @ #t"
+
+lemma rejected_unlock_clears_global_key:
+    "All Device #t.
+        UnlockRejected(Device) @ #t
+        ==> Ex k. ManifestMacRejected(Device, k) @ #t
+            & GlobalKeyCleared(Device, k) @ #t
+            & DiskState(Device, 'encryptedLocked') @ #t"
+
+// NONE's hardening is C#-seed-local: SeedConsumed fires at every
+// transition that ingests SeedCacheOnce, but the JS bundle stays
+// reachable until ClearKeys / page refresh / TIMED expiry. Encoded
+// here as an under-approximation — the lemma asserts that NONE
+// transitions do not falsely produce a *non*-consumed seed event.
+lemma none_seed_is_consumed_exactly_once:
+    "All Device seed #t1 #t2.
+        SeedConsumed(Device, seed) @ #t1
+        & SeedConsumed(Device, seed) @ #t2
+        ==> #t1 = #t2"
+
+lemma cache_expiry_locks_and_clears_global_key:
+    "All Device seed #t.
+        CacheExpiredWhileUnlocked(Device, seed) @ #t
+        ==> Ex k.
+              GlobalKeyCleared(Device, k) @ #t
+            & DiskLocked(Device) @ #t
+            & DiskState(Device, 'encryptedLocked') @ #t"
+
+lemma cache_expiry_preserves_hint:
+    "All Device seed #t.
+        SeedExpired(Device, seed) @ #t
+        ==> HintPresent(Device) @ #t"
+
+lemma plain_zip_import_accept_requires_preflight:
+    "All Device State #t.
+        ImportAccepted(Device, State, 'plain') @ #t
+        ==> PlainImportPreflightOk(Device) @ #t"
+
+lemma unlocked_plain_zip_import_stays_encrypted:
+    "All Device #t.
+        ImportAccepted(Device, 'encryptedUnlocked', 'plain') @ #t
+        ==> ImportSourceState(Device, 'encryptedUnlocked') @ #t
+          & DiskState(Device, 'encryptedUnlocked') @ #t"
+
+lemma locked_plain_zip_import_breaks_to_plain:
+    "All Device #t.
+        ImportAccepted(Device, 'encryptedLocked', 'plain') @ #t
+        ==> ImportSourceState(Device, 'encryptedLocked') @ #t
+          & EncryptionBrokenByPlainImport(Device) @ #t
+          & DiskState(Device, 'plain') @ #t"
+
+lemma cipher_import_accept_requires_preflight:
+    "All Device State #t.
+        ImportAccepted(Device, State, 'cipher') @ #t
+        ==> Ex k. EncryptedImportPreflightOk(Device, k) @ #t"
+
+lemma guided_cipher_import_from_plain_ends_unlocked:
+    "All Device #t.
+        ImportAccepted(Device, 'plain', 'cipher') @ #t
+        ==> DiskState(Device, 'encryptedUnlocked') @ #t"
+
+lemma guided_cipher_import_from_locked_ends_unlocked:
+    "All Device #t.
+        ImportAccepted(Device, 'encryptedLocked', 'cipher') @ #t
+        ==> DiskState(Device, 'encryptedUnlocked') @ #t"
+
+lemma plain_disk_rejects_cipher_import:
+    "All Device #t.
+        ImportRejected(Device, 'plain', 'cipher', 'wrongKey') @ #t
+        ==> ImportSourceState(Device, 'plain') @ #t
+          & DiskState(Device, 'plain') @ #t"
+
+end

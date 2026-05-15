@@ -1,0 +1,299 @@
+theory VfsPrfSlotEncryption
+begin
+
+/*
+ * Complete symbolic Tamarin model for the PRF-keyed OPFS SAHPool VFS.
+ *
+ * Implementation references:
+ *   src/Crypto/SqliteWasmBlazor.Crypto/TypeScript/worker/vfs-prf/aad.ts
+ *   src/Crypto/SqliteWasmBlazor.Crypto/TypeScript/worker/vfs-prf/key-registry.ts
+ *   src/Crypto/SqliteWasmBlazor.Crypto/TypeScript/worker/vfs-prf/rekey.ts
+ *   src/Crypto/SqliteWasmBlazor.Crypto/TypeScript/worker/vfs-prf/sahpool-prf-vfs.ts
+ *
+ * Concrete design being modeled:
+ *   - A worker-wide 32-byte global key selects the encrypted VFS path for
+ *     every DB in the virtual disk.
+ *   - Every encrypted logical 4096-byte slot is sealed with ChaCha20-Poly1305.
+ *   - The physical slot is [ciphertext(4096) | nonce(12) | tag(16)].
+ *   - AAD is "prf-vfs-v1|" || dbPath || "|" || slotIndex_LE32.
+ *   - The rekey helper supports plain -> plain, plain -> encrypted,
+ *     encrypted -> plain, and encrypted -> encrypted.
+ *   - verifyEncryptionKey(path) is a slot-0 AEAD probe under the global key.
+ *
+ * Threat model:
+ *   - Dolev-Yao attacker controls the encrypted disk channel: encrypted writes
+ *     and encrypted rekey targets are Out(); encrypted reads and key probes
+ *     are In().
+ *   - Plain mode and rekey-to-plain are represented by events only, because
+ *     the encrypted-path claims do not rely on confidentiality there.
+ *   - Attacker can replay, swap, and fabricate terms.
+ *   - VFS keys are fresh device secrets and are never leaked by this model.
+ *
+ * Out of scope:
+ *   - WebAuthn PRF / HKDF derivation of VFS keys; modeled as Fr(~k).
+ *   - Computational AEAD security bounds; modeled symbolically with senc/sdec.
+ *   - Rollback of a whole old disk snapshot; accepted limitation in docs/crypto-vfs.md.
+ *   - Same-origin live process attackers and memory disclosure.
+ */
+
+// ---------------------------------------------------------------------------
+// Cryptographic abstraction.
+//
+// We model AEAD-with-AAD by encrypting a tuple that contains the AAD and the
+// public nonce:
+//
+//   <nonce, senc(<aad('v1', path, slot), <nonce, plaintext>>, key)>
+//
+// The outer pair models the on-disk envelope's public nonce plus opaque
+// ciphertext/tag bytes. Pair projections let the attacker observe and replay
+// the nonce/ciphertext, but sdec only succeeds with the same key and the tuple
+// pattern only unifies when version, path, slot, and nonce match.
+// ---------------------------------------------------------------------------
+
+builtins: symmetric-encryption
+
+functions: aad/3, plain_page/2
+
+// ---------------------------------------------------------------------------
+// Global-key registry / setup.
+//
+// The TypeScript registry holds one worker-wide globalKey, read dynamically
+// by xRead/xWrite. We model two labels, current and next, so one bounded
+// rotation can be proved without recursive key-generation chains.
+// ---------------------------------------------------------------------------
+
+rule RegisterCurrentKey:
+    [ Fr(~k_current) ]
+  --[ KeyRegistered($Device, 'current', ~k_current) ]->
+    [ !GlobalVfsKey($Device, 'current', ~k_current) ]
+
+rule RegisterNextKey:
+    [ Fr(~k_next) ]
+  --[ KeyRegistered($Device, 'next', ~k_next) ]->
+    [ !GlobalVfsKey($Device, 'next', ~k_next) ]
+
+// ---------------------------------------------------------------------------
+// Plain VFS path.
+//
+// When no global key is present, the fork is vendor SAHPool pass-through. Plain
+// bytes are represented by events only: no confidentiality theorem is claimed
+// for unencrypted paths, and the encrypted-path lemmas below do not rely on
+// plain-mode behavior.
+// ---------------------------------------------------------------------------
+
+rule PlainWriteSlot:
+    [ ]
+  --[ PlainSlotWritten($Device, $Path, $SlotIdx, plain_page($Path, $SlotIdx)) ]->
+    [ ]
+
+rule PlainExportEvent:
+    [ ]
+  --[ PlainSlotExported($Device, $Path, $SlotIdx, plain_page($Path, $SlotIdx)) ]->
+    [ ]
+
+// ---------------------------------------------------------------------------
+// Encrypted hot path: xWrite / xRead.
+//
+// Partial writes are security-equivalent to writing a fresh whole-slot value
+// after a read-modify-write step. The concrete offset math and zero-fill
+// behavior are tested in TypeScript; the formal security surface is the final
+// per-slot AEAD envelope.
+// ---------------------------------------------------------------------------
+
+rule EncryptedWriteSlot:
+    [ !GlobalVfsKey($Device, 'current', k)
+    , Fr(~m)
+    , Fr(~nonce)
+    ]
+  --[ SecretSlotWritten($Device, $Path, $SlotIdx, ~m)
+    , CiphertextProduced($Device, $Path, $SlotIdx, ~m, k, ~nonce, 'v1')
+    ]->
+    [ Out(<~nonce, senc(<aad('v1', $Path, $SlotIdx), <~nonce, ~m>>, k)>)
+    , !EncryptedSlotState($Device, $Path, $SlotIdx, ~m, k, ~nonce, 'v1')
+    ]
+
+rule EncryptedReadSlot:
+    [ !GlobalVfsKey($Device, generation, k)
+    , In(<nonce, senc(<aad('v1', $Path, $SlotIdx), <nonce, m>>, k)>)
+    ]
+  --[ EncryptedSlotRead($Device, $Path, $SlotIdx, m, k, nonce) ]->
+    [ ]
+
+// Legacy/cross-version ciphertexts may exist on disk. Reads use the v1 AAD
+// constructor only, so these terms are useful counterexample bait for the
+// version-binding lemma.
+rule LegacyEncryptedWriteSlot:
+    [ !GlobalVfsKey($Device, 'current', k)
+    , Fr(~m)
+    , Fr(~nonce)
+    ]
+  --[ LegacyCiphertextProduced($Device, $Path, $SlotIdx, ~m, k, ~nonce) ]->
+    [ Out(<~nonce, senc(<aad('legacy', $Path, $SlotIdx), <~nonce, ~m>>, k)>) ]
+
+// ---------------------------------------------------------------------------
+// verifyEncryptionKey(path).
+//
+// The implementation probes slot 0 with buildPageAad(path, 0). A successful
+// match is modeled as an authenticated read of slot0 under the global key.
+// No rule emits a success event for missing slots or wrong keys.
+// ---------------------------------------------------------------------------
+
+rule VerifyEncryptionKeyMatch:
+    [ !GlobalVfsKey($Device, generation, k)
+    , In(<nonce, senc(<aad('v1', $Path, 'slot0'), <nonce, m>>, k)>)
+    ]
+  --[ VerifyKeyMatched($Device, $Path, m, k, nonce) ]->
+    [ ]
+
+// ---------------------------------------------------------------------------
+// Slot rekey primitive.
+//
+// These four rules mirror rekey.ts:
+//   sourceKey undefined, targetKey undefined  => plain -> plain
+//   sourceKey undefined, targetKey set        => plain -> encrypted
+//   sourceKey set,       targetKey undefined  => encrypted -> plain
+//   sourceKey set,       targetKey set        => encrypted -> encrypted
+//
+// Encrypted sources are limited to locally authenticated 'current' slots and
+// encrypted targets to 'next', matching one bounded rotation and avoiding
+// recursive source chains.
+// ---------------------------------------------------------------------------
+
+rule RekeyPlainToPlain:
+    [ ]
+  --[ RekeyedPlainToPlain($Device, $Path, $SlotIdx, plain_page($Path, $SlotIdx))
+    , PlainSlotExported($Device, $Path, $SlotIdx, plain_page($Path, $SlotIdx))
+    ]->
+    [ ]
+
+rule RekeyPlainToEncrypted:
+    [ !GlobalVfsKey($Device, 'next', k_new)
+    , Fr(~nonce)
+    ]
+  --[ RekeyedPlainToEncrypted($Device, $Path, $SlotIdx, plain_page($Path, $SlotIdx), k_new, ~nonce)
+    , CiphertextProduced($Device, $Path, $SlotIdx, plain_page($Path, $SlotIdx), k_new, ~nonce, 'v1')
+    ]->
+    [ Out(<~nonce, senc(<aad('v1', $Path, $SlotIdx), <~nonce, plain_page($Path, $SlotIdx)>>, k_new)>) ]
+
+rule RekeyEncryptedToPlain:
+    [ !GlobalVfsKey($Device, 'current', k_old)
+    , !EncryptedSlotState($Device, $Path, $SlotIdx, m, k_old, nonce_old, 'v1')
+    ]
+  --[ RekeyedEncryptedToPlain($Device, $Path, $SlotIdx, m, k_old, nonce_old)
+    , PlainSlotExported($Device, $Path, $SlotIdx, m)
+    ]->
+    [ ]
+
+rule RekeyEncryptedToEncrypted:
+    [ !GlobalVfsKey($Device, 'current', k_old)
+    , !GlobalVfsKey($Device, 'next', k_new)
+    , !EncryptedSlotState($Device, $Path, $SlotIdx, m, k_old, nonce_old, 'v1')
+    , Fr(~nonce_new)
+    ]
+  --[ RekeyedEncryptedToEncrypted($Device, $Path, $SlotIdx, m, k_old, k_new, nonce_old, ~nonce_new)
+    , CiphertextProduced($Device, $Path, $SlotIdx, m, k_new, ~nonce_new, 'v1')
+    ]->
+    [ Out(<~nonce_new, senc(<aad('v1', $Path, $SlotIdx), <~nonce_new, m>>, k_new)>) ]
+
+// ---------------------------------------------------------------------------
+// Lemmas.
+// ---------------------------------------------------------------------------
+
+/*
+ * L1 - VFS key secrecy.
+ *
+ * Registered VFS keys are never learned by the disk attacker.
+ */
+lemma key_secrecy:
+    "All Device generation k #t1.
+        KeyRegistered(Device, generation, k) @ #t1
+        ==> not (Ex #t2. K(k) @ #t2)"
+
+/*
+ * L2 - Encrypted slot plaintext secrecy, except for intentional plain export.
+ *
+ * A plaintext first created by encrypted xWrite is not learned from ciphertext
+ * alone. The only modeled release is an explicit plain export / plain rekey
+ * event, which corresponds to rekeySlots(..., targetKey = undefined).
+ */
+lemma encrypted_slot_secrecy_unless_plain_exported:
+    "All Device path i m #t1.
+        SecretSlotWritten(Device, path, i, m) @ #t1
+        ==> (not (Ex #t2. K(m) @ #t2))
+          | (Ex D2 p2 i2 #t3. PlainSlotExported(D2, p2, i2, m) @ #t3)"
+
+/*
+ * L3 - Read authenticity.
+ *
+ * Any successful encrypted read must be explained by a prior v1 ciphertext
+ * produced for the same device, path, slot, plaintext, key, and nonce. This is
+ * the symbolic statement for tamper detection, cross-DB swap prevention,
+ * cross-slot swap prevention, and cross-device key separation.
+ */
+lemma encrypted_read_authenticity:
+    "All Device path i m k nonce #t1.
+        EncryptedSlotRead(Device, path, i, m, k, nonce) @ #t1
+        ==> Ex #t2.
+              CiphertextProduced(Device, path, i, m, k, nonce, 'v1') @ #t2
+            & #t2 < #t1"
+
+/*
+ * L4 - verifyEncryptionKey soundness.
+ *
+ * A slot-0 match for path can only come from a prior v1 ciphertext produced
+ * for the same device and path at slot0 under the same global key.
+ */
+lemma verify_key_match_sound:
+    "All Device path m k nonce #t1.
+        VerifyKeyMatched(Device, path, m, k, nonce) @ #t1
+        ==> Ex #t2.
+              CiphertextProduced(Device, path, 'slot0', m, k, nonce, 'v1') @ #t2
+            & #t2 < #t1"
+
+/*
+ * L5 - Rekey encrypted -> plain preserves the authenticated slot plaintext.
+ */
+lemma rekey_encrypted_to_plain_sound:
+    "All Device path i m k_old nonce_old #t1.
+        RekeyedEncryptedToPlain(Device, path, i, m, k_old, nonce_old) @ #t1
+        ==> Ex #t2.
+              CiphertextProduced(Device, path, i, m, k_old, nonce_old, 'v1') @ #t2
+            & #t2 < #t1"
+
+/*
+ * L6 - Rekey encrypted -> encrypted preserves the authenticated slot plaintext
+ * and emits only the same plaintext under the next key.
+ */
+lemma rekey_encrypted_to_encrypted_sound:
+    "All Device path i m k_old k_new nonce_old nonce_new #t1.
+        RekeyedEncryptedToEncrypted(Device, path, i, m, k_old, k_new, nonce_old, nonce_new) @ #t1
+        ==> (Ex #t2.
+               CiphertextProduced(Device, path, i, m, k_old, nonce_old, 'v1') @ #t2
+             & #t2 < #t1)
+          & (Ex #t3.
+               CiphertextProduced(Device, path, i, m, k_new, nonce_new, 'v1') @ #t3
+             & #t3 = #t1)"
+
+/*
+ * L7 - Legacy/cross-version ciphertexts are not accepted by v1 reads.
+ */
+lemma legacy_ciphertexts_not_read_as_v1:
+    "All Device path i m k nonce #t1 #t2.
+        LegacyCiphertextProduced(Device, path, i, m, k, nonce) @ #t1
+      & EncryptedSlotRead(Device, path, i, m, k, nonce) @ #t2
+        ==> Ex #t3.
+              CiphertextProduced(Device, path, i, m, k, nonce, 'v1') @ #t3"
+
+/*
+ * L8 - Nonce freshness at the symbolic layer.
+ *
+ * Every encrypted output rule draws Fr(~nonce), so no two ciphertext-production
+ * events can carry the same nonce atom.
+ */
+lemma nonce_never_reused:
+    "All D1 D2 p1 p2 i1 i2 m1 m2 k1 k2 n v1 v2 #t1 #t2.
+        CiphertextProduced(D1, p1, i1, m1, k1, n, v1) @ #t1
+      & CiphertextProduced(D2, p2, i2, m2, k2, n, v2) @ #t2
+        ==> #t1 = #t2"
+
+end

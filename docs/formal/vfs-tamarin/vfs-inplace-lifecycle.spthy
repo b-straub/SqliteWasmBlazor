@@ -1,0 +1,326 @@
+theory VfsInplaceLifecycle
+begin
+
+/*
+ * Symbolic lifecycle model for the PRF-keyed VFS in-place conversion wrapper.
+ *
+ * This is deliberately separate from vfs.spthy:
+ *   - vfs.spthy models per-slot AEAD under the worker-wide global key.
+ *   - this file models the operational wrapper around that primitive:
+ *     global-key state, source-shape preconditions, in-place replacement,
+ *     rollback, and the disk-level key purge after encrypted -> plain.
+ *
+ * Implementation references:
+ *   src/Crypto/SqliteWasmBlazor.Crypto/Services/EncryptedSqliteWasmDatabaseService.cs
+ *   src/Base/SqliteWasmBlazor/TypeScript/worker/sqlite-worker.ts
+ *   src/Crypto/SqliteWasmBlazor.Crypto/TypeScript/worker/vfs-prf/key-registry.ts
+ *   src/Crypto/SqliteWasmBlazor.Crypto/TypeScript/worker/vfs-prf/rekey.ts
+ *
+ * Concrete contract modeled:
+ *   - ENCRYPT / encryptDb require a plain source and no worker globalKey.
+ *     The implementation enforces this with !hasGlobalKey plus source length
+ *     and the 16-byte "SQLite format 3\0" magic header.
+ *   - PLAIN / REKEY / decryptDb require an encrypted source and a worker
+ *     globalKey.
+ *   - decryptDb does NOT clear globalKey in the single-key model. It converts
+ *     one file to plain while the session key remains available so
+ *     LeaveEncryptedAsync can decrypt the rest of the disk. The disk-level
+ *     leave/lock step clears globalKey after the batch transition.
+ *   - in-place replacement is temp-write + backup + promote. On failure after
+ *     the original has moved aside, the original is restored.
+ *
+ * Out of scope:
+ *   - AEAD authenticity/secrecy of slots; see vfs.spthy.
+ *   - Browser same-origin script attackers and memory disclosure.
+ *   - Crash/power-loss between OPFS metadata operations. This model covers
+ *     the synchronous error/exception paths the worker can roll back from.
+ *   - Iteration over every DB in the pool; one file represents an arbitrary
+ *     member of the disk batch.
+ */
+
+// ---------------------------------------------------------------------------
+// State facts.
+// ---------------------------------------------------------------------------
+
+// File(Device, Path, Shape, Blob)
+// GlobalEmpty(Device)
+// GlobalKey(Device, Key)
+// Backup(Device, Path, OriginalShape, OriginalBlob)
+// Temp(Device, Path, NewShape, NewBlob)
+// PendingEncrypt(Device, Path, OriginalBlob, NewBlob, TargetKey)
+// PendingDecrypt(Device, Path, OriginalBlob, NewBlob, SourceKey)
+
+// ---------------------------------------------------------------------------
+// Initial file/global-key states.
+// ---------------------------------------------------------------------------
+
+rule InitPlainFile:
+    [ Fr(~plain_blob) ]
+  --[ FileInitialized($Device, $Path, 'plain', ~plain_blob)
+    , PostState($Device, $Path, 'plain', 'globalEmpty')
+    ]->
+    [ File($Device, $Path, 'plain', ~plain_blob)
+    , GlobalEmpty($Device)
+    ]
+
+rule InitEncryptedFileLocked:
+    [ Fr(~cipher_blob) ]
+  --[ FileInitialized($Device, $Path, 'encrypted', ~cipher_blob)
+    , PostState($Device, $Path, 'encrypted', 'globalEmpty')
+    ]->
+    [ File($Device, $Path, 'encrypted', ~cipher_blob)
+    , GlobalEmpty($Device)
+    ]
+
+rule UnlockGlobalKey:
+    [ GlobalEmpty($Device)
+    , Fr(~k)
+    ]
+  --[ GlobalKeyInstalled($Device, ~k)
+    , SourceGlobalState($Device, 'globalEmpty')
+    , GlobalPostState($Device, 'registered')
+    ]->
+    [ GlobalKey($Device, ~k) ]
+
+rule ClearGlobalKeyForLock:
+    [ GlobalKey($Device, k) ]
+  --[ GlobalKeyCleared($Device, k)
+    , DiskPostState($Device, 'encrypted', 'globalEmpty')
+    ]->
+    [ GlobalEmpty($Device) ]
+
+rule ClearGlobalKeyForLeaveEncrypted:
+    [ GlobalKey($Device, k) ]
+  --[ LeaveEncryptedAccepted($Device, k)
+    , GlobalKeyCleared($Device, k)
+    , DiskPostState($Device, 'plain', 'globalEmpty')
+    ]->
+    [ GlobalEmpty($Device) ]
+
+// ---------------------------------------------------------------------------
+// Export wrapper preconditions.
+// ---------------------------------------------------------------------------
+
+rule ExportEncryptPlainSource:
+    [ File($Device, $Path, 'plain', plain_blob)
+    , GlobalEmpty($Device)
+    , Fr(~target_key)
+    , Fr(~cipher_blob)
+    ]
+  --[ ExportEncryptAccepted($Device, $Path, plain_blob, ~cipher_blob, ~target_key)
+    , SourceState($Device, $Path, 'plain', 'globalEmpty')
+    , PlainMagicChecked($Device, $Path, plain_blob)
+    , PostState($Device, $Path, 'plain', 'globalEmpty')
+    ]->
+    [ File($Device, $Path, 'plain', plain_blob)
+    , GlobalEmpty($Device)
+    ]
+
+rule ExportPlainEncryptedSource:
+    [ File($Device, $Path, 'encrypted', cipher_blob)
+    , GlobalKey($Device, k_old)
+    , Fr(~plain_blob)
+    ]
+  --[ ExportPlainAccepted($Device, $Path, cipher_blob, ~plain_blob, k_old)
+    , SourceState($Device, $Path, 'encrypted', 'globalKey')
+    , PostState($Device, $Path, 'encrypted', 'globalKey')
+    ]->
+    [ File($Device, $Path, 'encrypted', cipher_blob)
+    , GlobalKey($Device, k_old)
+    ]
+
+rule ExportRekeyEncryptedSource:
+    [ File($Device, $Path, 'encrypted', cipher_blob)
+    , GlobalKey($Device, k_old)
+    , Fr(~target_key)
+    , Fr(~new_cipher_blob)
+    ]
+  --[ ExportRekeyAccepted($Device, $Path, cipher_blob, ~new_cipher_blob, k_old, ~target_key)
+    , SourceState($Device, $Path, 'encrypted', 'globalKey')
+    , PostState($Device, $Path, 'encrypted', 'globalKey')
+    ]->
+    [ File($Device, $Path, 'encrypted', cipher_blob)
+    , GlobalKey($Device, k_old)
+    ]
+
+// ---------------------------------------------------------------------------
+// Encrypt in place: plain -> encrypted.
+// ---------------------------------------------------------------------------
+
+rule BeginEncryptInPlace:
+    [ File($Device, $Path, 'plain', plain_blob)
+    , GlobalEmpty($Device)
+    , Fr(~target_key)
+    , Fr(~cipher_blob)
+    ]
+  --[ EncryptInPlaceStarted($Device, $Path, plain_blob, ~cipher_blob, ~target_key)
+    , SourceState($Device, $Path, 'plain', 'globalEmpty')
+    , PlainMagicChecked($Device, $Path, plain_blob)
+    ]->
+    [ Backup($Device, $Path, 'plain', plain_blob)
+    , Temp($Device, $Path, 'encrypted', ~cipher_blob)
+    , GlobalEmpty($Device)
+    , PendingEncrypt($Device, $Path, plain_blob, ~cipher_blob, ~target_key)
+    ]
+
+rule CommitEncryptInPlace:
+    [ Backup($Device, $Path, 'plain', plain_blob)
+    , Temp($Device, $Path, 'encrypted', cipher_blob)
+    , GlobalEmpty($Device)
+    , PendingEncrypt($Device, $Path, plain_blob, cipher_blob, target_key)
+    ]
+  --[ ReplaceCommitted($Device, $Path, 'plain', 'encrypted')
+    , EncryptInPlaceAccepted($Device, $Path, plain_blob, cipher_blob, target_key)
+    , SourceState($Device, $Path, 'plain', 'globalEmpty')
+    , PlainMagicChecked($Device, $Path, plain_blob)
+    , PostState($Device, $Path, 'encrypted', 'globalEmpty')
+    ]->
+    [ File($Device, $Path, 'encrypted', cipher_blob)
+    , GlobalEmpty($Device)
+    ]
+
+rule RollbackEncryptInPlace:
+    [ Backup($Device, $Path, 'plain', plain_blob)
+    , Temp($Device, $Path, 'encrypted', cipher_blob)
+    , GlobalEmpty($Device)
+    , PendingEncrypt($Device, $Path, plain_blob, cipher_blob, target_key)
+    ]
+  --[ ReplaceFailed($Device, $Path, 'plain', 'encrypted', plain_blob)
+    , OriginalRestored($Device, $Path, 'plain', plain_blob)
+    , EncryptInPlaceFailed($Device, $Path, plain_blob, cipher_blob, target_key)
+    , PostState($Device, $Path, 'plain', 'globalEmpty')
+    ]->
+    [ File($Device, $Path, 'plain', plain_blob)
+    , GlobalEmpty($Device)
+    ]
+
+// ---------------------------------------------------------------------------
+// Decrypt in place: encrypted -> plain.
+// ---------------------------------------------------------------------------
+
+rule BeginDecryptInPlace:
+    [ File($Device, $Path, 'encrypted', cipher_blob)
+    , GlobalKey($Device, k_old)
+    , Fr(~plain_blob)
+    ]
+  --[ DecryptInPlaceStarted($Device, $Path, cipher_blob, ~plain_blob, k_old)
+    , SourceState($Device, $Path, 'encrypted', 'globalKey')
+    ]->
+    [ Backup($Device, $Path, 'encrypted', cipher_blob)
+    , Temp($Device, $Path, 'plain', ~plain_blob)
+    , GlobalKey($Device, k_old)
+    , PendingDecrypt($Device, $Path, cipher_blob, ~plain_blob, k_old)
+    ]
+
+rule CommitDecryptInPlace:
+    [ Backup($Device, $Path, 'encrypted', cipher_blob)
+    , Temp($Device, $Path, 'plain', plain_blob)
+    , GlobalKey($Device, k_old)
+    , PendingDecrypt($Device, $Path, cipher_blob, plain_blob, k_old)
+    ]
+  --[ ReplaceCommitted($Device, $Path, 'encrypted', 'plain')
+    , DecryptInPlaceAccepted($Device, $Path, cipher_blob, plain_blob, k_old)
+    , SourceState($Device, $Path, 'encrypted', 'globalKey')
+    , PostState($Device, $Path, 'plain', 'globalKey')
+    ]->
+    [ File($Device, $Path, 'plain', plain_blob)
+    , GlobalKey($Device, k_old)
+    ]
+
+rule RollbackDecryptInPlace:
+    [ Backup($Device, $Path, 'encrypted', cipher_blob)
+    , Temp($Device, $Path, 'plain', plain_blob)
+    , GlobalKey($Device, k_old)
+    , PendingDecrypt($Device, $Path, cipher_blob, plain_blob, k_old)
+    ]
+  --[ ReplaceFailed($Device, $Path, 'encrypted', 'plain', cipher_blob)
+    , OriginalRestored($Device, $Path, 'encrypted', cipher_blob)
+    , DecryptInPlaceFailed($Device, $Path, cipher_blob, plain_blob, k_old)
+    , PostState($Device, $Path, 'encrypted', 'globalKey')
+    ]->
+    [ File($Device, $Path, 'encrypted', cipher_blob)
+    , GlobalKey($Device, k_old)
+    ]
+
+// ---------------------------------------------------------------------------
+// Lemmas.
+// ---------------------------------------------------------------------------
+
+lemma key_install_requires_empty_global_key:
+    "All Device k #t.
+        GlobalKeyInstalled(Device, k) @ #t
+        ==> SourceGlobalState(Device, 'globalEmpty') @ #t"
+
+lemma export_encrypt_requires_plain_without_global_key:
+    "All Device path plain_blob cipher_blob target_key #t.
+        ExportEncryptAccepted(Device, path, plain_blob, cipher_blob, target_key) @ #t
+        ==> SourceState(Device, path, 'plain', 'globalEmpty') @ #t
+          & PlainMagicChecked(Device, path, plain_blob) @ #t"
+
+lemma encrypt_in_place_requires_plain_without_global_key:
+    "All Device path plain_blob cipher_blob target_key #t.
+        EncryptInPlaceAccepted(Device, path, plain_blob, cipher_blob, target_key) @ #t
+        ==> SourceState(Device, path, 'plain', 'globalEmpty') @ #t
+          & PlainMagicChecked(Device, path, plain_blob) @ #t"
+
+lemma export_plain_requires_encrypted_global_key:
+    "All Device path cipher_blob plain_blob k_old #t.
+        ExportPlainAccepted(Device, path, cipher_blob, plain_blob, k_old) @ #t
+        ==> SourceState(Device, path, 'encrypted', 'globalKey') @ #t"
+
+lemma export_rekey_requires_encrypted_global_key:
+    "All Device path cipher_blob new_cipher_blob k_old target_key #t.
+        ExportRekeyAccepted(Device, path, cipher_blob, new_cipher_blob, k_old, target_key) @ #t
+        ==> SourceState(Device, path, 'encrypted', 'globalKey') @ #t"
+
+lemma decrypt_in_place_requires_encrypted_global_key:
+    "All Device path cipher_blob plain_blob k_old #t.
+        DecryptInPlaceAccepted(Device, path, cipher_blob, plain_blob, k_old) @ #t
+        ==> SourceState(Device, path, 'encrypted', 'globalKey') @ #t"
+
+lemma decrypt_success_keeps_global_key_until_disk_leave:
+    "All Device path cipher_blob plain_blob k_old #t.
+        DecryptInPlaceAccepted(Device, path, cipher_blob, plain_blob, k_old) @ #t
+        ==> PostState(Device, path, 'plain', 'globalKey') @ #t"
+
+lemma decrypt_failure_keeps_global_key:
+    "All Device path cipher_blob plain_blob k_old #t.
+        DecryptInPlaceFailed(Device, path, cipher_blob, plain_blob, k_old) @ #t
+        ==> PostState(Device, path, 'encrypted', 'globalKey') @ #t"
+
+lemma leave_encrypted_clears_global_key:
+    "All Device k #t.
+        LeaveEncryptedAccepted(Device, k) @ #t
+        ==> GlobalKeyCleared(Device, k) @ #t
+          & DiskPostState(Device, 'plain', 'globalEmpty') @ #t"
+
+lemma replacement_failure_restores_original:
+    "All Device path from_shape to_shape original_blob #t.
+        ReplaceFailed(Device, path, from_shape, to_shape, original_blob) @ #t
+        ==> OriginalRestored(Device, path, from_shape, original_blob) @ #t"
+
+lemma encrypt_failure_restores_plain_original:
+    "All Device path plain_blob cipher_blob target_key #t.
+        EncryptInPlaceFailed(Device, path, plain_blob, cipher_blob, target_key) @ #t
+        ==> OriginalRestored(Device, path, 'plain', plain_blob) @ #t
+          & PostState(Device, path, 'plain', 'globalEmpty') @ #t"
+
+lemma decrypt_failure_restores_encrypted_original:
+    "All Device path cipher_blob plain_blob k_old #t.
+        DecryptInPlaceFailed(Device, path, cipher_blob, plain_blob, k_old) @ #t
+        ==> OriginalRestored(Device, path, 'encrypted', cipher_blob) @ #t
+          & PostState(Device, path, 'encrypted', 'globalKey') @ #t"
+
+lemma encrypt_success_poststate:
+    "All Device path plain_blob cipher_blob target_key #t.
+        EncryptInPlaceAccepted(Device, path, plain_blob, cipher_blob, target_key) @ #t
+        ==> ReplaceCommitted(Device, path, 'plain', 'encrypted') @ #t
+          & PostState(Device, path, 'encrypted', 'globalEmpty') @ #t"
+
+lemma decrypt_success_poststate:
+    "All Device path cipher_blob plain_blob k_old #t.
+        DecryptInPlaceAccepted(Device, path, cipher_blob, plain_blob, k_old) @ #t
+        ==> ReplaceCommitted(Device, path, 'encrypted', 'plain') @ #t
+          & PostState(Device, path, 'plain', 'globalKey') @ #t"
+
+end

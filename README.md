@@ -352,6 +352,7 @@ var expensive = await dbContext.Products
 | [Multi-Database](docs/multi-database.md) | Running multiple databases, cross-database references |
 | [Bulk Import/Export](docs/bulk-import-export.md) | V2 format, multi-part export, delta sync, type conversions |
 | [Encrypted VFS](docs/crypto-vfs.md) | At-rest encryption: ChaCha20-Poly1305, PRF-derived keys, threat model |
+| [Security](docs/security/README.md) | Threat model + assurance summary + Tamarin proofs |
 | [Recommended Patterns](docs/patterns.md) | Multi-view pattern, data initialization best practices |
 | [FAQ](docs/faq.md) | Common questions and browser support |
 | [Changelog](CHANGELOG.md) | Release notes and version history |
