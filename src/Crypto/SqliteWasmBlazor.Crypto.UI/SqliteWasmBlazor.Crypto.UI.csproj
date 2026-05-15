@@ -1,0 +1,75 @@
+<Project Sdk="Microsoft.NET.Sdk.Razor">
+
+  <!--
+    Base-plane Razor component library carved out of SqliteWasmBlazor.CryptoSync.UI
+    in plane-separation Phase 1.1. Hosts the panels that depend only on the
+    base plane (SQLite + Blazor + encrypted VFS + PRF):
+
+      - AuthenticationPanel + RegistrationPanel  (IPrfAuthenticator seam)
+      - DatabaseErrorAlert                        (boot-status surface)
+      - SessionExpiredPopover                     (re-auth popover)
+
+    Sync-coupled panels (UserProfile / Contacts / Invitation / Push) stay in
+    SqliteWasmBlazor.CryptoSync.UI, which references this project and calls
+    AddCryptoUI() before its own model registrations.
+
+    Architectural invariants (see ~/.claude/plans/plane-separation-and-test-buildup.md):
+      - RxBlazorV2 is mandatory. Each panel is three files: *.razor (markup),
+        *.razor.cs (host glue), *Model.cs (ObservableModel).
+      - MudBlazor is the default skin; no hand-rolled CSS where a primitive suffices.
+      - Identity seams (IPrfAuthenticator, ISessionAuthenticator,
+        IHostDatabaseService) are caller-registered; AddCryptoUI() does not
+        touch them.
+  -->
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>
+
+    <Version>$(SqliteWasmBlazorVersion)</Version>
+    <Authors>bernisoft</Authors>
+    <Description>Base-plane RxBlazorV2 + MudBlazor panels for SqliteWasmBlazor: WebAuthn-PRF authentication / registration, database boot-error alert, session-expired popover. Hosts wire IPrfAuthenticator / ISessionAuthenticator / IDatabaseResetService seams.</Description>
+    <PackageTags>blazor;wasm;mudblazor;rxblazor;webauthn;prf;ui;components</PackageTags>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/b-straub/SqliteWasmBlazor</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/b-straub/SqliteWasmBlazor</RepositoryUrl>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <GeneratePackageOnBuild Condition="'$(Configuration)' == 'Release'">true</GeneratePackageOnBuild>
+    <IncludeSymbols>true</IncludeSymbols>
+    <EmbedAllSources>true</EmbedAllSources>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <PackageOutputPath>$(MSBuildThisFileDirectory)../../../.nuget</PackageOutputPath>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="../../../README.md" Pack="true" PackagePath="/" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <SupportedPlatform Include="browser" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Test apps + xUnit projects construct internal Crypto.UI services
+         (PrfAuthenticator, EncryptedDiskLifecycle, PrfAuthenticationStateProvider)
+         directly for focused coverage. -->
+    <InternalsVisibleTo Include="SqliteWasmBlazor.CryptoSync.Tests" />
+    <InternalsVisibleTo Include="SqliteWasmBlazor.TestApp" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Components.Authorization" />
+    <PackageReference Include="Microsoft.AspNetCore.Components.Web" />
+    <PackageReference Include="Microsoft.Extensions.Localization" />
+    <PackageReference Include="MudBlazor" />
+    <PackageReference Include="RxBlazorV2.MudBlazor" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\Base\SqliteWasmBlazor\SqliteWasmBlazor.csproj" />
+    <ProjectReference Include="..\SqliteWasmBlazor.Crypto\SqliteWasmBlazor.Crypto.csproj" />
+  </ItemGroup>
+
+</Project>
