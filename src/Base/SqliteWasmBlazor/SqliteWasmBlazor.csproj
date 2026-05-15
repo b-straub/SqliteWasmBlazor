@@ -1,0 +1,120 @@
+<Project Sdk="Microsoft.NET.Sdk.Razor">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+
+    <!-- Package Metadata -->
+    <PackageId>SqliteWasmBlazor</PackageId>
+    <Version>$(SqliteWasmBlazorVersion)</Version>
+    <Authors>bernisoft</Authors>
+    <Company>bernisoft</Company>
+    <Product>SqliteWasmBlazor</Product>
+    <Description>The first filesystem-backed SQLite database with full EF Core support for Blazor WebAssembly. Uses OPFS (Origin Private File System) with synchronous access handles for true persistence. Complete ADO.NET provider with migrations, relationships, and all LINQ operators. Drop-in replacement for EF Core InMemory provider.</Description>
+    <PackageTags>blazor;wasm;sqlite;efcore;opfs;database;entityframework;webassembly;offline;persistence</PackageTags>
+    <Copyright>Copyright (c) 2025 bernisoft</Copyright>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/b-straub/SqliteWasmBlazor</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/b-straub/SqliteWasmBlazor</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageReleaseNotes>
+      - Full EF Core ADO.NET provider
+      - OPFS SAHPool persistence
+      - MessagePack binary protocol
+      - Complete migration support
+      - Custom EF Core decimal functions
+      - Dual SQLite instance architecture
+    </PackageReleaseNotes>
+    <GeneratePackageOnBuild Condition="'$(Configuration)' == 'Release'">true</GeneratePackageOnBuild>
+    <IncludeSymbols>true</IncludeSymbols>
+    <EmbedAllSources>true</EmbedAllSources>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <PackageOutputPath>$(MSBuildThisFileDirectory)../../../.nuget</PackageOutputPath>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <NoWarn>$(NoWarn);NU5118</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.SourceLink.GitHub" PrivateAssets="All" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Plane 2 engine (post plane-split Phase 2b). Hosts the
+         EncryptedSqliteWasmWorkerBridge which wraps plane-1's bridge via
+         the internal binary-payload helpers (PostBinary* / MarkDatabaseClosed). -->
+    <InternalsVisibleTo Include="SqliteWasmBlazor.Crypto" />
+    <!-- Plane 3 engine still uses plane-1's bridge for non-encryption
+         primitives (SendRequestAsync etc. via internal helpers). Encryption
+         + delta calls now go through SqliteWasmBlazor.Crypto's bridge. -->
+    <InternalsVisibleTo Include="SqliteWasmBlazor.CryptoSync" />
+    <!-- TestApp tests directly call the bridge's internal primitives for
+         focused per-DB unit coverage. Encryption-related primitives now
+         live in SqliteWasmBlazor.Crypto; this entry stays for the plain-DB
+         coverage that doesn't go through the IEncryptedSqliteWasmDatabaseService loops. -->
+    <InternalsVisibleTo Include="SqliteWasmBlazor.TestApp" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <SupportedPlatform Include="browser" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="../../../README.md" Pack="true" PackagePath="/" />
+    <None Include="../../../LICENSE" Pack="true" PackagePath="/" />
+    <None Include="build/SqliteWasmBlazor.targets" Pack="true" PackagePath="build" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Exclude TypeScript source workspaces from NuGet pack AND publish
+         output. The Razor SDK otherwise treats `TypeScript/package.json`
+         etc. as static web assets and conflicts at `dotnet publish` time
+         with the sibling SqliteWasmBlazor.Components/TypeScript/ source
+         tree (NETSDK1152: same relative path). Only the bundled
+         wwwroot/sqlite-wasm-*.js outputs ship to consumers. -->
+    <Content Remove="TypeScript/**" />
+    <None Remove="TypeScript/**" />
+    <Content Remove="TypeScript-Common/**" />
+    <None Remove="TypeScript-Common/**" />
+  </ItemGroup>
+  
+  <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" />
+    <PackageReference Include="MessagePack" />
+    <PackageReference Include="Microsoft.Extensions.Options" />
+    <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Abstractions" />
+    <PackageReference Include="R3" />
+    <PackageReference Include="SQLitePCLRaw.lib.e_sqlite3" ExcludeAssets="all" PrivateAssets="all" />
+  </ItemGroup>
+  
+  <!-- Custom SQLite minimal stub library (8KB, replaces packaged e_sqlite3.a) -->
+  <ItemGroup>
+    <!-- Link the stub in this project -->
+    <NativeFileReference Include="native/lib/e_sqlite3.a" />
+    <!-- Include in NuGet package - targets file handles the NativeFileReference for consumers -->
+    <None Include="native/lib/e_sqlite3.a" Pack="true" PackagePath="native/lib" />
+  </ItemGroup>
+
+  <!-- npm install for the worker-common workspace before building.
+       TypeScript/ depends on it via file:../TypeScript-Common; esbuild walks
+       into TypeScript-Common/src/ during bundling and needs its node_modules
+       (msgpackr, @sqlite.org/sqlite-wasm) to resolve nested imports. -->
+  <Target Name="NpmInstallCommon" BeforeTargets="BuildTypeScriptDebug;BuildTypeScriptRelease">
+    <Exec WorkingDirectory="TypeScript-Common" Command="npm audit signatures" Condition="Exists('TypeScript-Common/package.json') And !Exists('TypeScript-Common/node_modules')" />
+    <Exec WorkingDirectory="TypeScript-Common" Command="npm ci --ignore-scripts" Condition="Exists('TypeScript-Common/package.json') And !Exists('TypeScript-Common/node_modules')" />
+  </Target>
+
+  <!-- Build TypeScript very early, before static web assets are discovered. -->
+  <Target Name="BuildTypeScriptDebug" BeforeTargets="BeforeCompile;ResolveStaticWebAssetsInputs" Condition="'$(Configuration)' == 'Debug'">
+    <Exec WorkingDirectory="TypeScript" Command="npm run build" Condition="Exists('TypeScript/package.json')" />
+  </Target>
+
+  <Target Name="BuildTypeScriptRelease" BeforeTargets="BeforeCompile;ResolveStaticWebAssetsInputs" Condition="'$(Configuration)' == 'Release'">
+    <Exec WorkingDirectory="TypeScript" Command="npm run build:release" Condition="Exists('TypeScript/package.json')"/>
+  </Target>
+
+</Project>

@@ -1,0 +1,31 @@
+{
+  "name": "system-data-sqlite-wasm-typescript",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "postinstall": "patch-package",
+    "build": "npm run build:worker && npm run build:bridge && npm run copy:wasm",
+    "build:worker": "esbuild worker/sqlite-worker.ts --bundle --format=esm --sourcemap=inline --outfile=../wwwroot/sqlite-wasm-worker.js",
+    "build:bridge": "esbuild bridge/worker-bridge.ts --bundle --format=esm --sourcemap=inline --outfile=../wwwroot/sqlite-wasm-bridge.js",
+    "copy:wasm": "cp node_modules/@sqlite.org/sqlite-wasm/dist/sqlite3.wasm ../wwwroot/",
+    "build:release": "npm run build:worker:release && npm run build:bridge:release && npm run copy:wasm",
+    "build:worker:release": "esbuild worker/sqlite-worker.ts --bundle --format=esm --minify --outfile=../wwwroot/sqlite-wasm-worker.js",
+    "build:bridge:release": "esbuild bridge/worker-bridge.ts --bundle --format=esm --minify --outfile=../wwwroot/sqlite-wasm-bridge.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint ."
+  },
+  "dependencies": {
+    "@sqlitewasmblazor/worker-common": "file:../TypeScript-Common",
+    "@sqlite.org/sqlite-wasm": "3.53.0-build1",
+    "msgpackr": "1.11.10"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.0",
+    "eslint": "9.39.0",
+    "patch-package": "8.0.1",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.59.3",
+    "vitest": "4.1.6"
+  }
+}

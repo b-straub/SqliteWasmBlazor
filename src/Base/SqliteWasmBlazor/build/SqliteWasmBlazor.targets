@@ -1,0 +1,18 @@
+<Project>
+
+  <!-- Wire up the minimal SQLite native stub (9.8KB) that ships with this
+       package. The stub replaces the large 1.1MB SQLitePCLRaw library that
+       Microsoft.EntityFrameworkCore.Sqlite would otherwise pull in transitively. -->
+  <ItemGroup>
+    <NativeFileReference Include="$(MSBuildThisFileDirectory)../native/lib/e_sqlite3.a" />
+  </ItemGroup>
+
+  <!-- Exclude the upstream SQLitePCLRaw.lib.e_sqlite3 native lib on the
+       consumer side so the small stub above is the only e_sqlite3 in the
+       link. Injected here (auto-loaded by NuGet for every package consumer)
+       so apps don't have to repeat the incantation in every csproj. -->
+  <ItemGroup>
+    <PackageReference Include="SQLitePCLRaw.lib.e_sqlite3" ExcludeAssets="all" PrivateAssets="all" />
+  </ItemGroup>
+
+</Project>
