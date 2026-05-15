@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <resheader name="resmimetype"><value>text/microsoft-resx</value></resheader>
+  <resheader name="version"><value>2.0</value></resheader>
+  <resheader name="reader"><value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e108</value></resheader>
+  <resheader name="writer"><value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e108</value></resheader>
+  <data name="Header_Title" xml:space="preserve"><value>Vertrauenswürdige Kontakte</value></data>
+  <data name="Header_Subtitle" xml:space="preserve"><value>Lokale Ansicht der Kontaktliste</value></data>
+  <data name="Status_Loading" xml:space="preserve"><value>Kontakte werden geladen...</value></data>
+  <data name="Status_NoContacts" xml:space="preserve"><value>Noch keine vertrauenswürdigen Kontakte. Sende eine Einladung oder akzeptiere eine, um die Liste zu füllen.</value></data>
+  <data name="Status_CopiedFor" xml:space="preserve"><value>Öffentlicher Schlüssel von {0} kopiert</value></data>
+  <data name="Table_Name" xml:space="preserve"><value>Name</value></data>
+  <data name="Table_Email" xml:space="preserve"><value>E-Mail</value></data>
+  <data name="Table_Role" xml:space="preserve"><value>Rolle</value></data>
+  <data name="Table_Actions" xml:space="preserve"><value>Aktionen</value></data>
+  <data name="Chip_Admin" xml:space="preserve"><value>Admin</value></data>
+  <data name="Chip_Member" xml:space="preserve"><value>Mitglied</value></data>
+  <data name="Tooltip_CopyKey" xml:space="preserve"><value>X25519-Public-Key kopieren</value></data>
+  <data name="Tooltip_HideLocally" xml:space="preserve"><value>Diesen Kontakt aus der lokalen Liste ausblenden — Relay- bzw. Schlüsselzugriff bleibt bestehen. Echter Widerruf erfordert das Admin-Werkzeug.</value></data>
+  <data name="Btn_Refresh" xml:space="preserve"><value>Aktualisieren</value></data>
+  <data name="Error_Load" xml:space="preserve"><value>Kontakte konnten nicht geladen werden: {0}</value></data>
+  <data name="Error_Delete" xml:space="preserve"><value>Kontakt konnte nicht ausgeblendet werden: {0}</value></data>
+  <data name="Error_ClipboardCopy" xml:space="preserve"><value>Kopieren fehlgeschlagen: {0}</value></data>
+</root>

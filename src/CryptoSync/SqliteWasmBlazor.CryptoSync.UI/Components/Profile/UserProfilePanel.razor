@@ -1,0 +1,90 @@
+@inherits UserProfileModelComponent
+
+<MudCard>
+    <MudCardHeader>
+        <CardHeaderAvatar>
+            <MudIcon Icon="@Icons.Material.Filled.Person" Color="Color.Primary" />
+        </CardHeaderAvatar>
+        <CardHeaderContent>
+            <MudText Typo="Typo.h6">@Model.Localizer["Header_Title"]</MudText>
+            <MudText Typo="Typo.body2" Class="mud-text-secondary">@Model.Localizer["Header_Subtitle"]</MudText>
+        </CardHeaderContent>
+    </MudCardHeader>
+
+    <MudCardContent>
+        @if (Model.LoadProfile.Executing)
+        {
+            <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-4">
+                <MudProgressCircular Indeterminate="true" Size="Size.Small" />
+                <MudText>@Model.Localizer["Status_Loading"]</MudText>
+            </MudStack>
+        }
+        else if (!Model.IsProvisioned)
+        {
+            <MudAlert Severity="Severity.Warning" Class="mb-4" Variant="Variant.Outlined">
+                @Model.Localizer["Alert_NotProvisioned"]
+            </MudAlert>
+        }
+        else
+        {
+            <MudStack Spacing="3">
+                <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center">
+                    <MudText Typo="Typo.subtitle2">@Model.DeviceName</MudText>
+                    @if (Model.IsAdmin)
+                    {
+                        <MudChip T="string" Size="Size.Small" Color="Color.Primary" Icon="@Icons.Material.Filled.AdminPanelSettings">
+                            @Model.Localizer["Chip_Admin"]
+                        </MudChip>
+                    }
+                    else
+                    {
+                        <MudChip T="string" Size="Size.Small" Color="Color.Default" Icon="@Icons.Material.Filled.Person">
+                            @Model.Localizer["Chip_Member"]
+                        </MudChip>
+                    }
+                </MudStack>
+
+                <MudDivider />
+
+                <MudStack Spacing="1">
+                    <MudText Typo="Typo.caption" Class="mud-text-secondary">@Model.Localizer["Field_ClientGuid"]</MudText>
+                    <MudText Typo="Typo.body2" Style="font-family: monospace; word-break: break-all;">@Model.ClientGuid</MudText>
+                </MudStack>
+
+                @if (!string.IsNullOrEmpty(Model.CredentialId))
+                {
+                    <MudStack Spacing="1">
+                        <MudText Typo="Typo.caption" Class="mud-text-secondary">@Model.Localizer["Field_CredentialId"]</MudText>
+                        <MudText Typo="Typo.body2" Style="font-family: monospace; word-break: break-all;">@Model.CredentialId</MudText>
+                    </MudStack>
+                }
+
+                @if (!Model.IsAdmin && Model.AdminContactId is { } adminId)
+                {
+                    <MudStack Spacing="1">
+                        <MudText Typo="Typo.caption" Class="mud-text-secondary">@Model.Localizer["Field_AdminContact"]</MudText>
+                        <MudText Typo="Typo.body2" Style="font-family: monospace;">@adminId</MudText>
+                    </MudStack>
+                }
+
+                @if (Model.OwnContactId is { } ownId)
+                {
+                    <MudStack Spacing="1">
+                        <MudText Typo="Typo.caption" Class="mud-text-secondary">@Model.Localizer["Field_OwnContact"]</MudText>
+                        <MudText Typo="Typo.body2" Style="font-family: monospace;">@ownId</MudText>
+                    </MudStack>
+                }
+            </MudStack>
+        }
+    </MudCardContent>
+
+    <MudCardActions>
+        <MudSpacer />
+        <MudButtonAsyncRx Command="@Model.LoadProfile"
+                          Variant="Variant.Outlined"
+                          Color="Color.Default"
+                          StartIcon="@Icons.Material.Filled.Refresh">
+            @Model.Localizer["Btn_Refresh"]
+        </MudButtonAsyncRx>
+    </MudCardActions>
+</MudCard>

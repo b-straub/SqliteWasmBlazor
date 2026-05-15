@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <resheader name="resmimetype"><value>text/microsoft-resx</value></resheader>
+  <resheader name="version"><value>2.0</value></resheader>
+  <resheader name="reader"><value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e108</value></resheader>
+  <resheader name="writer"><value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e108</value></resheader>
+  <data name="Header_Title" xml:space="preserve"><value>Push Notifications</value></data>
+  <data name="Header_Subtitle" xml:space="preserve"><value>Status of the host's push notifier</value></data>
+  <data name="Alert_NotConfigured" xml:space="preserve"><value>Push notifications are not configured. The host registered the NullPushNotifier default — register a real IPushNotifier implementation (web-push / VAPID, native bridge, etc.) to wake recipient devices.</value></data>
+  <data name="Alert_Configured" xml:space="preserve"><value>Push notifier wired: {0}.</value></data>
+  <data name="Description_DomainSpecific" xml:space="preserve"><value>Compose-and-send UI is domain-specific (payload shape, recipient picker, threading) and belongs in a downstream consumer panel. This base panel only surfaces wiring health.</value></data>
+</root>

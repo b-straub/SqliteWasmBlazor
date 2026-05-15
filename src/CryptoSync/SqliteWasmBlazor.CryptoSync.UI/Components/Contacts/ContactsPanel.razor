@@ -1,0 +1,84 @@
+@inherits ContactsModelComponent
+
+<MudCard>
+    <MudCardHeader>
+        <CardHeaderAvatar>
+            <MudIcon Icon="@Icons.Material.Filled.Contacts" Color="Color.Primary" />
+        </CardHeaderAvatar>
+        <CardHeaderContent>
+            <MudText Typo="Typo.h6">@Model.Localizer["Header_Title"]</MudText>
+            <MudText Typo="Typo.body2" Class="mud-text-secondary">@Model.Localizer["Header_Subtitle"]</MudText>
+        </CardHeaderContent>
+    </MudCardHeader>
+
+    <MudCardContent>
+        @if (Model.LoadContacts.Executing)
+        {
+            <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-4">
+                <MudProgressCircular Indeterminate="true" Size="Size.Small" />
+                <MudText>@Model.Localizer["Status_Loading"]</MudText>
+            </MudStack>
+        }
+        else if (Model.Contacts is null or { Count: 0 })
+        {
+            <MudAlert Severity="Severity.Info" Class="mb-4" Variant="Variant.Outlined">
+                @Model.Localizer["Status_NoContacts"]
+            </MudAlert>
+        }
+        else
+        {
+            <MudTable Items="@Model.Contacts" Hover="true" Striped="true" Dense="true" Class="mb-4">
+                <HeaderContent>
+                    <MudTh>@Model.Localizer["Table_Name"]</MudTh>
+                    <MudTh>@Model.Localizer["Table_Email"]</MudTh>
+                    <MudTh>@Model.Localizer["Table_Role"]</MudTh>
+                    <MudTh Style="width: 110px;">@Model.Localizer["Table_Actions"]</MudTh>
+                </HeaderContent>
+                <RowTemplate>
+                    <MudTd DataLabel="@(Model.Localizer["Table_Name"])">@context.Username</MudTd>
+                    <MudTd DataLabel="@(Model.Localizer["Table_Email"])">@context.Email</MudTd>
+                    <MudTd DataLabel="@(Model.Localizer["Table_Role"])">
+                        @if (context.IsAdmin)
+                        {
+                            <MudChip T="string" Size="Size.Small" Color="Color.Primary" Icon="@Icons.Material.Filled.AdminPanelSettings">@Model.Localizer["Chip_Admin"]</MudChip>
+                        }
+                        else
+                        {
+                            <MudChip T="string" Size="Size.Small" Color="Color.Default">@Model.Localizer["Chip_Member"]</MudChip>
+                        }
+                    </MudTd>
+                    <MudTd DataLabel="@(Model.Localizer["Table_Actions"])">
+                        <MudTooltip Text="@(Model.Localizer["Tooltip_CopyKey"])">
+                            <MudIconButtonRxOf T="TrustedContact"
+                                               Command="@Model.RequestCopyKeyCommand"
+                                               Parameter="@context"
+                                               Icon="@Icons.Material.Filled.ContentCopy"
+                                               Size="Size.Small" />
+                        </MudTooltip>
+                        @if (!context.IsAdmin)
+                        {
+                            <MudTooltip Text="@(Model.Localizer["Tooltip_HideLocally"])">
+                                <MudIconButtonAsyncRxOf T="Guid"
+                                                        Command="@Model.DeleteContact"
+                                                        Parameter="@context.Id"
+                                                        Icon="@Icons.Material.Filled.VisibilityOff"
+                                                        Size="Size.Small"
+                                                        Color="Color.Default" />
+                            </MudTooltip>
+                        }
+                    </MudTd>
+                </RowTemplate>
+            </MudTable>
+        }
+    </MudCardContent>
+
+    <MudCardActions>
+        <MudSpacer />
+        <MudButtonAsyncRx Command="@Model.LoadContacts"
+                          Variant="Variant.Outlined"
+                          Color="Color.Default"
+                          StartIcon="@Icons.Material.Filled.Refresh">
+            @Model.Localizer["Btn_Refresh"]
+        </MudButtonAsyncRx>
+    </MudCardActions>
+</MudCard>

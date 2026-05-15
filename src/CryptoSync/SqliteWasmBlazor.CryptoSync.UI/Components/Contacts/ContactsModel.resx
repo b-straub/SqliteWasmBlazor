@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <resheader name="resmimetype"><value>text/microsoft-resx</value></resheader>
+  <resheader name="version"><value>2.0</value></resheader>
+  <resheader name="reader"><value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e108</value></resheader>
+  <resheader name="writer"><value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e108</value></resheader>
+  <data name="Header_Title" xml:space="preserve"><value>Trusted Contacts</value></data>
+  <data name="Header_Subtitle" xml:space="preserve"><value>Local view of the contact roster</value></data>
+  <data name="Status_Loading" xml:space="preserve"><value>Loading contacts...</value></data>
+  <data name="Status_NoContacts" xml:space="preserve"><value>No trusted contacts yet. Issue an invitation or accept one to populate the roster.</value></data>
+  <data name="Status_CopiedFor" xml:space="preserve"><value>Copied {0}'s public key</value></data>
+  <data name="Table_Name" xml:space="preserve"><value>Name</value></data>
+  <data name="Table_Email" xml:space="preserve"><value>Email</value></data>
+  <data name="Table_Role" xml:space="preserve"><value>Role</value></data>
+  <data name="Table_Actions" xml:space="preserve"><value>Actions</value></data>
+  <data name="Chip_Admin" xml:space="preserve"><value>Admin</value></data>
+  <data name="Chip_Member" xml:space="preserve"><value>Member</value></data>
+  <data name="Tooltip_CopyKey" xml:space="preserve"><value>Copy X25519 public key</value></data>
+  <data name="Tooltip_HideLocally" xml:space="preserve"><value>Hide this contact from the local roster — does NOT revoke their relay/key access. Real revocation requires the admin tool.</value></data>
+  <data name="Btn_Refresh" xml:space="preserve"><value>Refresh</value></data>
+  <data name="Error_Load" xml:space="preserve"><value>Failed to load contacts: {0}</value></data>
+  <data name="Error_Delete" xml:space="preserve"><value>Failed to hide contact: {0}</value></data>
+  <data name="Error_ClipboardCopy" xml:space="preserve"><value>Copy failed: {0}</value></data>
+</root>

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <resheader name="resmimetype"><value>text/microsoft-resx</value></resheader>
+  <resheader name="version"><value>2.0</value></resheader>
+  <resheader name="reader"><value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e108</value></resheader>
+  <resheader name="writer"><value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e108</value></resheader>
+  <data name="Header_Title" xml:space="preserve"><value>Push-Benachrichtigungen</value></data>
+  <data name="Header_Subtitle" xml:space="preserve"><value>Status des Push-Notifiers des Hosts</value></data>
+  <data name="Alert_NotConfigured" xml:space="preserve"><value>Push-Benachrichtigungen sind nicht konfiguriert. Der Host hat den NullPushNotifier-Standard registriert — registriere eine echte IPushNotifier-Implementierung (Web-Push / VAPID, native Bridge usw.), um Empfängergeräte aufzuwecken.</value></data>
+  <data name="Alert_Configured" xml:space="preserve"><value>Push-Notifier verdrahtet: {0}.</value></data>
+  <data name="Description_DomainSpecific" xml:space="preserve"><value>Eine Verfass-und-Senden-Oberfläche ist domänenspezifisch (Payload-Form, Empfängerauswahl, Threading) und gehört in das Panel eines Konsumenten. Diese Basisansicht zeigt nur den Verdrahtungszustand.</value></data>
+</root>

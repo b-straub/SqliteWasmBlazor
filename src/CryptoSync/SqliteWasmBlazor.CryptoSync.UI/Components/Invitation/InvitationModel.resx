@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <resheader name="resmimetype"><value>text/microsoft-resx</value></resheader>
+  <resheader name="version"><value>2.0</value></resheader>
+  <resheader name="reader"><value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e108</value></resheader>
+  <resheader name="writer"><value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e108</value></resheader>
+  <data name="Header_Title" xml:space="preserve"><value>Invitations (Admin)</value></data>
+  <data name="Header_Subtitle" xml:space="preserve"><value>Issue invitations and ingest responses</value></data>
+  <data name="Alert_AdminContextMissing" xml:space="preserve"><value>The admin invitation context is not wired on this host. The post-Stage-2 demo step provides the WebAuthn-PRF backed implementation; until then this panel is read-only.</value></data>
+  <data name="Section_Create" xml:space="preserve"><value>Create Invitation</value></data>
+  <data name="Field_UsernameLabel" xml:space="preserve"><value>Username</value></data>
+  <data name="Field_EmailLabel" xml:space="preserve"><value>Email (optional)</value></data>
+  <data name="Field_CommentLabel" xml:space="preserve"><value>Comment (optional)</value></data>
+  <data name="Btn_Create" xml:space="preserve"><value>Issue Invitation</value></data>
+  <data name="Section_Responses" xml:space="preserve"><value>Pending Responses</value></data>
+  <data name="Btn_Check" xml:space="preserve"><value>Check Responses</value></data>
+  <data name="Status_InvitationCreated" xml:space="preserve"><value>Invitation created for {0}. Group {1}, expires {2} UTC.</value></data>
+  <data name="Status_ResponsesIngested" xml:space="preserve"><value>Ingested {0} invitation response(s).</value></data>
+  <data name="Error_Create" xml:space="preserve"><value>Failed to create invitation: {0}</value></data>
+  <data name="Error_Ingest" xml:space="preserve"><value>Failed to ingest responses: {0}</value></data>
+</root>

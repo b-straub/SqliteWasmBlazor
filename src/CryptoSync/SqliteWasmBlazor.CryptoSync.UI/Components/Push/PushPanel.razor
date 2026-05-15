@@ -1,0 +1,29 @@
+<MudCard>
+    <MudCardHeader>
+        <CardHeaderAvatar>
+            <MudIcon Icon="@Icons.Material.Filled.NotificationsActive" Color="Color.Primary" />
+        </CardHeaderAvatar>
+        <CardHeaderContent>
+            <MudText Typo="Typo.h6">@Localizer["Header_Title"]</MudText>
+            <MudText Typo="Typo.body2" Class="mud-text-secondary">@Localizer["Header_Subtitle"]</MudText>
+        </CardHeaderContent>
+    </MudCardHeader>
+
+    <MudCardContent>
+        @if (PushNotifier is NullPushNotifier)
+        {
+            <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
+                @Localizer["Alert_NotConfigured"]
+            </MudAlert>
+        }
+        else
+        {
+            <MudAlert Severity="Severity.Success" Variant="Variant.Outlined">
+                @Localizer["Alert_Configured", PushNotifier.GetType().FullName ?? PushNotifier.GetType().Name]
+            </MudAlert>
+            <MudText Typo="Typo.body2" Class="mt-3 mud-text-secondary">
+                @Localizer["Description_DomainSpecific"]
+            </MudText>
+        }
+    </MudCardContent>
+</MudCard>

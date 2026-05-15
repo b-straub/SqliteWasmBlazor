@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <resheader name="resmimetype"><value>text/microsoft-resx</value></resheader>
+  <resheader name="version"><value>2.0</value></resheader>
+  <resheader name="reader"><value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e108</value></resheader>
+  <resheader name="writer"><value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e108</value></resheader>
+  <data name="Header_Title" xml:space="preserve"><value>This Device</value></data>
+  <data name="Header_Subtitle" xml:space="preserve"><value>Local identity and provisioning status</value></data>
+  <data name="Status_Loading" xml:space="preserve"><value>Loading profile...</value></data>
+  <data name="Alert_NotProvisioned" xml:space="preserve"><value>This device has not been provisioned. Run admin bootstrap or accept an invitation before opening sync.</value></data>
+  <data name="Chip_Admin" xml:space="preserve"><value>Admin</value></data>
+  <data name="Chip_Member" xml:space="preserve"><value>Member</value></data>
+  <data name="Field_ClientGuid" xml:space="preserve"><value>Client GUID</value></data>
+  <data name="Field_CredentialId" xml:space="preserve"><value>WebAuthn Credential ID</value></data>
+  <data name="Field_AdminContact" xml:space="preserve"><value>Admin Contact</value></data>
+  <data name="Field_OwnContact" xml:space="preserve"><value>Own Contact</value></data>
+  <data name="Btn_Refresh" xml:space="preserve"><value>Refresh</value></data>
+  <data name="Error_Load" xml:space="preserve"><value>Failed to load device profile: {0}</value></data>
+</root>

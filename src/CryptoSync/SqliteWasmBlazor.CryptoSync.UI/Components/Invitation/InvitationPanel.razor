@@ -1,0 +1,68 @@
+@inherits InvitationModelComponent
+
+<MudCard>
+    <MudCardHeader>
+        <CardHeaderAvatar>
+            <MudIcon Icon="@Icons.Material.Filled.Link" Color="Color.Primary" />
+        </CardHeaderAvatar>
+        <CardHeaderContent>
+            <MudText Typo="Typo.h6">@Model.Localizer["Header_Title"]</MudText>
+            <MudText Typo="Typo.body2" Class="mud-text-secondary">@Model.Localizer["Header_Subtitle"]</MudText>
+        </CardHeaderContent>
+    </MudCardHeader>
+
+    <MudCardContent>
+        @if (AdminContext is null)
+        {
+            <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="mb-4">
+                @Model.Localizer["Alert_AdminContextMissing"]
+            </MudAlert>
+        }
+        else
+        {
+            <MudText Typo="Typo.subtitle2" Class="mb-2">@Model.Localizer["Section_Create"]</MudText>
+
+            <MudTextField @bind-Value="@Model.FormUsername"
+                          Label="@(Model.Localizer["Field_UsernameLabel"])"
+                          Variant="Variant.Outlined"
+                          Required="true"
+                          Class="mb-3"
+                          Disabled="@Model.CreateInvitation.Executing" />
+
+            <MudTextField @bind-Value="@Model.FormEmail"
+                          Label="@(Model.Localizer["Field_EmailLabel"])"
+                          Variant="Variant.Outlined"
+                          Class="mb-3"
+                          Disabled="@Model.CreateInvitation.Executing" />
+
+            <MudTextField @bind-Value="@Model.FormComment"
+                          Label="@(Model.Localizer["Field_CommentLabel"])"
+                          Variant="Variant.Outlined"
+                          Lines="2"
+                          Class="mb-3"
+                          Disabled="@Model.CreateInvitation.Executing" />
+
+            <MudButtonAsyncRxOf T="IAdminInvitationContext"
+                                Command="@Model.CreateInvitation"
+                                Parameter="@AdminContext"
+                                Variant="Variant.Filled"
+                                Color="Color.Primary"
+                                StartIcon="@Icons.Material.Filled.AddLink">
+                @Model.Localizer["Btn_Create"]
+            </MudButtonAsyncRxOf>
+
+            <MudDivider Class="my-4" />
+
+            <MudText Typo="Typo.subtitle2" Class="mb-2">@Model.Localizer["Section_Responses"]</MudText>
+
+            <MudButtonAsyncRxOf T="IAdminInvitationContext"
+                                Command="@Model.IngestResponses"
+                                Parameter="@AdminContext"
+                                Variant="Variant.Outlined"
+                                Color="Color.Default"
+                                StartIcon="@Icons.Material.Filled.Inbox">
+                @Model.Localizer["Btn_Check"]
+            </MudButtonAsyncRxOf>
+        }
+    </MudCardContent>
+</MudCard>

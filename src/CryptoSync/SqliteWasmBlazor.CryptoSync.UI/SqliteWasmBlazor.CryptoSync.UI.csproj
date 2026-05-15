@@ -1,0 +1,66 @@
+<Project Sdk="Microsoft.NET.Sdk.Razor">
+
+  <!--
+    Re-skinnable Razor component library that absorbs the BlazorPRF.UI +
+    BlazorPRF.Push panels onto the in-repo CryptoSync services.
+
+    Architecture invariants (see ~/.claude/plans/cryptosync-ui-absorption.md):
+      - RxBlazorV2 is mandatory. Each panel is three files: *.razor (markup
+        only), *.razor.cs (host glue), *Model.cs (ObservableModel).
+      - MudBlazor is the default skin. No hand-rolled CSS where a MudBlazor
+        primitive suffices.
+      - Library is base, not domain. Auth / Contacts / Invitation / Push /
+        boot-status only — Messages / ToDo / etc. live in downstream
+        consumers.
+      - Identity seams (ISenderAuthSigner, IReceiveAuthSigner, IPushNotifier)
+        and PRF seams (IPrfWebAuthn, IPrfCrypto) stay caller-registered;
+        AddCryptoSyncUI() does not touch them.
+
+    RxBlazorV2 RXBG061 requires an assembly boundary for ObservableComponent
+    panels embedded in another assembly's pages — this is why the library
+    exists separately from SqliteWasmBlazor.CryptoSync.
+  -->
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>
+
+    <Version>$(SqliteWasmBlazorVersion)</Version>
+    <Authors>bernisoft</Authors>
+    <Description>Sync-plane RxBlazorV2 + MudBlazor panels for SqliteWasmBlazor.CryptoSync: User profile, contacts, invitation, push wiring. Builds on SqliteWasmBlazor.Crypto.UI for base-plane auth/registration/error/session panels.</Description>
+    <PackageTags>blazor;wasm;mudblazor;rxblazor;cryptosync;ui;components;e2e</PackageTags>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/b-straub/SqliteWasmBlazor</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/b-straub/SqliteWasmBlazor</RepositoryUrl>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <GeneratePackageOnBuild Condition="'$(Configuration)' == 'Release'">true</GeneratePackageOnBuild>
+    <IncludeSymbols>true</IncludeSymbols>
+    <EmbedAllSources>true</EmbedAllSources>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <PackageOutputPath>$(MSBuildThisFileDirectory)../../../.nuget</PackageOutputPath>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="../../../README.md" Pack="true" PackagePath="/" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <SupportedPlatform Include="browser" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Components.Web" />
+    <PackageReference Include="Microsoft.Extensions.Localization" />
+    <PackageReference Include="MudBlazor" />
+    <PackageReference Include="RxBlazorV2.MudBlazor" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\Base\SqliteWasmBlazor\SqliteWasmBlazor.csproj" />
+    <ProjectReference Include="..\..\Crypto\SqliteWasmBlazor.Crypto.UI\SqliteWasmBlazor.Crypto.UI.csproj" />
+    <ProjectReference Include="..\SqliteWasmBlazor.CryptoSync\SqliteWasmBlazor.CryptoSync.csproj" />
+  </ItemGroup>
+
+</Project>
