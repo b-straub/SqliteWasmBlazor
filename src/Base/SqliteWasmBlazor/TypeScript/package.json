@@ -16,6 +16,7 @@
     "lint": "eslint ."
   },
   "dependencies": {
+    "@sqlitewasmblazor/crypto-core": "file:../TypeScript-Crypto",
     "@sqlitewasmblazor/worker-common": "file:../TypeScript-Common",
     "@sqlite.org/sqlite-wasm": "3.53.0-build1",
     "msgpackr": "1.11.10"
