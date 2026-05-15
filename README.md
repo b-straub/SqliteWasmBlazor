@@ -34,7 +34,55 @@ The public API surface is intentionally kept minimal to reduce the risk of break
 
 ## What's New
 
-- **Encrypted VFS** - At-rest encryption for OPFS-stored SQLite databases. Per-page ChaCha20-Poly1305 with PRF-derived keys via BlazorPRF. Defends against stolen-disk and cloud-backup exposure of the OPFS directory [(details)](docs/crypto-vfs.md)
+### Passkey-derived encryption (Plane 2)
+
+Optional at-rest encryption for OPFS-backed SQLite databases. The host opts
+in by registering a 32-byte key with the worker; without that the same VFS
+falls through to byte-for-byte vendor SAHPool behavior. With the key
+registered the entire encryption layer engages:
+
+- **Page-level AEAD** — every 4 096-byte SQLite slot is sealed with
+  ChaCha20-Poly1305 before it reaches OPFS. The physical slot is
+  `[ciphertext(4096) | nonce(12) | tag(16)]`; the nonce is fresh CSPRNG
+  bytes per write.
+- **AAD-bound to slot identity** — the AEAD's associated data binds
+  `(versionTag, dbPath, slotIndex)`, so a tampered or relocated page fails
+  authentication. Cross-database and cross-slot page swaps are rejected on
+  read; legacy or wrong-version ciphertext is rejected outright.
+- **WebAuthn-PRF key derivation** — the global key is derived from a
+  passkey via the WebAuthn PRF extension through
+  [BlazorPRF](https://github.com/b-straub/BlazorPRF). No password, no
+  client-side key file; the authenticator does the unlock.
+- **Verified unlock, not silent** — a slot-0 AEAD probe gates unlock, and a
+  manifest MAC binds the on-disk state to the credential. Wrong key, wrong
+  credential, or tampered manifest fail loudly before any decryption hits
+  the page cache.
+- **Whole-disk envelope export (`.eds`)** — encrypted dumps wrap the slot
+  key under a recipient X25519 pubkey (ECIES). Carries a `credentialId`
+  hint so the receiver's UI can pick the right passkey automatically.
+- **Guided import primitive** — a single click on a `.eds` runs the whole
+  ritual: preflight, wipe, EnterEncrypted, rekey-import, manifest rebind.
+  Works from a Plain or Locked disk state; mistargeted envelopes are
+  rejected before the current disk is touched.
+- **Plain-ZIP import on encrypted disks** — state-aware: a Locked disk
+  breaks to plain (recovery path), an Unlocked disk re-encrypts on write
+  (passkey binding survives). Preflight validates SQLite shape + page
+  geometry before any wipe.
+- **Drop-in host UI** — `SqliteWasmBlazor.Crypto.UI` ships the
+  Authentication / Encryption / DatabaseErrorAlert / SessionExpired panels,
+  fully RxBlazorV2-based and resx-localized (en + de).
+- **Offline test adapter** — `SqliteWasmBlazor.Crypto.BouncyCastle` mirrors
+  the in-browser primitives in pure C# for tooling and integration tests
+  that need to run without a browser.
+- **Formally verified** — 3 Tamarin theories under `docs/formal/vfs-tamarin/`
+  cover per-slot AEAD soundness, in-place lifecycle, and key-cache /
+  manifest unlock. 36 lemmas, all verified.
+
+Full reference: [`docs/crypto-vfs.md`](docs/crypto-vfs.md). Threat model
+and assurance summary: [`docs/security/`](docs/security/README.md).
+
+### Other recent additions
+
 - **V2 Worker-Side Bulk Import/Export** - Worker-side prepared statement loops for 10-50x faster import. Self-describing V2 MessagePack format with column metadata. Memory-safe streaming for large datasets [(details)](CHANGELOG.md#v2-worker-side-bulk-importexport)
 - **Multi-Part Export** - Large databases automatically split into manageable parts with a meta file. Adaptive part sizing based on configurable MB limit
 - **Raw Database Import/Export** - Export and import complete .db files directly from/to OPFS with schema validation and automatic backup/restore on failure [(details)](CHANGELOG.md#raw-database-importexport)

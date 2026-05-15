@@ -45,6 +45,12 @@ holds against a Dolev-Yao attacker over the encrypted at-rest channel.
 
 ## Reporting vulnerabilities
 
-Please open a private security advisory on the project's GitHub repository
-rather than a public issue. See the repository root `README.md` for
-contributor contact details.
+Please report security issues through GitHub's private vulnerability
+reporting rather than as a public issue:
+
+→ <https://github.com/b-straub/SqliteWasmBlazor/security/advisories/new>
+
+The maintainer is notified privately; the report stays embargoed until
+a fix is published. If the link 404s the feature has not been enabled
+on the repository yet — open a regular issue asking for it to be turned
+on (without disclosing details).
