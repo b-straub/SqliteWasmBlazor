@@ -73,6 +73,15 @@ public static class TestRegistry
         "EFCoreFunctions_ComplexDecimalQuery",
         "EFCoreFunctions_AggregateBuiltIn",
 
+        // Encrypted Delta (CryptoSync)
+        "CryptoSync_RoundTrip",
+        "CryptoSync_WorkerEncryptedRoundTrip",
+        "CryptoSync_PermissionEnforcement",
+        "CryptoSync_SchemaVersionMismatch",
+        "CryptoSync_MultiTableRoundTrip",
+        "CryptoSync_MaliciousSystemTableFlipDenied",
+        "CryptoSync_SoftDeletedPrincipalsRejected",
+
         // Raw Database Import/Export
         "ExportImport_RawDatabase",
         "ImportRawDatabase_InvalidFile",

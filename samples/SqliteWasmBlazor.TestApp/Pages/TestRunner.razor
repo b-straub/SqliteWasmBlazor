@@ -1,13 +1,17 @@
 @page "/TestRunner"
 @using SqliteWasmBlazor
 @using SqliteWasmBlazor.TestApp.TestInfrastructure
+@using SqliteWasmBlazor.TestApp.TestInfrastructure.CryptoSync
 @using SqliteWasmBlazor.TestApp.TestInfrastructure.VfsEncryption
 @using Microsoft.EntityFrameworkCore
 @using SqliteWasmBlazor.Models
+@using SqliteWasmBlazor.Crypto.Abstractions.Services
 @inject IDbContextFactory<TodoDbContext> DbContextFactory
+@inject IDbContextFactory<CryptoTestContext> CryptoFactory
 @inject IDbContextFactory<EncryptedTestContext> EncryptedFactory
 @inject IDbContextFactory<PlainVfsTestContext> PlainVfsFactory
 @inject ISqliteWasmDatabaseService DatabaseService
+@inject IGroupEncryption GroupEncryption
 @inject Crypto.Abstractions.ICryptoProvider CryptoProvider
 @inject IServiceProvider Services
 
@@ -52,7 +56,7 @@
 
     private async Task RunAllTestsAsync()
     {
-        var testFactory = new TestFactory(DbContextFactory, DatabaseService, CryptoProvider, EncryptedFactory, PlainVfsFactory, Services);
+        var testFactory = new TestFactory(DbContextFactory, DatabaseService, CryptoFactory, CryptoProvider, EncryptedFactory, PlainVfsFactory, Services);
         var tests = testFactory.GetTests().ToList();
 
         _totalTests = tests.Count;

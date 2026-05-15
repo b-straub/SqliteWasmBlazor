@@ -1,10 +1,12 @@
 
 @using SqliteWasmBlazor
 @using SqliteWasmBlazor.TestApp.TestInfrastructure
+@using SqliteWasmBlazor.TestApp.TestInfrastructure.CryptoSync
 @using SqliteWasmBlazor.TestApp.TestInfrastructure.VfsEncryption
 @using Microsoft.EntityFrameworkCore
 @using SqliteWasmBlazor.Models
 @inject IDbContextFactory<TodoDbContext> DbContextFactory
+@inject IDbContextFactory<CryptoTestContext> CryptoFactory
 @inject IDbContextFactory<EncryptedTestContext> EncryptedFactory
 @inject IDbContextFactory<PlainVfsTestContext> PlainVfsFactory
 @inject ISqliteWasmDatabaseService DatabaseService
@@ -105,7 +107,7 @@
                     await seedContext.Database.MigrateAsync();
                 }
 
-                var testFactory = new TestFactory(_factory, DatabaseService, CryptoProvider, EncryptedFactory, PlainVfsFactory, Services);
+                var testFactory = new TestFactory(_factory, DatabaseService, CryptoFactory, CryptoProvider, EncryptedFactory, PlainVfsFactory, Services);
                 _tests.AddRange(testFactory.GetTests(TestName, CategoryFilter));
 
                 _running = true;

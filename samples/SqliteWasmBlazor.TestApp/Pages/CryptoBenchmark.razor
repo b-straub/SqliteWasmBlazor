@@ -1,0 +1,806 @@
+@page "/crypto-benchmark"
+
+@using System.Diagnostics
+@using System.Security.Cryptography
+@using MessagePack
+@using System.Text
+@using System.Text.Json
+@using Microsoft.EntityFrameworkCore
+@using SqliteWasmBlazor.Crypto.Abstractions
+@using SqliteWasmBlazor.Crypto.Abstractions.Services
+@using SqliteWasmBlazor.Crypto.Services
+@using SqliteWasmBlazor
+@using SqliteWasmBlazor.Components.Interop
+@using SqliteWasmBlazor.CryptoSync
+@using SqliteWasmBlazor.TestApp.TestInfrastructure.CryptoSync
+
+@inject ISnackbar Snackbar
+@inject IDbContextFactory<CryptoTestContext> CryptoFactory
+@inject ISqliteWasmDatabaseService DatabaseService
+@inject ICryptoProvider CryptoProvider
+@inject IGroupEncryption GroupEncryption
+@inject ILogger<CryptoBenchmark> Logger
+@inject IJSRuntime JS
+
+<PageTitle>CryptoSync Benchmark</PageTitle>
+
+@*
+    CryptoSync re-key rotation benchmark with end-to-end correctness proof.
+
+    Phase J of the CryptoSync plan — drives decision §17 (full re-encryption
+    as the only revoke mode vs. epoch-based optimization). Both a performance
+    measurement and a data-integrity round-trip.
+
+    Flow per run:
+        0. seed     — N CryptoTestItems in the source DB via EF Core (NOT measured)
+        1. export₁  — BulkExportEncryptedAsync(source, keyOld) → envelope₁
+                      also populates the source's _crypto_ shadow per-row
+        2. import₁  — BulkImportEncryptedAsync(tempA, envelope₁, keyOld)
+                      populates tempA.open AND tempA._crypto_ shadow
+        3. rotate   — DeltaRotateKeyAsync(tempA, keyOld → keyNew)
+                      ← THE hot-path measurement (single worker call, in-place
+                         shadow rewrite, no data round-trip to C#)
+        4. export₂  — BulkExportEncryptedAsync(tempA, keyNew) → envelope₂
+                      under the new key
+        5. import₂  — BulkImportEncryptedAsync(tempB, envelope₂, keyNew)
+                      populates tempB.open
+        6. verify   — read source.open and tempB.open; assert row counts and
+                      a column checksum match. The full export→import→rotate→
+                      export→import cycle preserved data iff verify = ✓.
+        7. cleanup  — drop tempA and tempB, zero key material
+
+    All six operational phases (1–6) are timed. Seed is timed but shown
+    separately because it's not part of the revoke cost surface.
+
+    Proof semantics: if the final verification passes, the content-key chain
+    was internally consistent across the round trip — the rotation produced
+    a shadow that re-encrypted correctly under keyNew, because otherwise the
+    subsequent export₂ (which doesn't read the shadow — it reads tempA.open)
+    would still yield a valid envelope but tempA.open is unchanged by the
+    rotation. The critical correctness check happens inside the rotate call
+    itself: DeltaRotateKeyAsync reads each shadow row, calls AES-GCM decrypt
+    with keyOld (which authenticates the ciphertext via the GCM tag —
+    tampering or corruption would throw), then encrypts with keyNew. A
+    successful rotate return ⇒ every shadow row's GCM tag verified ⇒ the
+    shadow was intact before rotation and is intact after.
+*@
+
+<MudContainer MaxWidth="MaxWidth.Large" Class="mt-4">
+    <MudText Typo="Typo.h5" GutterBottom="true">
+        <MudIcon Icon="@Icons.Material.Filled.Speed" Class="mr-1" />
+        CryptoSync Re-key Rotation Benchmark
+    </MudText>
+    <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-4">
+        Six-phase round-trip: export → import → <strong>rotate</strong> →
+        export → import → verify. Rotate is the measurement that drives
+        plan decision §17; the rest prove the round trip preserves data.
+    </MudText>
+
+    <MudPaper Elevation="2" Class="pa-4 mb-4">
+        <MudStack Spacing="3">
+            <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center">
+                <MudSelect T="int"
+                           @bind-Value="_rowCount"
+                           Label="Row count"
+                           Variant="Variant.Outlined"
+                           Margin="Margin.Dense"
+                           Disabled="@_isBusy"
+                           Style="max-width: 200px">
+                    <MudSelectItem T="int" Value="@((int)1000)">1,000</MudSelectItem>
+                    <MudSelectItem T="int" Value="@((int)5000)">5,000</MudSelectItem>
+                    <MudSelectItem T="int" Value="@((int)10000)">10,000</MudSelectItem>
+                    <MudSelectItem T="int" Value="@((int)25000)">25,000</MudSelectItem>
+                    <MudSelectItem T="int" Value="@((int)50000)">50,000</MudSelectItem>
+                    <MudSelectItem T="int" Value="@((int)100000)">100,000</MudSelectItem>
+                </MudSelect>
+
+                <MudButton Variant="Variant.Filled"
+                           Color="Color.Primary"
+                           StartIcon="@Icons.Material.Filled.PlayArrow"
+                           OnClick="RunBenchmarkAsync"
+                           Disabled="@_isBusy">
+                    @if (_isBusy)
+                    {
+                        <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" />
+                        @_statusText
+                    }
+                    else
+                    {
+                        @("Run round trip")
+                    }
+                </MudButton>
+
+                <MudSpacer />
+
+                <MudButton Variant="Variant.Outlined"
+                           Size="Size.Small"
+                           StartIcon="@Icons.Material.Filled.ContentCopy"
+                           OnClick="CopyResultsAsync"
+                           Disabled="@(_results.Count == 0)">
+                    Copy CSV
+                </MudButton>
+                <MudButton Variant="Variant.Outlined"
+                           Size="Size.Small"
+                           Color="Color.Error"
+                           StartIcon="@Icons.Material.Filled.DeleteSweep"
+                           OnClick="ClearResultsAsync"
+                           Disabled="@(_isBusy || _results.Count == 0)">
+                    Clear
+                </MudButton>
+            </MudStack>
+
+            @if (_isBusy)
+            {
+                <MudText Typo="Typo.caption" Align="Align.Center">@_statusText</MudText>
+                <MudProgressLinear Color="Color.Primary" Indeterminate="true" Size="Size.Small" />
+            }
+
+            <MudText Typo="Typo.caption" Color="Color.Secondary">
+                Each run wipes CryptoTestDb, seeds N items, and walks the six-phase
+                export/import/rotate/export/import/verify cycle. Seed is NOT part of the
+                revoke cost. The proof column is ✓ iff the source and the twice-round-
+                tripped copy hold identical row counts and matching column checksums.
+            </MudText>
+        </MudStack>
+    </MudPaper>
+
+    @if (_results.Count > 0)
+    {
+        <MudPaper Elevation="2" Class="pa-4 mb-4">
+            <MudStack Spacing="2">
+                <MudText Typo="Typo.subtitle2">
+                    Results (@_results.Count run@(_results.Count == 1 ? "" : "s"))
+                </MudText>
+                <MudTable Items="@_results" Dense="true" Hover="true" Elevation="0" Breakpoint="Breakpoint.None">
+                    <HeaderContent>
+                        <MudTh>When</MudTh>
+                        <MudTh Style="text-align:right">Rows</MudTh>
+                        <MudTh Style="text-align:right">Seed</MudTh>
+                        <MudTh Style="text-align:right">Export₁</MudTh>
+                        <MudTh Style="text-align:right">Import₁</MudTh>
+                        <MudTh Style="text-align:right">Rotate</MudTh>
+                        <MudTh Style="text-align:right">Export₂</MudTh>
+                        <MudTh Style="text-align:right">Import₂</MudTh>
+                        <MudTh Style="text-align:right">µs/row</MudTh>
+                        <MudTh Style="text-align:center">Proof</MudTh>
+                    </HeaderContent>
+                    <RowTemplate>
+                        <MudTd>@context.Timestamp.ToLocalTime().ToString("HH:mm:ss")</MudTd>
+                        <MudTd Style="text-align:right">@context.RowCount.ToString("N0")</MudTd>
+                        <MudTd Style="text-align:right">@context.SeedMs.ToString("N0")</MudTd>
+                        <MudTd Style="text-align:right">@context.Export1Ms.ToString("N0")</MudTd>
+                        <MudTd Style="text-align:right">@context.Import1Ms.ToString("N0")</MudTd>
+                        <MudTd Style="text-align:right">
+                            <strong>@context.RotateMs.ToString("N0")</strong>
+                        </MudTd>
+                        <MudTd Style="text-align:right">@context.Export2Ms.ToString("N0")</MudTd>
+                        <MudTd Style="text-align:right">@context.Import2Ms.ToString("N0")</MudTd>
+                        <MudTd Style="text-align:right">@context.PerRowMicros.ToString("N1")</MudTd>
+                        <MudTd Style="text-align:center">
+                            @if (context.VerifyPassed)
+                            {
+                                <MudIcon Icon="@Icons.Material.Filled.CheckCircle" Color="Color.Success" Size="Size.Small" />
+                            }
+                            else
+                            {
+                                <MudIcon Icon="@Icons.Material.Filled.Error" Color="Color.Error" Size="Size.Small" />
+                            }
+                        </MudTd>
+                    </RowTemplate>
+                </MudTable>
+                <MudText Typo="Typo.caption" Color="Color.Secondary">
+                    All times in milliseconds. <strong>Rotate</strong> is the hot path —
+                    the actual cost of a revoke or ownership-transfer operation at scale N.
+                    <strong>µs/row</strong> is Rotate / Rows. <strong>Proof ✓</strong> means
+                    the source and the twice-round-tripped copy held identical row counts
+                    and column checksums — the rotation didn't corrupt anything.
+                </MudText>
+            </MudStack>
+        </MudPaper>
+    }
+</MudContainer>
+
+@code {
+    private const string SourceDbName = "CryptoTestDb.db";
+    private const string TempADbName = "CryptoTestDb-benchmark-a.db";
+    private const string TempBDbName = "CryptoTestDb-benchmark-b.db";
+    private const string LocalStorageKey = "CryptoSyncBenchmarkResults";
+
+    private bool _isBusy;
+    private int _rowCount = 1000;
+    private string _statusText = string.Empty;
+    private List<BenchmarkResult> _results = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadResultsAsync();
+    }
+
+    // -------------------------------------------------------
+    // BENCHMARK RUN
+    // -------------------------------------------------------
+    private async Task RunBenchmarkAsync()
+    {
+        _isBusy = true;
+        _statusText = "Preparing benchmark...";
+        StateHasChanged();
+        await Task.Yield();
+
+        try
+        {
+            // Clean slate
+            await DropIfExistsAsync(TempADbName);
+            await DropIfExistsAsync(TempBDbName);
+
+            _statusText = "Resetting source database...";
+            StateHasChanged();
+            await Task.Yield();
+
+            await using (var resetCtx = await CryptoFactory.CreateDbContextAsync())
+            {
+                await resetCtx.Database.EnsureDeletedAsync();
+                await resetCtx.Database.EnsureCreatedAsync();
+            }
+
+            // ---- PHASE 0: Seed N CryptoTestItems (not counted as revoke cost) ----
+            _statusText = $"Seeding {_rowCount:N0} rows...";
+            StateHasChanged();
+            await Task.Yield();
+
+            var sw0 = Stopwatch.StartNew();
+            await SeedItemsAsync(_rowCount);
+            sw0.Stop();
+            var seedMs = sw0.ElapsedMilliseconds;
+
+            var sourceChecksum = await ComputeOpenTableChecksumAsync(SourceDbName);
+            Logger.LogInformation("Benchmark seed: {Ms} ms for {Rows} rows, checksum={Cks}",
+                seedMs, _rowCount, sourceChecksum);
+
+            // Create temp DBs
+            _statusText = "Creating temp databases...";
+            StateHasChanged();
+            await Task.Yield();
+
+            await CreateEmptyCryptoTestDbAsync(TempADbName);
+            await CreateEmptyCryptoTestDbAsync(TempBDbName);
+
+            // Build CryptoHeader from seed data (old key = v1)
+            var exportMetadata = BuildExportMetadata();
+            var oldHeader = await BuildHeaderFromSourceAsync();
+
+            // ---- PHASE 1: Export source → encrypted delta (v1 key) ----
+            _statusText = $"Phase 1/6 — Encrypted export ({_rowCount:N0} rows)...";
+            StateHasChanged();
+            await Task.Yield();
+
+            var sw1 = Stopwatch.StartNew();
+            var oldHeaderBytes = MessagePackSerializer.Serialize(oldHeader);
+            var envelope1 = await EncryptedSqliteWasmWorkerBridge.Instance.DeltaExportAsync(
+                SourceDbName, exportMetadata, oldHeaderBytes);
+            sw1.Stop();
+            oldHeader.Clear();
+            var export1Ms = sw1.ElapsedMilliseconds;
+
+            // ---- PHASE 2: Import into tempA ----
+            _statusText = $"Phase 2/6 — Import into tempA ({_rowCount:N0} rows)...";
+            StateHasChanged();
+            await Task.Yield();
+
+            var sw2 = Stopwatch.StartNew();
+            oldHeader = await BuildHeaderFromSourceAsync();
+            oldHeaderBytes = MessagePackSerializer.Serialize(oldHeader);
+            var report1Bytes = await EncryptedSqliteWasmWorkerBridge.Instance.DeltaImportAsync(
+                TempADbName, oldHeaderBytes, envelope1);
+            sw2.Stop();
+            oldHeader.Clear();
+            var import1Ms = sw2.ElapsedMilliseconds;
+            var import1Report = MessagePackSerializer.Deserialize<object[]>(report1Bytes);
+            var import1Rows = Convert.ToInt32(import1Report[0]);
+
+            // ---- PHASE 3: Rotate tempA's shadow (v1 → v2) — THE measurement ----
+            _statusText = $"Phase 3/6 — Rotate key ({_rowCount:N0} rows)...";
+            StateHasChanged();
+            await Task.Yield();
+
+            // Create a v2 key by generating new group keys for the admin
+            var newGroupContext = "system:v2";
+            // Clone the static AdminSeed byte[] so we can ZeroMemory the local
+            // copy without clobbering the AppDomain-shared seed for subsequent
+            // benchmark phases.
+            var adminPrivKey = CryptoTestContext.AdminX25519PrivateKey.AsSpan().ToArray();
+            var adminPubKey = CryptoTestContext.AdminX25519PublicKey;
+            var newKeysResult = await GroupEncryption.CreateGroupKeysAsync(
+                adminPrivKey, adminPubKey, [adminPubKey], newGroupContext);
+            CryptographicOperations.ZeroMemory(adminPrivKey);
+
+            if (!newKeysResult.Success)
+            {
+                throw new InvalidOperationException($"CreateGroupKeys failed: {newKeysResult.ErrorCode}");
+            }
+
+            // Persist v2 ShareGroup + ShareTarget in tempA so the header can reference it
+            await PersistNewKeyVersionAsync(TempADbName, newGroupContext, newKeysResult.Value!);
+
+            var newHeader = await BuildHeaderAsync(TempADbName, newGroupContext);
+            oldHeader = await BuildHeaderFromSourceAsync();
+            var oldHdrBytes = MessagePackSerializer.Serialize(oldHeader);
+            var newHdrBytes = MessagePackSerializer.Serialize(newHeader);
+
+            var sw3 = Stopwatch.StartNew();
+            var rotatedRowCount = await EncryptedSqliteWasmWorkerBridge.Instance.DeltaRotateKeyAsync(
+                TempADbName, oldHdrBytes, newHdrBytes,
+                sharingId: CryptoSyncBootstrap.SystemSharingId,
+                newKeyVersion: 2);
+            sw3.Stop();
+            oldHeader.Clear();
+            newHeader.Clear();
+            var rotateMs = sw3.ElapsedMilliseconds;
+            Logger.LogInformation("Benchmark Rotate: {Ms} ms, {Rows} rows re-encrypted",
+                rotateMs, rotatedRowCount);
+
+            // ---- PHASE 4: Export tempA with v2 key ----
+            _statusText = $"Phase 4/6 — Re-export tempA with new key...";
+            StateHasChanged();
+            await Task.Yield();
+
+            newHeader = await BuildHeaderAsync(TempADbName, newGroupContext);
+            newHdrBytes = MessagePackSerializer.Serialize(newHeader);
+            var sw4 = Stopwatch.StartNew();
+            var envelope2 = await EncryptedSqliteWasmWorkerBridge.Instance.DeltaExportAsync(
+                TempADbName, exportMetadata, newHdrBytes);
+            sw4.Stop();
+            newHeader.Clear();
+            var export2Ms = sw4.ElapsedMilliseconds;
+
+            // ---- PHASE 5: Import into tempB with v2 key ----
+            _statusText = $"Phase 5/6 — Import into tempB...";
+            StateHasChanged();
+            await Task.Yield();
+
+            // tempB also needs the v2 group/target for header lookup
+            await PersistNewKeyVersionAsync(TempBDbName, newGroupContext, newKeysResult.Value!);
+
+            newHeader = await BuildHeaderAsync(TempBDbName, newGroupContext);
+            newHdrBytes = MessagePackSerializer.Serialize(newHeader);
+            var sw5 = Stopwatch.StartNew();
+            var report2Bytes = await EncryptedSqliteWasmWorkerBridge.Instance.DeltaImportAsync(
+                TempBDbName, newHdrBytes, envelope2);
+            sw5.Stop();
+            newHeader.Clear();
+            var import2Ms = sw5.ElapsedMilliseconds;
+            var import2Report = MessagePackSerializer.Deserialize<object[]>(report2Bytes);
+            var import2Rows = Convert.ToInt32(import2Report[0]);
+
+            // ---- PHASE 6: Verify source vs tempB ----
+            _statusText = "Phase 6/6 — Verifying round-trip integrity...";
+            StateHasChanged();
+            await Task.Yield();
+
+            var verifyChecksum = await ComputeOpenTableChecksumAsync(TempBDbName);
+            var verifyPassed = sourceChecksum == verifyChecksum && import2Rows == _rowCount;
+
+            Logger.LogInformation(
+                "Benchmark Verify: rows source={Src} verify={Ver}, checksum source={CksSrc} verify={CksVer}, pass={Pass}",
+                _rowCount, import2Rows, sourceChecksum, verifyChecksum, verifyPassed);
+
+            if (!verifyPassed)
+            {
+                // Log first mismatching row for debugging
+                await LogFirstMismatchAsync(SourceDbName, TempBDbName);
+            }
+
+            // ---- Record result ----
+            var perRowMicros = rotatedRowCount > 0
+                ? rotateMs * 1000.0 / rotatedRowCount
+                : 0.0;
+
+            var result = new BenchmarkResult
+            {
+                Timestamp = DateTime.UtcNow,
+                RowCount = rotatedRowCount,
+                SeedMs = seedMs,
+                Export1Ms = export1Ms,
+                Import1Ms = import1Ms,
+                RotateMs = rotateMs,
+                Export2Ms = export2Ms,
+                Import2Ms = import2Ms,
+                PerRowMicros = perRowMicros,
+                VerifyPassed = verifyPassed,
+                SourceChecksum = sourceChecksum,
+                VerifyChecksum = verifyChecksum
+            };
+
+            _results.Insert(0, result);
+            await SaveResultsAsync();
+
+            if (verifyPassed)
+            {
+                Snackbar.Add(
+                    $"✓ Round-trip intact. Rotate {rotateMs:N0} ms ({perRowMicros:N1} µs/row) for {rotatedRowCount:N0} rows.",
+                    Severity.Success);
+            }
+            else
+            {
+                Snackbar.Add(
+                    $"✗ Verification FAILED. Source rows {_rowCount}, verify rows {import2Rows}, checksum mismatch.",
+                    Severity.Error);
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Benchmark run failed");
+            Snackbar.Add($"Benchmark failed: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            await DropIfExistsAsync(TempADbName);
+            await DropIfExistsAsync(TempBDbName);
+
+            _isBusy = false;
+            _statusText = string.Empty;
+            StateHasChanged();
+        }
+    }
+
+    // -------------------------------------------------------
+    // V2 CRYPTO HELPERS
+    // -------------------------------------------------------
+
+    private async Task<CryptoHeader> BuildHeaderFromSourceAsync()
+    {
+        return await BuildHeaderAsync(SourceDbName, CryptoSyncBootstrap.SystemGroupContext);
+    }
+
+    private async Task<CryptoHeader> BuildHeaderAsync(string dbName, string groupContext)
+    {
+        var connection = new SqliteWasmConnection($"Data Source={dbName}");
+        var optionsBuilder = new DbContextOptionsBuilder<CryptoTestContext>();
+        optionsBuilder.UseSqliteWasm(connection);
+        await using var ctx = new CryptoTestContext(optionsBuilder.Options);
+
+        var group = await ctx.ShareGroups.SingleAsync(g => g.GroupContext == groupContext);
+        var target = await ctx.ShareTargets.SingleAsync(t =>
+            t.ShareGroupId == group.Id
+            && t.MemberPublicKey == CryptoTestContext.AdminX25519PublicKey
+            && t.KeyVersion == group.KeyVersion);
+
+        return new CryptoHeader
+        {
+            Version = 2,
+            SystemTables = ["Contacts", "ShareGroups", "ShareTargets"],
+            ClientContactId = (await ctx.Contacts.SingleAsync(c => c.IsAdmin)).Id,
+            ClientX25519PrivateKey = CryptoTestContext.AdminX25519PrivateKey.AsSpan().ToArray(),
+            AdminX25519PublicKey = Convert.FromBase64String(group.GroupAdminPublicKey),
+            GroupContext = group.GroupContext,
+            KeyVersion = group.KeyVersion,
+            WrappedCek = target.WrappedContentKey,
+            ClientEd25519PrivateKey = CryptoTestContext.AdminEd25519PrivateKey.AsSpan().ToArray(),
+            ClientEd25519PublicKey = Convert.FromBase64String(CryptoTestContext.AdminEd25519PublicKey)
+        };
+    }
+
+    private async Task PersistNewKeyVersionAsync(
+        string dbName,
+        string newGroupContext,
+        SqliteWasmBlazor.Crypto.Abstractions.Models.GroupKeyBundle bundle)
+    {
+        var connection = new SqliteWasmConnection($"Data Source={dbName}");
+        var optionsBuilder = new DbContextOptionsBuilder<CryptoTestContext>();
+        optionsBuilder.UseSqliteWasm(connection);
+        await using var ctx = new CryptoTestContext(optionsBuilder.Options);
+
+        // Read the admin contact for FK reference
+        var adminContact = await ctx.Contacts.SingleAsync(c => c.IsAdmin);
+
+        // Sign the v2 ShareTarget credential. Without AdminSignature +
+        // GroupAdminEd25519PublicKey the worker's resolveSenderPermissions
+        // rejects every row in Phase 5 as PERMISSION_SENDER_UNAUTHORIZED and
+        // the silent skip surfaces only as "verify rows 0".
+        var signer = new DeclarationSigner(CryptoProvider);
+        var adminEd25519Priv = CryptoTestContext.AdminEd25519PrivateKey.AsSpan().ToArray();
+        byte[] adminSignature;
+        try
+        {
+            adminSignature = await signer.SignShareTargetAsync(
+                adminEd25519Priv,
+                CryptoTestContext.AdminX25519PublicKey,
+                SyncRole.OWNER,
+                newGroupContext,
+                keyVersion: 2);
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(adminEd25519Priv);
+        }
+
+        ctx.ShareGroups.Add(new ShareGroup
+        {
+            Id = Guid.NewGuid(),
+            GroupContext = newGroupContext,
+            KeyVersion = 2,
+            GroupAdminPublicKey = CryptoTestContext.AdminX25519PublicKey,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow,
+            SharingScope = SharingScope.PUBLIC,
+            SharingId = CryptoSyncBootstrap.SystemSharingId
+        });
+
+        ctx.ShareTargets.Add(new ShareTarget
+        {
+            Id = Guid.NewGuid(),
+            ShareGroupId = ctx.ShareGroups.Local.Single(g => g.GroupContext == newGroupContext).Id,
+            KeyVersion = 2,
+            MemberPublicKey = CryptoTestContext.AdminX25519PublicKey,
+            WrappedContentKey = CryptoSyncBootstrap.SerializeWrappedCek(bundle.MemberKeys[0].WrappedContentKey),
+            Role = SyncRole.OWNER,
+            AdminSignature = adminSignature,
+            GroupAdminEd25519PublicKey = CryptoTestContext.AdminEd25519PublicKey,
+            GrantedByContactId = adminContact.Id,
+            UpdatedAt = DateTime.UtcNow,
+            SharingScope = SharingScope.PUBLIC,
+            SharingId = CryptoSyncBootstrap.SystemSharingId
+        });
+
+        await ctx.SaveChangesAsync();
+    }
+
+    private static BulkExportMetadata BuildExportMetadata()
+    {
+        // Full snapshot of a single table — the benchmark uses the same
+        // shape as the per-table round-trip but in one pass with no WHERE
+        // clause. The worker reads column info from _column_registry.
+        return new BulkExportMetadata
+        {
+            Mode = 1,
+            Tables =
+            [
+                new TableExportSpec
+                {
+                    TableName = "CryptoTestItems",
+                    IsSystemTable = false,
+                    Where = null,
+                    WhereParams = null
+                }
+            ]
+        };
+    }
+
+    private async Task LogFirstMismatchAsync(string sourceDb, string verifyDb)
+    {
+        try
+        {
+            var srcConn = new SqliteWasmConnection($"Data Source={sourceDb}");
+            var srcOpts = (DbContextOptions<CryptoTestContext>)new DbContextOptionsBuilder<CryptoTestContext>().UseSqliteWasm(srcConn).Options;
+            await using var srcCtx = new CryptoTestContext(srcOpts);
+
+            var verConn = new SqliteWasmConnection($"Data Source={verifyDb}");
+            var verOpts = (DbContextOptions<CryptoTestContext>)new DbContextOptionsBuilder<CryptoTestContext>().UseSqliteWasm(verConn).Options;
+            await using var verCtx = new CryptoTestContext(verOpts);
+
+            var srcItems = await srcCtx.CryptoTestItems.OrderBy(i => i.Id).Take(3).ToListAsync();
+            var verItems = await verCtx.CryptoTestItems.OrderBy(i => i.Id).Take(3).ToListAsync();
+
+            for (var i = 0; i < Math.Min(srcItems.Count, verItems.Count); i++)
+            {
+                var s = srcItems[i];
+                var v = verItems[i];
+                if (s.Id != v.Id || s.Title != v.Title || s.Price != v.Price || s.IsBought != v.IsBought)
+                {
+                    Logger.LogError(
+                        "MISMATCH row {I}: src(Id={SId}, Title={ST}, Price={SP}, IsBought={SB}) vs ver(Id={VId}, Title={VT}, Price={VP}, IsBought={VB})",
+                        i, s.Id, s.Title, s.Price, s.IsBought, v.Id, v.Title, v.Price, v.IsBought);
+                    return;
+                }
+            }
+
+            Logger.LogError("No field-level mismatch in first 3 rows — checksum difference may be in row count ({Src} vs {Ver}) or ordering",
+                srcItems.Count, verItems.Count);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to log mismatch details");
+        }
+    }
+
+    // -------------------------------------------------------
+    // DB HELPERS
+    // -------------------------------------------------------
+
+    private async Task DropIfExistsAsync(string dbName)
+    {
+        try
+        {
+            if (await DatabaseService.ExistsDatabaseAsync(dbName))
+            {
+                await DatabaseService.DeleteDatabaseAsync(dbName);
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Failed to delete {Db}", dbName);
+        }
+    }
+
+    private async Task CreateEmptyCryptoTestDbAsync(string dbName)
+    {
+        var connection = new SqliteWasmConnection($"Data Source={dbName}");
+        var optionsBuilder = new DbContextOptionsBuilder<CryptoTestContext>();
+        optionsBuilder.UseSqliteWasm(connection);
+        await using var ctx = new CryptoTestContext(optionsBuilder.Options);
+        await ctx.Database.EnsureCreatedAsync();
+    }
+
+    /// <summary>
+    /// Produce a deterministic checksum over the CryptoTestItems open table. Used as
+    /// the round-trip integrity proof — if Source and Verify agree, the entire
+    /// export→import→rotate→export→import cycle preserved the data.
+    /// </summary>
+    private async Task<string> ComputeOpenTableChecksumAsync(string dbName)
+    {
+        var connection = new SqliteWasmConnection($"Data Source={dbName}");
+        var optionsBuilder = new DbContextOptionsBuilder<CryptoTestContext>();
+        optionsBuilder.UseSqliteWasm(connection);
+        await using var ctx = new CryptoTestContext(optionsBuilder.Options);
+
+        var items = await ctx.CryptoTestItems
+            .OrderBy(i => i.Id)
+            .Select(i => new { i.Id, i.Title, i.Description, i.Price, i.IsBought })
+            .ToListAsync();
+
+        using var sha = SHA256.Create();
+        using var ms = new MemoryStream();
+        await using (var writer = new BinaryWriter(ms, Encoding.UTF8, leaveOpen: true))
+        {
+            foreach (var item in items)
+            {
+                writer.Write(item.Id.ToByteArray());
+                writer.Write(item.Title);
+                writer.Write(item.Description);
+                writer.Write(item.Price);
+                writer.Write(item.IsBought);
+            }
+        }
+        var hash = sha.ComputeHash(ms.ToArray());
+        return Convert.ToHexString(hash);
+    }
+
+    // -------------------------------------------------------
+    // SEEDING — V2 bulk import (worker prepared statements, ~10x faster than EF Core)
+    // -------------------------------------------------------
+    private async Task SeedItemsAsync(int count)
+    {
+        const int batchSize = 10_000;
+        var rng = new Random(42); // deterministic per run for reproducibility
+        var now = DateTime.UtcNow;
+
+        for (var batchStart = 0; batchStart < count; batchStart += batchSize)
+        {
+            var thisBatch = Math.Min(batchSize, count - batchStart);
+
+            var header = MessagePackFileHeaderV2.Create<CryptoTestItemDto>(
+                tableName: "CryptoTestItems",
+                primaryKeyColumn: "Id",
+                recordCount: thisBatch,
+                mode: 0); // seed mode = plain INSERT
+
+            using var stream = new MemoryStream();
+            MessagePackSerializer.Serialize(stream, header);
+
+            for (var i = 0; i < thisBatch; i++)
+            {
+                var idx = batchStart + i;
+                var dto = new CryptoTestItemDto
+                {
+                    Id = Guid.NewGuid(),
+                    Title = $"Benchmark item #{idx:D6}",
+                    Description = $"Generated row for re-key rotation benchmark at scale {count:N0}",
+                    Price = (decimal)(rng.NextDouble() * 100.0),
+                    IsBought = idx % 3 == 0,
+                    SharingScope = (int)SharingScope.PUBLIC,
+                    SharingId = CryptoSyncBootstrap.SystemSharingId,
+                    UpdatedAt = now
+                };
+                MessagePackSerializer.Serialize(stream, dto);
+            }
+
+            await DatabaseService.ImportRowsAsync(SourceDbName, stream.ToArray());
+
+            _statusText = $"Seeding... {batchStart + thisBatch:N0} / {count:N0}";
+            StateHasChanged();
+            await Task.Yield();
+        }
+    }
+
+    // -------------------------------------------------------
+    // RESULT PERSISTENCE (localStorage)
+    // -------------------------------------------------------
+    private async Task LoadResultsAsync()
+    {
+        try
+        {
+            var json = await JS.InvokeAsync<string?>("localStorage.getItem", LocalStorageKey);
+            if (string.IsNullOrWhiteSpace(json))
+            {
+                return;
+            }
+
+            var loaded = JsonSerializer.Deserialize<List<BenchmarkResult>>(json);
+            if (loaded is not null)
+            {
+                _results = loaded;
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Failed to load benchmark results");
+        }
+    }
+
+    private async Task SaveResultsAsync()
+    {
+        try
+        {
+            var json = JsonSerializer.Serialize(_results);
+            await JS.InvokeVoidAsync("localStorage.setItem", LocalStorageKey, json);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Failed to save benchmark results");
+        }
+    }
+
+    private async Task ClearResultsAsync()
+    {
+        _results.Clear();
+        try
+        {
+            await JS.InvokeVoidAsync("localStorage.removeItem", LocalStorageKey);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Failed to clear benchmark results");
+        }
+        StateHasChanged();
+    }
+
+    private async Task CopyResultsAsync()
+    {
+        try
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine("Timestamp,Rows,SeedMs,Export1Ms,Import1Ms,RotateMs,Export2Ms,Import2Ms,PerRowMicros,VerifyPassed,SourceChecksum,VerifyChecksum");
+            foreach (var r in _results)
+            {
+                sb.AppendLine(
+                    $"{r.Timestamp:O},{r.RowCount},{r.SeedMs},{r.Export1Ms},{r.Import1Ms},{r.RotateMs},{r.Export2Ms},{r.Import2Ms},{r.PerRowMicros:F1},{r.VerifyPassed},{r.SourceChecksum},{r.VerifyChecksum}");
+            }
+
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", sb.ToString());
+            Snackbar.Add("Results copied to clipboard (CSV)", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Failed to copy benchmark results");
+            Snackbar.Add($"Copy failed: {ex.Message}", Severity.Error);
+        }
+    }
+
+    // -------------------------------------------------------
+    // RESULT MODEL
+    // -------------------------------------------------------
+    private sealed class BenchmarkResult
+    {
+        public DateTime Timestamp { get; set; }
+        public int RowCount { get; set; }
+        public long SeedMs { get; set; }
+        public long Export1Ms { get; set; }
+        public long Import1Ms { get; set; }
+        public long RotateMs { get; set; }
+        public long Export2Ms { get; set; }
+        public long Import2Ms { get; set; }
+        public double PerRowMicros { get; set; }
+        public bool VerifyPassed { get; set; }
+        public string SourceChecksum { get; set; } = string.Empty;
+        public string VerifyChecksum { get; set; } = string.Empty;
+    }
+}

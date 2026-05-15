@@ -1,0 +1,49 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\CryptoSync\SqliteWasmBlazor.CryptoSync\SqliteWasmBlazor.CryptoSync.csproj" />
+    <!-- Run the generator against this test project so we can unit-test the
+         generated registries (CryptoTableRegistry, SystemTableRegistry) and
+         shadow classes against TestSyncContext. -->
+    <ProjectReference Include="..\..\src\CryptoSync\SqliteWasmBlazor.CryptoSync.Generator\SqliteWasmBlazor.CryptoSync.Generator.csproj"
+                      OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Crypto\SqliteWasmBlazor.Crypto.BouncyCastle\SqliteWasmBlazor.Crypto.BouncyCastle.csproj" />
+    <ProjectReference Include="..\..\src\Crypto\SqliteWasmBlazor.Crypto.UI\SqliteWasmBlazor.Crypto.UI.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+  </ItemGroup>
+
+  <!-- Run the worker-side vitest suite (TypeScript unit tests for the PRF-VFS
+       envelope, key registry, and AAD) before xUnit. Fails the whole
+       `dotnet test` if any vitest test fails. Skip with `-p:SkipVitest=true`. -->
+  <Target Name="RunVitest" BeforeTargets="VSTest" Condition="'$(SkipVitest)' != 'true'">
+    <Exec WorkingDirectory="..\..\src\Base\SqliteWasmBlazor\TypeScript"
+          Command="npm test"
+          Condition="Exists('..\..\src\Base\SqliteWasmBlazor\TypeScript\package.json')" />
+  </Target>
+
+  <!-- Run the crypto-core vitest suite (TypeScript unit tests for HKDF /
+       X25519 / Ed25519 / ECIES / wrapping / cross-language KDF vectors).
+       Same skip flag as RunVitest. -->
+  <Target Name="RunCryptoCoreVitest" BeforeTargets="VSTest" Condition="'$(SkipVitest)' != 'true'">
+    <Exec WorkingDirectory="..\..\src\Base\SqliteWasmBlazor\TypeScript-Crypto"
+          Command="npm test"
+          Condition="Exists('..\..\src\Base\SqliteWasmBlazor\TypeScript-Crypto\package.json')" />
+  </Target>
+
+</Project>
