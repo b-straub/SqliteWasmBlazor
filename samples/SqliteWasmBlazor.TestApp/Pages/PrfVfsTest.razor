@@ -1,0 +1,734 @@
+@page "/prf-vfs-test"
+@using SqliteWasmBlazor.Crypto.Abstractions.Formatting
+@using SqliteWasmBlazor.Crypto.Configuration
+@using SqliteWasmBlazor.Crypto.Services
+@using Microsoft.EntityFrameworkCore
+@using Microsoft.Extensions.Options
+@using R3
+@using SqliteWasmBlazor.TestApp.TestInfrastructure.VfsEncryption
+@inject IPrfService PrfService
+@inject IOptions<PrfOptions> PrfOptionsAccessor
+@inject IDbContextFactory<PrfVfsTestContext> Factory
+@inject ISqliteWasmDatabaseService DatabaseService
+@inject IEncryptedSqliteWasmDatabaseService Session
+@inject IJSRuntime JS
+@implements IDisposable
+
+<MudContainer MaxWidth="MaxWidth.Medium" Class="my-4">
+    <MudPaper Class="pa-4">
+        <MudText Typo="Typo.h5" Class="mb-2">PRF-keyed VFS demo</MudText>
+        <MudText Typo="Typo.body2" Class="mb-2">
+            End-to-end check: derive a 32-byte VFS key from a WebAuthn PRF
+            credential via SqliteWasmBlazor.Crypto's <code>DeriveDomainKeyAsync</code>,
+            install it in the worker registry through a span-only handoff
+            (<code>SecureKeyCache.UseKey</code>), open the encrypted DB
+            through EF, and round-trip rows. <code>KeyExpired</code>
+            subscriptions clear the worker mirror automatically.
+        </MudText>
+        <MudText Typo="Typo.body2" Class="mb-4">
+            <strong>The encrypted DB persists in OPFS</strong> across page
+            reloads and Lock/Unlock cycles — reload the page and tap
+            Unlock to confirm round-trip data survives. Registering a
+            second passkey and unlocking with it should fail on first
+            read (AEAD auth failure on a slot encrypted with the first
+            credential's derived key). Use Wipe when you want to start
+            from a fresh DB.
+        </MudText>
+
+        <MudStack Spacing="2">
+            <MudButton OnClick="RegisterAsync"
+                       Disabled="@_busy"
+                       Color="Color.Primary"
+                       Variant="Variant.Outlined"
+                       StartIcon="@Icons.Material.Filled.AddModerator">
+                Register passkey
+            </MudButton>
+            @* Authenticate buttons disabled while a session is active.
+               Lock (or PRF TTL expiry) drops the cache and re-enables them. *@
+            <MudButton OnClick="AuthenticateAndOpenAsync"
+                       Disabled="@(_busy || PrfService.HasCachedKeys())"
+                       Color="Color.Primary"
+                       Variant="Variant.Filled"
+                       StartIcon="@Icons.Material.Filled.LockOpen">
+                Authenticate and open
+            </MudButton>
+            <MudButton OnClick="AuthenticateOnlyAsync"
+                       Disabled="@(_busy || PrfService.HasCachedKeys())"
+                       Color="Color.Primary"
+                       Variant="Variant.Outlined"
+                       StartIcon="@Icons.Material.Filled.Fingerprint">
+                Authenticate only (show pubkey for rotation)
+            </MudButton>
+            <MudButton OnClick="LockAsync"
+                       Disabled="@(_busy || !PrfService.HasCachedKeys())"
+                       Color="Color.Default"
+                       Variant="Variant.Outlined"
+                       StartIcon="@Icons.Material.Filled.Lock">
+                Lock (close DB + drop PRF session)
+            </MudButton>
+            <MudButton OnClick="RoundTripAsync"
+                       Disabled="@(!_keyInstalled || _busy)"
+                       Color="Color.Secondary"
+                       Variant="Variant.Filled"
+                       StartIcon="@Icons.Material.Filled.PlayArrow">
+                Insert + read 25 rows
+            </MudButton>
+            <MudButton OnClick="ReadCountAsync"
+                       Disabled="@(!_keyInstalled || _busy)"
+                       Color="Color.Secondary"
+                       Variant="Variant.Outlined"
+                       StartIcon="@Icons.Material.Filled.Visibility">
+                Read row count (no writes)
+            </MudButton>
+
+            @if (_armoredOwnPubkey is not null)
+            {
+                <MudDivider Class="my-2" />
+                <MudText Typo="Typo.subtitle2">My X25519 pubkey (PFA armor)</MudText>
+                <MudText Typo="Typo.caption" Class="mb-2 d-block">
+                    Public half of the active passkey's X25519 keypair, armored
+                    via <code>PrfArmor.ArmorPublicKey()</code>. Copy it to the
+                    "Recipient pubkey" field below to test a same-passkey rekey
+                    round-trip, or share it with another tab/session to test a
+                    cross-passkey export.
+                </MudText>
+                <MudTextField T="string"
+                              Value="@_armoredOwnPubkey"
+                              ReadOnly="true"
+                              Variant="Variant.Outlined"
+                              Lines="9"
+                              spellcheck="false" />
+                <MudButton OnClick="CopyOwnPubkeyAsync"
+                           Disabled="@_busy"
+                           Color="Color.Default"
+                           Variant="Variant.Outlined"
+                           StartIcon="@Icons.Material.Filled.ContentCopy">
+                    Copy armored pubkey
+                </MudButton>
+            }
+
+            <MudDivider Class="my-2" />
+            <MudText Typo="Typo.subtitle2">Rotate to a different passkey</MudText>
+            <MudText Typo="Typo.caption" Class="mb-2 d-block">
+                Paste the armored X25519 pubkey of the <em>recipient</em>. Its
+                raw 32 bytes become the new content key (CK) — the recipient
+                already has the matching X25519 privkey in their authenticator,
+                so they can reproduce CK from their own cached pubkey on
+                <code>Authenticate and open</code>. Multi-receiver scenarios
+                would wrap CK via ECIES at the domain layer; this page covers
+                the simple 1-receiver case where CK = recipient pubkey directly.
+                <strong>The rotate auto-locks after execution</strong>, so the
+                next operation requires re-authentication with the recipient
+                passkey.
+            </MudText>
+            <MudTextField T="string"
+                          @bind-Value="_pastedArmoredPubkey"
+                          Label="Target passkey pubkey (PFA armor)"
+                          Variant="Variant.Outlined"
+                          Lines="9"
+                          spellcheck="false"
+                          Placeholder="-----BEGIN PFA PUBLIC KEY-----&#10;..." />
+            @if (_pastedKeyError is not null)
+            {
+                <MudText Typo="Typo.caption" Color="Color.Error">@_pastedKeyError</MudText>
+            }
+            <MudButton OnClick="RekeyToPastedPubkeyAsync"
+                       Disabled="@(!_keyInstalled || _busy || TryGetPastedKeyBytes() is null)"
+                       Color="Color.Tertiary"
+                       Variant="Variant.Filled"
+                       StartIcon="@Icons.Material.Filled.Sync">
+                Rotate to pasted pubkey (auto-locks)
+            </MudButton>
+            <MudDivider Class="my-2" />
+            <MudButton OnClick="WipeAsync"
+                       Disabled="@_busy"
+                       Color="Color.Error"
+                       Variant="Variant.Outlined"
+                       StartIcon="@Icons.Material.Filled.DeleteForever">
+                Wipe DB file (destructive)
+            </MudButton>
+        </MudStack>
+
+        @if (_busy)
+        {
+            <MudProgressLinear Color="Color.Primary" Indeterminate="true" Class="mt-4" />
+        }
+
+        @if (!string.IsNullOrEmpty(_status))
+        {
+            <MudAlert Severity="@_severity" Class="mt-4">@_status</MudAlert>
+        }
+
+        <MudText Typo="Typo.caption" Class="mt-4 d-block">
+            Database: <code>@DatabaseName</code> · Domain label: <code>@DomainId</code>
+        </MudText>
+    </MudPaper>
+</MudContainer>
+
+@code {
+    private const string DatabaseName = PrfVfsTestContext.DatabaseName;
+    // Comment label only — the X25519 pubkey-bytes IS the symmetric K, so
+    // we don't HKDF-derive anything per-domain on this page.
+    private const string DomainId = "sqlite-vfs:" + DatabaseName;
+
+    // The C# SecureKeyCache stores the PRF seed under "prf-seed:{salt}" (see
+    // PrfService.PrfSeedCacheKey) and emits that exact id on TTL expiry. The
+    // JS-side derived-key bundle ("prf-keys:{salt}") expires in lockstep but
+    // doesn't fire a C# observable. Subscribing to the seed expiry is enough
+    // to drive the UI, since session = seed cached.
+    private string PrimaryCacheKey => "prf-seed:" + PrfOptionsAccessor.Value.Salt;
+
+    private bool _keyInstalled;
+    private bool _busy;
+    private string? _status;
+    private Severity _severity = Severity.Info;
+    private IDisposable? _keyExpiredSubscription;
+
+    // PFA-armored copy of the active passkey's X25519 pubkey, refreshed on
+    // every successful Authenticate; cleared on Lock / PRF expiry. The
+    // pubkey panel is the user's "share this for rotation" anchor.
+    private string? _armoredOwnPubkey;
+
+    // PFA-armored pubkey the user pastes as the rotate target. Its 32 raw
+    // bytes become the new content key (CK). The recipient reproduces CK
+    // by Authenticating with the matching passkey — no envelope or out-of-
+    // band shipping needed for the simple 1-receiver case.
+    private string _pastedArmoredPubkey = string.Empty;
+    private string? _pastedKeyError;
+
+    /// <summary>
+    /// UnArmor the pasted armored pubkey and return its 32 raw bytes for
+    /// use as the rekey symmetric key. Returns null on parse failure or
+    /// wrong byte length, populating <see cref="_pastedKeyError"/> with a
+    /// human-readable reason for the disabled-button tooltip / inline hint.
+    /// Pure (idempotent on the same input) so safe to call from Disabled
+    /// expressions during render.
+    /// </summary>
+    private byte[]? TryGetPastedKeyBytes()
+    {
+        if (string.IsNullOrWhiteSpace(_pastedArmoredPubkey))
+        {
+            _pastedKeyError = null;
+            return null;
+        }
+
+        var base64 = PrfArmor.UnArmorPublicKey(_pastedArmoredPubkey);
+        if (base64 is null)
+        {
+            _pastedKeyError = "Couldn't parse PFA armor — paste a -----BEGIN PFA PUBLIC KEY----- block.";
+            return null;
+        }
+
+        byte[] bytes;
+        try
+        {
+            bytes = Convert.FromBase64String(base64);
+        }
+        catch (FormatException)
+        {
+            _pastedKeyError = "Inner key payload isn't valid Base64.";
+            return null;
+        }
+
+        if (bytes.Length != 32)
+        {
+            _pastedKeyError = $"Pubkey must decode to 32 bytes, got {bytes.Length}.";
+            return null;
+        }
+
+        _pastedKeyError = null;
+        return bytes;
+    }
+
+    private void RefreshArmoredOwnPubkey()
+    {
+        var pubkey = PrfService.GetCachedPublicKey();
+        if (pubkey is null)
+        {
+            _armoredOwnPubkey = null;
+            return;
+        }
+        _armoredOwnPubkey = PrfArmor.ArmorPublicKey(pubkey, new PublicKeyMetadata
+        {
+            Name = "PRF VFS test",
+            Comment = $"Domain: {DomainId}",
+            Created = DateOnly.FromDateTime(DateTime.UtcNow),
+        });
+    }
+
+    private async Task CopyOwnPubkeyAsync()
+    {
+        if (_armoredOwnPubkey is null) return;
+        try
+        {
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", _armoredOwnPubkey);
+            SetStatus("Armored pubkey copied to clipboard.", Severity.Info);
+        }
+        catch (Exception ex)
+        {
+            SetStatus($"Clipboard copy failed: {ex.GetType().Name}: {ex.Message}", Severity.Error);
+        }
+    }
+
+    protected override void OnInitialized()
+    {
+        // Listen for PRF X25519-private-key expiry (TTL or explicit ClearKeys).
+        // When that fires the cached pubkey is gone too, so the page must
+        // drop _keyInstalled + _armoredOwnPubkey. Idempotent with manual Lock.
+        _keyExpiredSubscription = PrfService.KeyExpired
+            .Where(k => k == PrimaryCacheKey)
+            .Subscribe(OnKeyExpired);
+    }
+
+    private async Task RegisterAsync()
+    {
+        _busy = true;
+        try
+        {
+            var supported = await PrfService.IsPrfSupportedAsync();
+            if (!supported)
+            {
+                SetStatus("This browser/authenticator doesn't support the WebAuthn PRF extension.", Severity.Error);
+                return;
+            }
+            var result = await PrfService.RegisterAsync("PRF-VFS test passkey");
+            if (result.Success)
+            {
+                SetStatus("Passkey registered. Tap 'Authenticate and open' to use it.", Severity.Success);
+            }
+            else if (result.Cancelled)
+            {
+                SetStatus("Registration cancelled.", Severity.Info);
+            }
+            else
+            {
+                SetStatus($"Registration failed: {result.ErrorCode} — {result.Error}", Severity.Error);
+            }
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    /// <summary>
+    /// Run the WebAuthn discoverable ceremony so the PRF seed + X25519
+    /// keypair are cached. Pure-PRF setup, no DB touched. Returns the
+    /// derived credentialId on success, null on cancel/failure (with status
+    /// already set). Caller compares the credentialId against the disk's
+    /// manifest credentialId for the wrong-passkey early-out.
+    /// </summary>
+    private async Task<string?> AuthenticateCeremonyAsync()
+    {
+        var supported = await PrfService.IsPrfSupportedAsync();
+        if (!supported)
+        {
+            SetStatus("This browser/authenticator doesn't support the WebAuthn PRF extension.", Severity.Error);
+            return null;
+        }
+        var ceremony = await PrfService.DeriveKeysDiscoverableAsync();
+        if (!ceremony.Success)
+        {
+            var msg = ceremony.Cancelled
+                ? "Ceremony cancelled."
+                : $"Ceremony failed: {ceremony.ErrorCode} — {ceremony.Error}";
+            SetStatus(msg, ceremony.Cancelled ? Severity.Info : Severity.Error);
+            return null;
+        }
+        return ceremony.Value.CredentialId;
+    }
+
+    /// <summary>
+    /// Pull the active passkey's X25519 pubkey out of the PRF cache and
+    /// return it as 32 raw bytes — this IS the symmetric content key (CK)
+    /// for the encrypted VFS in this 1-receiver design. Pubkey is a public
+    /// derived value, so managed-byte handling is acceptable here.
+    /// </summary>
+    private byte[]? TryGetCachedPubkeyBytes()
+    {
+        var pubkeyBase64 = PrfService.GetCachedPublicKey();
+        if (pubkeyBase64 is null) return null;
+        var bytes = Convert.FromBase64String(pubkeyBase64);
+        if (bytes.Length != 32)
+        {
+            SetStatus(
+                $"Cached pubkey is {bytes.Length} bytes, expected 32. Aborting.",
+                Severity.Error);
+            return null;
+        }
+        return bytes;
+    }
+
+    /// <summary>
+    /// Authenticate (WebAuthn ceremony) AND open the DB: install the
+    /// active passkey's pubkey-bytes as VFS K, then expect MATCH (DB
+    /// already encrypted under this passkey's pubkey) or NO_EXISTING_DB
+    /// (fresh path; first write materializes a DB encrypted under K).
+    /// WRONG_KEY here means the on-disk DB was last rotated for a
+    /// different passkey — Lock and try the right one.
+    /// </summary>
+    private async Task AuthenticateAndOpenAsync()
+    {
+        _busy = true;
+        try
+        {
+            var derivedCredentialId = await AuthenticateCeremonyAsync();
+            if (derivedCredentialId is null)
+            {
+                return;
+            }
+            RefreshArmoredOwnPubkey();
+
+            var ck = TryGetCachedPubkeyBytes();
+            if (ck is null)
+            {
+                SetStatus(
+                    "Active passkey has no cached X25519 pubkey — ceremony may have failed silently.",
+                    Severity.Error);
+                return;
+            }
+
+            var diskState = await Session.GetStateAsync();
+            if (!diskState.Encrypted)
+            {
+                // Plain disk → first time (or post-Wipe). Run the full
+                // Plain → Encrypted transition: encrypts every existing DB
+                // in-place under K, installs globalKey, and writes the
+                // manifest tagged with this credentialId so subsequent
+                // sign-ins can check the wrong-passkey early-out.
+                await Session.EnterEncryptedAsync(ck, derivedCredentialId);
+            }
+            else if (!string.IsNullOrEmpty(diskState.Hint) &&
+                     !string.Equals(diskState.Hint, derivedCredentialId, StringComparison.Ordinal))
+            {
+                // Manifest-driven wrong-passkey early-out. Disk's manifest
+                // says it's owned by a different credential — refuse here
+                // with a clean surface instead of installing a wrong-fit
+                // globalKey and discovering it as SQLITE_IOERR on the
+                // first read.
+                PrfService.ClearKeys();
+                _armoredOwnPubkey = null;
+                SetStatus(
+                    "Wrong passkey for this DB. The on-disk manifest is owned by a different " +
+                    "credential. Authenticate again with the original passkey, or Wipe to start fresh.",
+                    Severity.Error);
+                return;
+            }
+            else
+            {
+                // Same passkey re-unlock: just install the key.
+                await Session.UnlockAsync(ck);
+            }
+            _keyInstalled = true;
+            SetStatus(
+                "Authenticated. Pubkey-bytes installed as global key. " +
+                "Tap Insert to materialize/extend the encrypted DB.",
+                Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            await TryReleaseWorkerStateAsync();
+            SetStatus($"Authenticate-and-open error: {ex.GetType().Name}: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    /// <summary>
+    /// Authenticate without opening the DB. Use case: copy your pubkey to
+    /// hand to a sender who'll Rotate a DB for you. The pubkey panel
+    /// surfaces immediately on success.
+    /// </summary>
+    private async Task AuthenticateOnlyAsync()
+    {
+        _busy = true;
+        try
+        {
+            if (await AuthenticateCeremonyAsync() is null)
+            {
+                return;
+            }
+            RefreshArmoredOwnPubkey();
+            SetStatus(
+                "Authenticated. Pubkey panel shows your X25519 pubkey — copy it to hand to " +
+                "anyone who needs to rotate a DB for you. DB is NOT open. Lock when done.",
+                Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            SetStatus($"Authenticate-only error: {ex.GetType().Name}: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task RoundTripAsync()
+    {
+        _busy = true;
+        try
+        {
+            const int rowCount = 25;
+            await using (var ctx = await Factory.CreateDbContextAsync())
+            {
+                await ctx.Database.EnsureCreatedAsync();
+                for (var i = 0; i < rowCount; i++)
+                {
+                    ctx.Items.Add(new VfsTestItem
+                    {
+                        Marker = $"prf-{i}",
+                        Payload = $"payload-{i}-{Guid.NewGuid():N}",
+                    });
+                }
+                await ctx.SaveChangesAsync();
+            }
+
+            int read;
+            string? lastMarker;
+            await using (var ctx = await Factory.CreateDbContextAsync())
+            {
+                read = await ctx.Items.CountAsync();
+                lastMarker = await ctx.Items
+                    .OrderByDescending(x => x.Id)
+                    .Select(x => x.Marker)
+                    .FirstOrDefaultAsync();
+            }
+
+            SetStatus(
+                $"Round trip OK — total rows: {read} (last marker: {lastMarker}).",
+                Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            // AEAD failure on first read most often surfaces as a SQLite
+            // open/IO exception. Drop the worker mirror so the user can't
+            // accidentally re-attempt with the same wrong key, and tell
+            // them what they're looking at.
+            await TryReleaseWorkerStateAsync();
+            _keyInstalled = false;
+            SetStatus(FormatDiskIoFailure("Round trip", ex), Severity.Error);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task ReadCountAsync()
+    {
+        _busy = true;
+        try
+        {
+            int count;
+            await using (var ctx = await Factory.CreateDbContextAsync())
+            {
+                count = await ctx.Items.CountAsync();
+            }
+            SetStatus($"Row count: {count}.", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            await TryReleaseWorkerStateAsync();
+            _keyInstalled = false;
+            SetStatus(FormatDiskIoFailure("Read", ex), Severity.Error);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    /// <summary>
+    /// Manual lock: shared with the rotate auto-lock path. Closes the DB,
+    /// clears the worker key registry, and drops the PRF cache so the
+    /// authenticate buttons re-enable. Pubkey display goes away with the
+    /// PRF cache (PrfService.GetCachedPublicKey() will return null).
+    /// </summary>
+    private async Task LockAsync()
+    {
+        _busy = true;
+        try
+        {
+            await PerformLockAsync();
+            SetStatus(
+                "DB closed, worker key cleared, PRF session purged. Authenticate again to continue.",
+                Severity.Info);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task PerformLockAsync()
+    {
+        await TryReleaseWorkerStateAsync();
+        // Drops prf-seed, prf-key, prf-ed25519-key, prf-domain:* and clears
+        // this page's local state directly. TTL expiry is the path that emits
+        // KeyExpired and reaches OnKeyExpired below. After either path,
+        // PrfService.HasCachedKeys() returns false and the authenticate
+        // buttons re-enable.
+        PrfService.ClearKeys();
+        _keyInstalled = false;
+        _armoredOwnPubkey = null;
+    }
+
+    /// <summary>
+    /// Atomic rotate: re-encrypt the local DB under the pasted recipient
+    /// pubkey (CK = 32 raw pubkey bytes), wipe the OPFS file, install CK,
+    /// import the rekeyed bytes back, then auto-lock (close DB + clear
+    /// worker key + drop PRF session). After this completes the DB at this
+    /// path can only be reopened by a holder of the matching passkey via
+    /// Authenticate-and-open.
+    /// </summary>
+    private async Task RekeyToPastedPubkeyAsync()
+    {
+        var ck = TryGetPastedKeyBytes();
+        if (ck is null)
+        {
+            SetStatus(
+                $"Pasted pubkey is not usable: {_pastedKeyError ?? "missing"}.",
+                Severity.Warning);
+            return;
+        }
+
+        _busy = true;
+        try
+        {
+            // 1. Worker snapshots the currently-registered key, closes the
+            //    DB, decrypts every slot under K_old, re-encrypts under CK
+            //    with the same path-bound AAD, returns slot-format ciphertext.
+            var rekeyed = await EncryptedSqliteWasmWorkerBridge.Instance.ExportDatabaseAsync(DatabaseName, VfsExportMode.REKEY, ck);
+
+            // 2. Wipe the local DB (opaque import refuses-on-existing).
+            await DatabaseService.DeleteDatabaseAsync(DatabaseName);
+
+            // 3. Set CK as the global key. SetEncryptionKey closes any
+            //    currently-open DB before swapping globalKey, so the
+            //    import below sees a fresh state and verify-on-write
+            //    AEAD-tests slot 0 under CK.
+            await Session.UnlockAsync(ck);
+
+            // 4. Import the rekeyed bytes; verify-on-write authenticates
+            //    slot 0 under CK and rolls back on mismatch.
+            var importOutcome = await DatabaseService.ImportDatabaseAsync(DatabaseName, rekeyed);
+            if (importOutcome != DiskImportResult.OK)
+            {
+                SetStatus(
+                    $"Rotate import returned {importOutcome} — expected OK. " +
+                    $"WRONG_KEY here would indicate a rekey-loop bug.",
+                    Severity.Error);
+                return;
+            }
+
+            // 5. Auto-lock: close the DB handle, drop worker key, drop PRF
+            //    session. User must Authenticate-and-open with the recipient
+            //    passkey to reopen.
+            await PerformLockAsync();
+
+            SetStatus(
+                $"Rotated — local DB now encrypted under the pasted recipient pubkey ({rekeyed.Length} B). " +
+                "Auto-locked + PRF session purged. Authenticate-and-open with the recipient passkey to reopen.",
+                Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            SetStatus($"Rotate failed: {ex.GetType().Name}: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task WipeAsync()
+    {
+        _busy = true;
+        try
+        {
+            // Close + clear key first so the worker has no stale registry
+            // entry, then delete the file from OPFS. Wipe doesn't drop the
+            // PRF session — keeping the pubkey panel visible is useful for
+            // a "wipe and re-create under the same passkey" cycle.
+            await TryReleaseWorkerStateAsync();
+            await DatabaseService.DeleteDatabaseAsync(DatabaseName);
+            _keyInstalled = false;
+            SetStatus(
+                $"Wiped {DatabaseName}. Authenticate-and-open will materialize a fresh DB.",
+                Severity.Warning);
+        }
+        catch (Exception ex)
+        {
+            SetStatus($"Wipe error: {ex.GetType().Name}: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task TryReleaseWorkerStateAsync()
+    {
+        // ClearEncryptionKey is a session-boundary op: it implicitly closes
+        // every currently-open DB before dropping globalKey. One call covers
+        // the close + clear pair the legacy per-DB API needed.
+        try { await Session.LockAsync(); } catch { }
+    }
+
+    private void OnKeyExpired(string cacheKey)
+    {
+        // Capture _busy SYNCHRONOUSLY here (subscription fires inline from
+        // PrfService.ClearKeys → SecureKeyCache.NotifyKeyCleared). By the
+        // time InvokeAsync's continuation actually runs, the manual Lock
+        // command has finished and _busy is false again — too late to
+        // discriminate. Manual ops set their own status; TTL expiry is the
+        // only path that needs the "PRF session ended" message.
+        var wasBusy = _busy;
+        _ = InvokeAsync(async () =>
+        {
+            await TryReleaseWorkerStateAsync();
+            _keyInstalled = false;
+            _armoredOwnPubkey = null;
+            if (!wasBusy)
+            {
+                SetStatus(
+                    $"PRF session ended ({cacheKey}). Authenticate again to continue.",
+                    Severity.Warning);
+            }
+            StateHasChanged();
+        });
+    }
+
+    private void SetStatus(string message, Severity severity)
+    {
+        _status = message;
+        _severity = severity;
+        StateHasChanged();
+    }
+
+    private static string FormatDiskIoFailure(string operation, Exception ex)
+    {
+        if (LooksLikeWrongPasskeyFailure(ex))
+        {
+            return "Wrong passkey for this DB. AEAD authentication failed on first read. " +
+                   "Re-unlock with the original passkey, or Wipe to start fresh.";
+        }
+
+        return $"{operation} failed: {ex.GetType().Name}: {ex.Message}";
+    }
+
+    private static bool LooksLikeWrongPasskeyFailure(Exception ex)
+    {
+        var message = ex.ToString();
+        return message.Contains("SQLITE_IOERR", StringComparison.OrdinalIgnoreCase) &&
+               message.Contains("disk I/O error", StringComparison.OrdinalIgnoreCase);
+    }
+
+    public void Dispose()
+    {
+        _keyExpiredSubscription?.Dispose();
+    }
+}

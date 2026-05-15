@@ -1,0 +1,30 @@
+@page "/"
+
+<PageTitle>SqliteWasmBlazor</PageTitle>
+
+<MudStack>
+    <MudText Typo="Typo.h5">SqliteWasmBlazor</MudText>
+    <MudText>The first known solution providing true filesystem-backed SQLite database with full EF Core support for
+        Blazor WebAssembly.
+    </MudText>
+
+    <DatabaseErrorAlert />
+
+    @* Home itself doesn't touch the DB, but if the DB is encrypted-locked
+       there's nothing the user can do from the nav menu without unlocking
+       first — surface the panel here so the default route is a useful
+       entry point on cold reload of an encrypted DB. *@
+    <AuthorizeView Policy="DatabaseOpen">
+        <NotAuthorized>
+            <AuthenticationPanel />
+        </NotAuthorized>
+    </AuthorizeView>
+
+    <MudText Typo="Typo.caption" Color="Color.Secondary">
+        Build: @_buildTime
+    </MudText>
+</MudStack>
+
+@code {
+    private readonly string _buildTime = cmdwtf.BuildTimestamp.BuildTime.ToLongDateString() + " - " + cmdwtf.BuildTimestamp.BuildTime.ToLongTimeString();
+}

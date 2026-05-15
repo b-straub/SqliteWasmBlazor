@@ -1,0 +1,75 @@
+@*
+    Component for displaying server-side highlighted text from FTS5 search results.
+    Automatically falls back to plain text when highlight is not available.
+*@
+
+@if (UseHighlighting && !string.IsNullOrWhiteSpace(HighlightedContent))
+{
+    <MudText Typo="@Typo" Style="@CombinedStyle">
+        @((MarkupString)HighlightedContent)
+    </MudText>
+}
+else
+{
+    <MudText Typo="@Typo" Style="@CombinedStyle">
+        @PlainContent
+    </MudText>
+}
+
+@code {
+    /// <summary>
+    /// The plain text content to display when highlighting is disabled or unavailable
+    /// </summary>
+    [Parameter]
+    public string PlainContent { get; set; } = string.Empty;
+
+    /// <summary>
+    /// The highlighted HTML content from FTS5 (contains markup tags like &lt;mark&gt;)
+    /// </summary>
+    [Parameter]
+    public string? HighlightedContent { get; set; }
+
+    /// <summary>
+    /// Whether to use highlighting (if available)
+    /// </summary>
+    [Parameter]
+    public bool UseHighlighting { get; set; }
+
+    /// <summary>
+    /// MudBlazor typography variant
+    /// </summary>
+    [Parameter]
+    public Typo Typo { get; set; } = Typo.body2;
+
+    /// <summary>
+    /// Additional CSS styles to apply
+    /// </summary>
+    [Parameter]
+    public string? Style { get; set; }
+
+    /// <summary>
+    /// Whether to apply strikethrough styling (for completed items)
+    /// </summary>
+    [Parameter]
+    public bool Strikethrough { get; set; }
+
+    private string CombinedStyle => BuildCombinedStyle();
+
+    private string BuildCombinedStyle()
+    {
+        var styles = new List<string>();
+
+        if (Strikethrough)
+        {
+            styles.Add("text-decoration: line-through");
+            styles.Add("color: var(--mud-palette-text-secondary)");
+        }
+
+        if (!string.IsNullOrWhiteSpace(Style))
+        {
+            styles.Add(Style);
+        }
+
+        return styles.Count > 0 ? string.Join("; ", styles) + ";" : string.Empty;
+    }
+}

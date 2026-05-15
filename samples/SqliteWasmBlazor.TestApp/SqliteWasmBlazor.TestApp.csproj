@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk.BlazorWebAssembly">
+
+    <PropertyGroup>
+        <TargetFramework>net10.0</TargetFramework>
+        <Nullable>enable</Nullable>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <OverrideHtmlAssetPlaceholders>false</OverrideHtmlAssetPlaceholders>
+        <WasmFingerprintAssets>false</WasmFingerprintAssets>
+        <WasmBuildNative>true</WasmBuildNative>
+        <EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly" />
+        <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.DevServer" PrivateAssets="all" />
+        <PackageReference Include="MudBlazor" />
+        <!-- Exclude large (1.1MB) SQLitePCLRaw native library - SqliteWasmBlazor provides minimal (9.8KB) stub -->
+        <PackageReference Include="SQLitePCLRaw.lib.e_sqlite3" ExcludeAssets="native;buildTransitive" />
+    </ItemGroup>
+    
+    <!-- Use ProjectReference for all configurations - TestApp is for internal testing only -->
+    <ItemGroup>
+        <NativeFileReference Include="..\..\src\Base\SqliteWasmBlazor\native\lib\e_sqlite3.a" />
+        <ProjectReference Include="..\..\src\Base\SqliteWasmBlazor\SqliteWasmBlazor.csproj" />
+        <ProjectReference Include="..\..\src\Base\SqliteWasmBlazor.Models\SqliteWasmBlazor.Models.csproj" />
+        <ProjectReference Include="..\..\src\Base\SqliteWasmBlazor.Components\SqliteWasmBlazor.Components.csproj" />
+        <ProjectReference Include="..\..\src\Crypto\SqliteWasmBlazor.Crypto\SqliteWasmBlazor.Crypto.csproj" />
+    </ItemGroup>
+    
+</Project>

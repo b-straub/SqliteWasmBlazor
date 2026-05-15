@@ -1,0 +1,58 @@
+@*
+    Confirmation dialog for destructive operations (Reset, replace-all
+    Import). Two design choices encoded here:
+
+    1. Cancel is the visually-primary default action (Variant.Filled +
+       Color.Primary) so click-through-without-reading lands on the safe
+       option. The destructive action is Color.Error + Variant.Outlined —
+       red signal-by-color marks the consequential choice without
+       monopolising the layout.
+
+    2. AutoFocus on the Cancel button so keyboard users (Enter/Space)
+       confirm the safe path by default. Destructive requires a
+       deliberate click.
+
+    Returns true when the user clicks the destructive button; false (or
+    Canceled) otherwise.
+*@
+
+<MudDialog>
+    <DialogContent>
+        <MudText Typo="Typo.body1">@Message</MudText>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="OnConfirm"
+                   Variant="Variant.Outlined"
+                   Color="Color.Error"
+                   StartIcon="@Icons.Material.Filled.Warning">
+            @DestructiveLabel
+        </MudButton>
+        <MudButton OnClick="OnCancel"
+                   Variant="Variant.Filled"
+                   Color="Color.Primary"
+                   autofocus>
+            @CancelLabel
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter]
+    public required IMudDialogInstance MudDialog { get; set; }
+
+    [Parameter, EditorRequired]
+    public required string Title { get; set; }
+
+    [Parameter, EditorRequired]
+    public required string Message { get; set; }
+
+    [Parameter, EditorRequired]
+    public required string DestructiveLabel { get; set; }
+
+    [Parameter, EditorRequired]
+    public required string CancelLabel { get; set; }
+
+    private void OnConfirm() => MudDialog.Close(DialogResult.Ok(true));
+
+    private void OnCancel() => MudDialog.Cancel();
+}

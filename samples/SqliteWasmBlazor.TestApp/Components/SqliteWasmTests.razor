@@ -1,0 +1,175 @@
+
+@using SqliteWasmBlazor
+@using SqliteWasmBlazor.TestApp.TestInfrastructure
+@using SqliteWasmBlazor.TestApp.TestInfrastructure.VfsEncryption
+@using Microsoft.EntityFrameworkCore
+@using SqliteWasmBlazor.Models
+@inject IDbContextFactory<TodoDbContext> DbContextFactory
+@inject IDbContextFactory<EncryptedTestContext> EncryptedFactory
+@inject IDbContextFactory<PlainVfsTestContext> PlainVfsFactory
+@inject ISqliteWasmDatabaseService DatabaseService
+@inject IEncryptedSqliteWasmDatabaseService Session
+@inject Crypto.Abstractions.ICryptoProvider CryptoProvider
+@inject IServiceProvider Services
+
+<button type="reset" hidden="@(!_running)" @onclick="@Cancel">Cancel</button>
+
+@if (_testsCompleted)
+{
+    <div>All Tests Completed</div>
+}
+
+@if (_factory is not null)
+{
+    _lastCategory = null;
+
+    @foreach (var test in _testResults.OrderBy(t => t.Category))
+    {
+        @if (_lastCategory != test.Category)
+        {
+            _lastCategory = test.Category;
+            <p></p>
+            <h5 style="color: blue">@test.Category</h5>
+        }
+
+        @if (test.Error)
+        {
+            <div style="color: red">@test.Result</div>
+        }
+        else
+        {
+            <div style="color: forestgreen">@test.Result</div>
+        }
+    }
+}
+
+@if (_error is not null)
+{
+    <h1 style="color: red">@_error</h1>
+}
+
+@code {
+    [Parameter]
+    public string? TestName { get; set; }
+
+    [Parameter]
+    public string? CategoryFilter { get; set; }
+
+    private IDbContextFactory<TodoDbContext>? _factory;
+    private string? _error;
+    private readonly List<TestEntry> _tests = [];
+    private readonly List<(string Category, string Result, bool Error)> _testResults = [];
+
+    private string? _lastCategory;
+    private bool _running;
+    private bool _testsCompleted;
+
+    private readonly CancellationTokenSource _cancellationTokenSource = new();
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        await base.OnAfterRenderAsync(firstRender);
+
+        if (firstRender)
+        {
+            _running = false;
+            _factory = DbContextFactory;
+
+            try
+            {
+                // Test runner is "test mode" by definition — start each
+                // run-through from a clean disk regardless of what an
+                // earlier interactive session left behind. Boot in
+                // Program.cs intentionally preserves Encrypted state for
+                // the F5/demo flow, but the test runner needs a true
+                // factory reset:
+                //   1. ResetDiskAsync clears manifest + globalKey + PRF
+                //      cache, releases the bridge gate.
+                //   2. Delete every DB in the pool. Otherwise stale
+                //      ciphertext from a prior PrfVfsTest run sits in
+                //      OPFS — tests that read raw bytes (Export/Import)
+                //      see encrypted slot bytes instead of SQLite pages,
+                //      and tests that open the plain VFS path fail when
+                //      they hit residual files.
+                //   3. Recreate TodoDb plain — boot's conditional
+                //      EnsureDeleted skipped this when state was Encrypted.
+                await Session.ResetDiskAsync();
+                foreach (var name in await DatabaseService.ListDatabasesAsync())
+                {
+                    try { await DatabaseService.DeleteDatabaseAsync(name); }
+                    catch { /* best-effort wipe; per-test setup re-creates */ }
+                }
+                await using (var seedContext = await DbContextFactory.CreateDbContextAsync())
+                {
+                    await seedContext.Database.EnsureDeletedAsync();
+                    await seedContext.Database.MigrateAsync();
+                }
+
+                var testFactory = new TestFactory(_factory, DatabaseService, CryptoProvider, EncryptedFactory, PlainVfsFactory, Services);
+                _tests.AddRange(testFactory.GetTests(TestName, CategoryFilter));
+
+                _running = true;
+                await InvokeAsync(StateHasChanged);
+
+                await foreach (var testResult in RunTestsAsync())
+                {
+                    _testResults.Add(testResult);
+                    await InvokeAsync(StateHasChanged);
+                }
+
+                _running = false;
+                _testsCompleted = true;
+                await InvokeAsync(StateHasChanged);
+            }
+            catch (Exception ex)
+            {
+                _error = ex.Message;
+            }
+
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    public void Cancel()
+    {
+        _cancellationTokenSource.Cancel();
+    }
+
+    private async IAsyncEnumerable<(string Category, string Result, bool Error)> RunTestsAsync()
+    {
+        foreach (var entry in _tests)
+        {
+            var error = false;
+            string? result;
+
+            if (_cancellationTokenSource.IsCancellationRequested)
+            {
+                break;
+            }
+
+            try
+            {
+                result = await entry.RunAsync();
+            }
+            catch (Exception ex)
+            {
+                result = ex.Message;
+                error = true;
+            }
+
+            // Uniform success contract: a test passes by returning null or
+            // "OK"/"SKIPPED". Anything else is a failure-describing string
+            // and must render red so it isn't silently treated as green.
+            if (!error && result is not null and not "OK" and not "SKIPPED")
+            {
+                error = true;
+            }
+            var displayResult = result ?? "OK";
+
+            var category = entry.Category;
+            var test = entry;
+
+            yield return (category, $"SqliteWasm -> {test.Name}: {displayResult}", error);
+        }
+    }
+}

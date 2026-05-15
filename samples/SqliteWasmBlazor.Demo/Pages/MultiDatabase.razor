@@ -1,0 +1,180 @@
+@page "/multidatabase"
+@using SqliteWasmBlazor.Models.Models
+@inherits MultiDatabaseModelComponent
+
+<PageTitle>Multi-Database Demo</PageTitle>
+
+<MudText Typo="Typo.h5" Class="mb-2">Multi-Database Demo</MudText>
+<MudText Typo="Typo.body2" Class="mb-4" Color="Color.Secondary">
+    Two independent OPFS databases (TodoDb.db and NotesDb.db) running simultaneously in the same Web Worker.
+    Notes can reference todos across databases via a loose Guid reference (no FK constraint).
+</MudText>
+
+<DatabaseErrorAlert />
+
+<AuthorizeView Policy="DatabaseOpen">
+    <NotAuthorized>
+        <AuthenticationPanel />
+    </NotAuthorized>
+    <Authorized>
+
+<MudGrid>
+    <MudItem xs="12" md="6">
+        <MudPaper Class="pa-4" Elevation="2">
+            <MudText Typo="Typo.h6" Class="mb-2">
+                <MudIcon Icon="@Icons.Material.Filled.CheckBox" Class="mr-1" /> Todos (TodoDb.db)
+            </MudText>
+
+            <MudStack Row AlignItems="AlignItems.End" Class="mb-4">
+                <MudTextField @bind-Value="@Model.NewTodoTitle"
+                              Label="Title"
+                              Variant="Variant.Outlined"
+                              Immediate
+                              OnKeyDown="@OnTodoKeyDownAsync" />
+                <MudButtonAsyncRx Command="@Model.AddTodo"
+                                  Variant="Variant.Filled"
+                                  Color="Color.Primary">
+                    Add
+                </MudButtonAsyncRx>
+            </MudStack>
+
+            @if (Model.Todos.Count == 0)
+            {
+                <MudText Typo="Typo.body2" Color="Color.Secondary">No todos yet.</MudText>
+            }
+            else
+            {
+                <MudList T="Todo" Dense>
+                    @foreach (var todo in Model.Todos)
+                    {
+                        var noteCount = Model.NoteCount(todo.Id);
+                        <MudListItem T="Todo">
+                            <MudStack Row AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+                                <MudStack Row AlignItems="AlignItems.Center">
+                                    <MudCheckBox T="bool" Value="@todo.Completed"
+                                                 ValueChanged="@(async _ => await Model.ToggleTodo.ExecuteAsync(todo))"
+                                                 Color="Color.Primary" />
+                                    <MudText Style="@(todo.Completed ? "text-decoration: line-through" : "")">
+                                        @todo.Title
+                                    </MudText>
+                                    @if (noteCount > 0)
+                                    {
+                                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined"
+                                                 Color="Color.Secondary">
+                                            @noteCount note(s)
+                                        </MudChip>
+                                    }
+                                </MudStack>
+                                <MudIconButtonAsyncRxOf T="Todo"
+                                                        Command="@Model.DeleteTodo"
+                                                        Parameter="@todo"
+                                                        Icon="@Icons.Material.Filled.Delete"
+                                                        Color="Color.Error"
+                                                        Size="Size.Small" />
+                            </MudStack>
+                        </MudListItem>
+                    }
+                </MudList>
+            }
+            <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mt-2">
+                @Model.Todos.Count item(s) in TodoDb.db
+            </MudText>
+        </MudPaper>
+    </MudItem>
+
+    <MudItem xs="12" md="6">
+        <MudPaper Class="pa-4" Elevation="2">
+            <MudText Typo="Typo.h6" Class="mb-2">
+                <MudIcon Icon="@Icons.Material.Filled.Note" Class="mr-1" /> Notes (NotesDb.db)
+            </MudText>
+
+            <MudStack Spacing="2" Class="mb-4">
+                <MudTextField @bind-Value="@Model.NewNoteTitle" Label="Title" Variant="Variant.Outlined" Immediate />
+                <MudTextField @bind-Value="@Model.NewNoteContent" Label="Content" Variant="Variant.Outlined"
+                              Lines="3" Immediate />
+                <MudStack Row Spacing="2">
+                    <MudSelect T="string" @bind-Value="@Model.NewNoteTag" Label="Tag" Variant="Variant.Outlined">
+                        <MudSelectItem T="string" Value="@("")">None</MudSelectItem>
+                        <MudSelectItem T="string" Value="@("Work")">Work</MudSelectItem>
+                        <MudSelectItem T="string" Value="@("Personal")">Personal</MudSelectItem>
+                        <MudSelectItem T="string" Value="@("Idea")">Idea</MudSelectItem>
+                    </MudSelect>
+                    <MudSelect T="Guid?" @bind-Value="@Model.NewNoteTodoId" Label="Link to Todo" Variant="Variant.Outlined">
+                        <MudSelectItem T="Guid?" Value="@((Guid?)null)">No link</MudSelectItem>
+                        @foreach (var todo in Model.Todos)
+                        {
+                            <MudSelectItem T="Guid?" Value="@((Guid?)todo.Id)">@todo.Title</MudSelectItem>
+                        }
+                    </MudSelect>
+                </MudStack>
+                <MudButtonAsyncRx Command="@Model.AddNote"
+                                  Variant="Variant.Filled"
+                                  Color="Color.Secondary">
+                    Add Note
+                </MudButtonAsyncRx>
+            </MudStack>
+
+            @if (Model.Notes.Count == 0)
+            {
+                <MudText Typo="Typo.body2" Color="Color.Secondary">No notes yet.</MudText>
+            }
+            else
+            {
+                @foreach (var note in Model.Notes)
+                {
+                    <MudCard Class="mb-2" Elevation="1">
+                        <MudCardContent>
+                            <MudStack Row AlignItems="AlignItems.Start" Justify="Justify.SpaceBetween">
+                                <MudStack Spacing="0">
+                                    <MudText Typo="Typo.subtitle1">@note.Title</MudText>
+                                    <MudText Typo="Typo.body2">@note.Content</MudText>
+                                    <MudStack Row Spacing="2" Class="mt-1" AlignItems="AlignItems.Center">
+                                        @if (!string.IsNullOrEmpty(note.Tag))
+                                        {
+                                            <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined"
+                                                     Color="Color.Info">@note.Tag</MudChip>
+                                        }
+                                        @if (note.TodoId is not null)
+                                        {
+                                            var linkedTodo = Model.FindTodo(note.TodoId);
+                                            <MudChip T="string" Size="Size.Small" Variant="Variant.Filled"
+                                                     Color="Color.Primary"
+                                                     Icon="@Icons.Material.Filled.Link">
+                                                @(linkedTodo?.Title ?? "Deleted todo")
+                                            </MudChip>
+                                        }
+                                        <MudText Typo="Typo.caption" Color="Color.Secondary">
+                                            @note.CreatedAt.ToString("g")
+                                        </MudText>
+                                    </MudStack>
+                                </MudStack>
+                                <MudIconButtonAsyncRxOf T="Note"
+                                                        Command="@Model.DeleteNote"
+                                                        Parameter="@note"
+                                                        Icon="@Icons.Material.Filled.Delete"
+                                                        Color="Color.Error"
+                                                        Size="Size.Small" />
+                            </MudStack>
+                        </MudCardContent>
+                    </MudCard>
+                }
+            }
+            <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mt-2">
+                @Model.Notes.Count item(s) in NotesDb.db
+            </MudText>
+        </MudPaper>
+    </MudItem>
+</MudGrid>
+
+    </Authorized>
+</AuthorizeView>
+
+@code {
+    private async Task OnTodoKeyDownAsync(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+            await Model.AddTodo.ExecuteAsync();
+        }
+    }
+}

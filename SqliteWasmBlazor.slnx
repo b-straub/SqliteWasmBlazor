@@ -16,6 +16,12 @@
   </Folder>
   <Folder Name="/samples/">
     <Project Path="samples/SqliteWasmBlazor.AdoNetSample/SqliteWasmBlazor.AdoNetSample.csproj" />
+    <Project Path="samples/SqliteWasmBlazor.Demo/SqliteWasmBlazor.Demo.csproj" />
     <Project Path="samples/SqliteWasmBlazor.FloatingWindow/SqliteWasmBlazor.FloatingWindow.csproj" />
+    <Project Path="samples/SqliteWasmBlazor.TestApp/SqliteWasmBlazor.TestApp.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/SqliteWasmBlazor.TestHost/SqliteWasmBlazor.TestHost.csproj" />
+    <Project Path="tests/SqliteWasmBlazor.Tests/SqliteWasmBlazor.Tests.csproj" />
   </Folder>
 </Solution>
