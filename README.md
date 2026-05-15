@@ -20,7 +20,7 @@ SqliteWasmBlazor is part of a family of libraries for building offline-first Bla
 
 Together these enable a complete offline-first stack: persistent local storage with optional at-rest encryption (`SqliteWasmBlazor` + `SqliteWasmBlazor.Crypto`) + reactive state management (`RxBlazorV2`).
 
-**Coming soon:** **CryptoSync** — end-to-end encrypted multi-device delta sync, built on top of `SqliteWasmBlazor.Crypto`. Per-row delta sync with permission enforcement, per-group keys, an admin invitation flow, and a whitelist-authenticated PHP relay that never sees plaintext.
+**Adds on this branch:** **CryptoSync** — end-to-end encrypted multi-device delta sync, built on top of `SqliteWasmBlazor.Crypto`. See the [Encrypted multi-device sync](#encrypted-multi-device-sync-plane-3) section below.
 
 ## About This Project
 
@@ -80,6 +80,56 @@ registered the entire encryption layer engages:
 
 Full reference: [`docs/crypto-vfs.md`](docs/crypto-vfs.md). Threat model
 and assurance summary: [`docs/security/`](docs/security/README.md).
+
+### Encrypted multi-device sync (Plane 3)
+
+Optional end-to-end encrypted delta sync between devices, built on top
+of the encryption VFS. Sync metadata stays inside the encrypted SQLite
+database; the PHP relay sees only opaque ciphertext blobs.
+
+- **Per-row AEAD** — each synced row is sealed with AES-256-GCM under
+  a per-group CEK. AAD binds `groupContext:keyVersion` so cross-group
+  or cross-version delivery fails authentication.
+- **Admin-signed ShareTarget credentials** — group membership is
+  established by an admin Ed25519 signature; the same admin signs the
+  per-group CEK distribution envelope.
+- **One bounded revocation rotation per group** — on revoking a device,
+  the group key rotates to a fresh version; the formal model proves
+  future content stays confidential. Past content the revoked device
+  already saw cannot be unlearned.
+- **Whitelist-authenticated relay POST** — DeltaRelay accepts writes
+  only from Ed25519-whitelisted pubkeys; admin updates the whitelist
+  via a signed envelope. Eliminates unauthenticated fan-out flooding.
+- **Stateless relay reads** — GET signs `"{timestamp}|{recipient}"`
+  with the recipient's Ed25519 key; the relay verifies against the
+  pubkey from the query and applies a ±300 s window. No server-side
+  keys, no per-recipient accounts.
+- **Monotonic per-recipient cursor** — receive ordering enforced
+  client-side via `IReceiveCursorStore`; replay outside the timestamp
+  window is rejected.
+- **Admin invitation flow** — admin-signed invitation bundle carries
+  a one-shot transport keypair OOB; both sides derive the same X25519
+  pair, the relay routes by the transport pubkey, the standard delta
+  envelope delivers the response.
+- **Admin pin/purge authority** — deployment admin can publish a
+  pinned-seed reseed that monotonically supersedes prior state;
+  formally modeled as a separate authorization channel from delta
+  writes.
+- **Source-generator-driven schema** — `[Permissions]`,
+  `[AllowUpdate]`, `[DenyUpdate]` attributes on entities drive
+  `CryptoSync.Generator` to emit shadow tables, registries, and a
+  `SeedPermissions(ModelBuilder)` partial. No hand-maintained
+  permission YAML.
+- **Drop-in host UI** — `SqliteWasmBlazor.CryptoSync.UI` ships
+  Razor panels for invitation flow, group management, sync status.
+- **Formally verified** — 5 Tamarin theories under
+  `docs/formal/cryptosync-tamarin/` cover invitation control plane,
+  group key distribution, delta data plane, relay whitelist + cursor,
+  and pin-purge authority.
+
+Schema reference: [`docs/cryptosync-schema.md`](docs/cryptosync-schema.md).
+Relay design: [`docs/security/relay-whitelist-design.md`](docs/security/relay-whitelist-design.md).
+Threat model + assurance: [`docs/security/`](docs/security/README.md).
 
 ### Other recent additions
 
@@ -399,8 +449,9 @@ var expensive = await dbContext.Products
 | [Advanced Features](docs/advanced-features.md) | Migrations, FTS5 search, JSON collections, logging |
 | [Multi-Database](docs/multi-database.md) | Running multiple databases, cross-database references |
 | [Bulk Import/Export](docs/bulk-import-export.md) | V2 format, multi-part export, delta sync, type conversions |
-| [Encrypted VFS](docs/crypto-vfs.md) | At-rest encryption: ChaCha20-Poly1305, PRF-derived keys, threat model |
-| [Security](docs/security/README.md) | Threat model + assurance summary + Tamarin proofs |
+| [Encrypted VFS](docs/crypto-vfs.md) | At-rest encryption (Plane 2): ChaCha20-Poly1305, PRF-derived keys, threat model |
+| [CryptoSync Schema](docs/cryptosync-schema.md) | Multi-device sync (Plane 3): `CryptoSyncContextBase` shadow tables, registries, wire format |
+| [Security](docs/security/README.md) | Threat model + relay design + assurance summary + Tamarin proofs |
 | [Recommended Patterns](docs/patterns.md) | Multi-view pattern, data initialization best practices |
 | [FAQ](docs/faq.md) | Common questions and browser support |
 | [Changelog](CHANGELOG.md) | Release notes and version history |

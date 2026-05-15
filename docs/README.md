@@ -9,9 +9,10 @@ This folder contains documentation for the SqliteWasmBlazor project.
 | [architecture.md](architecture.md) | Worker-based architecture, how it works, technical details |
 | [ado-net.md](ado-net.md) | Using SqliteWasmBlazor without EF Core, transactions |
 | [advanced-features.md](advanced-features.md) | Migrations, FTS5 search, JSON collections, logging, raw database import/export |
-| [crypto-vfs.md](crypto-vfs.md) | PRF-keyed encryption VFS: ChaCha20-Poly1305 at-rest encryption, threat model, code references |
-| [security/](security/README.md) | Threat model, assurance summary, links to formal Tamarin models |
-| [formal/](formal/README.md) | Machine-checked Tamarin models for the encryption VFS |
+| [crypto-vfs.md](crypto-vfs.md) | PRF-keyed encryption VFS (Plane 2): ChaCha20-Poly1305 at-rest encryption, threat model, code references |
+| [cryptosync-schema.md](cryptosync-schema.md) | Schema reference for `CryptoSyncContextBase` (Plane 3): shadow tables, registries, permission rows, wire format |
+| [security/](security/README.md) | Threat model, relay design, assurance summary, links to formal Tamarin models |
+| [formal/](formal/README.md) | Machine-checked Tamarin models (Plane 2 + Plane 3) |
 | [patterns.md](patterns.md) | Multi-view pattern, data initialization best practices |
 | [faq.md](faq.md) | Common questions and browser support |
 
