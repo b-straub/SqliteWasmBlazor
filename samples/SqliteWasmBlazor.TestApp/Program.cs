@@ -1,11 +1,13 @@
 using Microsoft.AspNetCore.Components.Web;
 using Microsoft.AspNetCore.Components.WebAssembly.Hosting;
+using SqliteWasmBlazor.CryptoSync;
 using SqliteWasmBlazor.TestApp;
 using Microsoft.EntityFrameworkCore;
 using MudBlazor.Services;
 using SqliteWasmBlazor;
 using SqliteWasmBlazor.Models;
 using SqliteWasmBlazor.Crypto.Extensions;
+using SqliteWasmBlazor.TestApp.TestInfrastructure.CryptoSync;
 using SqliteWasmBlazor.TestApp.TestInfrastructure.VfsEncryption;
 
 var builder = WebAssemblyHostBuilder.CreateDefault(args);
@@ -43,6 +45,16 @@ builder.Services.AddDbContextFactory<TodoDbContext>(options =>
     options.EnableSensitiveDataLogging();
     options.LogTo(message => Console.WriteLine(message));
 #endif
+});
+
+// Add CryptoSync test context (separate DB from TodoDb). Routed through the
+// PRF-keyed VFS so the integration tests exercise the full production stack:
+// shadow + envelope crypto on top of page-level AEAD, not in isolation.
+// Single-key model: the test fixture installs CryptoTestContext.EncryptionKey
+// as the worker-wide global key via SetEncryptionKeyAsync before any test run.
+builder.Services.AddDbContextFactory<CryptoTestContext>(options =>
+{
+    options.UseSqliteWasm("Data Source=CryptoTestDb.db");
 });
 
 // Add PRF-VFS integration-test context. Opens via the encrypted VFS path
@@ -86,6 +98,10 @@ builder.Services.Configure<SqliteWasmBlazor.Crypto.Configuration.KeyCacheOptions
 {
     o.TtlMs = 5000;
 });
+
+// CryptoSync-plane crypto layer (IGroupEncryption + IVapidCryptoProvider)
+// without the HTTP transport — TestApp drives group encryption directly.
+builder.Services.AddCryptoSyncCrypto();
 
 var host = builder.Build();
 

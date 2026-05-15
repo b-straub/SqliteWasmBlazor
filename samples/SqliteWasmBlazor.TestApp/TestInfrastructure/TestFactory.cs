@@ -12,6 +12,8 @@ using SqliteWasmBlazor.TestApp.TestInfrastructure.Tests.RaceConditions;
 using SqliteWasmBlazor.TestApp.TestInfrastructure.Tests.Relationships;
 using SqliteWasmBlazor.TestApp.TestInfrastructure.Tests.Transactions;
 using SqliteWasmBlazor.TestApp.TestInfrastructure.Tests.TypeMarshalling;
+using SqliteWasmBlazor.TestApp.TestInfrastructure.Tests.EncryptedDelta;
+using SqliteWasmBlazor.TestApp.TestInfrastructure.CryptoSync;
 using SqliteWasmBlazor.TestApp.TestInfrastructure.VfsEncryption;
 using SqliteWasmBlazor.Crypto.Abstractions;
 using SqliteWasmBlazor.Crypto.Services;
@@ -19,7 +21,7 @@ using SqliteWasmBlazor.Crypto.Services;
 namespace SqliteWasmBlazor.TestApp.TestInfrastructure;
 
 /// <summary>
-/// Wrapper for SqliteWasmTest harness.
+/// Wrapper for both SqliteWasmTest and CryptoSyncTestBase.
 /// </summary>
 internal record TestEntry(string Category, string Name, Func<ValueTask<string?>> RunAsync);
 
@@ -30,6 +32,7 @@ internal class TestFactory
     public TestFactory(
         IDbContextFactory<TodoDbContext> todoFactory,
         ISqliteWasmDatabaseService databaseService,
+        IDbContextFactory<CryptoTestContext>? cryptoFactory = null,
         ICryptoProvider? cryptoProvider = null,
         IDbContextFactory<EncryptedTestContext>? encryptedFactory = null,
         IDbContextFactory<PlainVfsTestContext>? plainVfsFactory = null,
@@ -45,6 +48,10 @@ internal class TestFactory
         if (services is not null)
         {
             PopulateMigrationRecoveryTests(services);
+        }
+        if (cryptoFactory is not null && session is not null)
+        {
+            PopulateCryptoTests(cryptoFactory, databaseService, cryptoProvider, session);
         }
         if (encryptedFactory is not null && session is not null)
         {
@@ -279,6 +286,35 @@ internal class TestFactory
             var t9 = new VfsSameJournalModePerformanceTest(plainVfsFactory, encryptedFactory, databaseService, session);
             _entries.Add(new TestEntry(cat, t9.Name, () => t9.RunTestWithFreshDatabaseAsync()));
         }
+    }
+
+    private void PopulateCryptoTests(
+        IDbContextFactory<CryptoTestContext> cryptoFactory,
+        ISqliteWasmDatabaseService databaseService,
+        ICryptoProvider? cryptoProvider,
+        IEncryptedSqliteWasmDatabaseService session)
+    {
+        var test1 = new CryptoSyncRoundTripTest(cryptoFactory, databaseService, session);
+        _entries.Add(new TestEntry("Encrypted Delta", test1.Name, () => test1.RunTestWithFreshDatabaseAsync()));
+
+        var test2 = new WorkerEncryptedRoundTripTest(cryptoFactory, databaseService, session);
+        _entries.Add(new TestEntry("Encrypted Delta", test2.Name, () => test2.RunTestWithFreshDatabaseAsync()));
+
+        ArgumentNullException.ThrowIfNull(cryptoProvider);
+        var test3 = new PermissionEnforcementTest(cryptoFactory, databaseService, cryptoProvider, session);
+        _entries.Add(new TestEntry("Encrypted Delta", test3.Name, () => test3.RunTestWithFreshDatabaseAsync()));
+
+        var test4 = new SchemaVersionMismatchTest(cryptoFactory, databaseService, session);
+        _entries.Add(new TestEntry("Encrypted Delta", test4.Name, () => test4.RunTestWithFreshDatabaseAsync()));
+
+        var test5 = new MultiTableRoundTripTest(cryptoFactory, databaseService, session);
+        _entries.Add(new TestEntry("Encrypted Delta", test5.Name, () => test5.RunTestWithFreshDatabaseAsync()));
+
+        var test6 = new MaliciousSystemTableFlipDeniedTest(cryptoFactory, databaseService, session);
+        _entries.Add(new TestEntry("Encrypted Delta", test6.Name, () => test6.RunTestWithFreshDatabaseAsync()));
+
+        var test7 = new SoftDeletedPrincipalsRejectedTest(cryptoFactory, databaseService, session);
+        _entries.Add(new TestEntry("Encrypted Delta", test7.Name, () => test7.RunTestWithFreshDatabaseAsync()));
     }
 
     private void PopulateTests(IDbContextFactory<TodoDbContext> factory, ISqliteWasmDatabaseService databaseService)
