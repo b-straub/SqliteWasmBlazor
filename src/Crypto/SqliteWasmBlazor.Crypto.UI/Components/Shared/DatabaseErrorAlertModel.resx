@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <resheader name="resmimetype"><value>text/microsoft-resx</value></resheader>
+  <resheader name="version"><value>2.0</value></resheader>
+  <resheader name="reader"><value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e108</value></resheader>
+  <resheader name="writer"><value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e108</value></resheader>
+  <data name="Header_Title" xml:space="preserve"><value>Database Error</value></data>
+  <data name="Btn_Reload" xml:space="preserve"><value>Reload</value></data>
+  <data name="Btn_Reset" xml:space="preserve"><value>Reset Database</value></data>
+  <data name="Alert_MismatchesPrefix" xml:space="preserve"><value>Mismatches detected:</value></data>
+  <data name="Alert_MissingColumn" xml:space="preserve"><value>missing column</value></data>
+  <data name="Alert_ExtraColumn" xml:space="preserve"><value>unexpected column</value></data>
+  <data name="Error_Reset" xml:space="preserve"><value>Database reset failed: {0}</value></data>
+</root>

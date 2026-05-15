@@ -75,6 +75,8 @@
          wwwroot/sqlite-wasm-*.js outputs ship to consumers. -->
     <Content Remove="TypeScript/**" />
     <None Remove="TypeScript/**" />
+    <Content Remove="TypeScript-Crypto/**" />
+    <None Remove="TypeScript-Crypto/**" />
     <Content Remove="TypeScript-Common/**" />
     <None Remove="TypeScript-Common/**" />
   </ItemGroup>
@@ -99,7 +101,13 @@
     <None Include="native/lib/e_sqlite3.a" Pack="true" PackagePath="native/lib" />
   </ItemGroup>
 
-  <!-- npm install for the worker-common workspace before building.
+  <!-- npm install for the absorbed crypto-core workspace before building. -->
+  <Target Name="NpmInstallCrypto" BeforeTargets="BuildTypeScriptCryptoDebug;BuildTypeScriptCryptoRelease">
+    <Exec WorkingDirectory="TypeScript-Crypto" Command="npm audit signatures" Condition="Exists('TypeScript-Crypto/package.json') And !Exists('TypeScript-Crypto/node_modules')" />
+    <Exec WorkingDirectory="TypeScript-Crypto" Command="npm ci --ignore-scripts" Condition="Exists('TypeScript-Crypto/package.json') And !Exists('TypeScript-Crypto/node_modules')" />
+  </Target>
+
+  <!-- npm install for the worker-common workspace (Phase 3) before building.
        TypeScript/ depends on it via file:../TypeScript-Common; esbuild walks
        into TypeScript-Common/src/ during bundling and needs its node_modules
        (msgpackr, @sqlite.org/sqlite-wasm) to resolve nested imports. -->
@@ -109,6 +117,16 @@
   </Target>
 
   <!-- Build TypeScript very early, before static web assets are discovered. -->
+  <!-- TypeScript-Crypto must build first so SqliteWasmBlazor's TypeScript
+       worker can resolve the crypto-core workspace dep. -->
+  <Target Name="BuildTypeScriptCryptoDebug" BeforeTargets="BuildTypeScriptDebug" Condition="'$(Configuration)' == 'Debug'">
+    <Exec WorkingDirectory="TypeScript-Crypto" Command="npm run build" Condition="Exists('TypeScript-Crypto/package.json')" />
+  </Target>
+
+  <Target Name="BuildTypeScriptCryptoRelease" BeforeTargets="BuildTypeScriptRelease" Condition="'$(Configuration)' == 'Release'">
+    <Exec WorkingDirectory="TypeScript-Crypto" Command="npm run build:release" Condition="Exists('TypeScript-Crypto/package.json')" />
+  </Target>
+
   <Target Name="BuildTypeScriptDebug" BeforeTargets="BeforeCompile;ResolveStaticWebAssetsInputs" Condition="'$(Configuration)' == 'Debug'">
     <Exec WorkingDirectory="TypeScript" Command="npm run build" Condition="Exists('TypeScript/package.json')" />
   </Target>

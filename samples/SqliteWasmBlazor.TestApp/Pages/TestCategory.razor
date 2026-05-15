@@ -1,0 +1,10 @@
+@page "/Tests/Category/{CategoryName}"
+
+<PageTitle>@CategoryName Tests</PageTitle>
+
+<SqliteWasmTests CategoryFilter="@CategoryName"></SqliteWasmTests>
+
+@code {
+    [Parameter]
+    public string? CategoryName { get; set; }
+}

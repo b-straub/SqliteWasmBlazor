@@ -1,0 +1,235 @@
+@page "/todos"
+@using SqliteWasmBlazor.Models.Models
+@inherits TodoListModelComponent
+
+<PageTitle>@Model.Localizer["Page_Title"]</PageTitle>
+
+<MudContainer MaxWidth="MaxWidth.Large" Class="mt-4">
+    <MudText Typo="Typo.h3" GutterBottom="true">
+        <MudIcon Icon="@Icons.Material.Filled.Storage" Class="mr-2" />
+        @Model.Localizer["Page_Title"]
+    </MudText>
+    <MudText Typo="Typo.body1" Color="Color.Secondary" Class="mb-6">
+        @Model.Localizer["Page_Subtitle"]
+    </MudText>
+
+    <DatabaseErrorAlert />
+
+    <AuthorizeView Policy="DatabaseOpen" Context="_">
+        <NotAuthorized>
+            <AuthenticationPanel />
+        </NotAuthorized>
+        <Authorized>
+
+    @* Add new todo. *@
+    <MudPaper Elevation="2" Class="pa-4 mb-6">
+        <MudText Typo="Typo.h6" Class="mb-3">
+            <MudIcon Icon="@Icons.Material.Filled.Add" Size="Size.Small" Class="mr-1" />
+            @Model.Localizer["Card_AddTitle"]
+        </MudText>
+        <MudGrid>
+            <MudItem xs="12" sm="4">
+                <MudTextField @bind-Value="@Model.NewTitle"
+                              Label="@(Model.Localizer["Field_Title"])"
+                              Variant="Variant.Outlined"
+                              Required="true"
+                              Immediate="true"
+                              OnKeyDown="@HandleKeyDownAsync" />
+            </MudItem>
+            <MudItem xs="12" sm="6">
+                <MudTextField @bind-Value="@Model.NewDescription"
+                              Label="@(Model.Localizer["Field_Description"])"
+                              Variant="Variant.Outlined"
+                              OnKeyDown="@HandleKeyDownAsync" />
+            </MudItem>
+            <MudItem xs="12" sm="2">
+                <MudButtonAsyncRx Command="@Model.AddTodo"
+                                  Variant="Variant.Filled"
+                                  Color="Color.Primary"
+                                  StartIcon="@Icons.Material.Filled.Add"
+                                  Size="Size.Large"
+                                  FullWidth="true">
+                    @Model.Localizer["Btn_Add"]
+                </MudButtonAsyncRx>
+            </MudItem>
+        </MudGrid>
+    </MudPaper>
+
+    @* FTS5 search controls — inlined from the previous TodoSearchComponent
+       so we drop the [Parameter] EventCallback bridges. Bind directly to
+       observable model properties; their triggers handle the reload. *@
+    <MudPaper Elevation="2" Class="pa-4 mb-6">
+        <MudText Typo="Typo.h6" Class="mb-3">
+            <MudIcon Icon="@Icons.Material.Filled.Search" Size="Size.Small" Class="mr-1" />
+            @Model.Localizer["Card_SearchTitle"]
+            <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Text">
+                @Model.Localizer["Chip_Fts5Enabled"]
+            </MudChip>
+        </MudText>
+        <MudStack Spacing="2">
+            <MudTextField @bind-Value="@Model.SearchString"
+                          Immediate="true"
+                          Label="@(Model.Localizer["Field_Search"])"
+                          Variant="Variant.Outlined"
+                          Placeholder="@(Model.IsRawMode ? Model.Localizer["Placeholder_SearchRaw"] : Model.Localizer["Placeholder_SearchProcessed"])"
+                          Adornment="Adornment.Start"
+                          AdornmentIcon="@Icons.Material.Filled.Search"
+                          Clearable="true"
+                          HelperText="@(Model.IsRawMode ? Model.Localizer["Helper_SearchRaw"] : Model.Localizer["Helper_SearchProcessed"])" />
+            <MudSwitch @bind-Value="@Model.IsRawMode"
+                       Color="Color.Primary"
+                       Label="@(Model.IsRawMode ? Model.Localizer["Mode_Raw"] : Model.Localizer["Mode_Processed"])" />
+            <MudRadioGroup @bind-Value="@Model.SearchMode" T="SearchDisplayMode">
+                <MudGrid Spacing="1">
+                    <MudItem xs="4">
+                        <MudRadio Value="@SearchDisplayMode.NORMAL" Color="Color.Default" Dense="true">
+                            @Model.Localizer["Display_Normal"]
+                        </MudRadio>
+                    </MudItem>
+                    <MudItem xs="4">
+                        <MudRadio Value="@SearchDisplayMode.HIGHLIGHT" Color="Color.Primary" Dense="true">
+                            @Model.Localizer["Display_Highlight"]
+                        </MudRadio>
+                    </MudItem>
+                    <MudItem xs="4">
+                        <MudRadio Value="@SearchDisplayMode.SNIPPET" Color="Color.Secondary" Dense="true">
+                            @Model.Localizer["Display_Snippet"]
+                        </MudRadio>
+                    </MudItem>
+                </MudGrid>
+            </MudRadioGroup>
+        </MudStack>
+    </MudPaper>
+
+    @* Server-data table. *@
+    <MudPaper Elevation="2" Class="pa-4 mb-6">
+        <MudText Typo="Typo.h6" Class="mb-3">
+            <MudIcon Icon="@Icons.Material.Filled.List" Size="Size.Small" Class="mr-1" />
+            @Model.Localizer["Card_ListTitle", Model.TotalCount]
+            @if (Model.HasActiveSearch)
+            {
+                <MudChip T="string"
+                         Size="Size.Small"
+                         Color="Color.Primary"
+                         OnClose="@(() => Model.ClearSearchCommand.Execute())">
+                    @Model.Localizer["Chip_Filtered", Model.SearchString]
+                </MudChip>
+            }
+        </MudText>
+
+        <MudTable ServerData="@Model.LoadServerDataAsync"
+                  Hover="true"
+                  Breakpoint="Breakpoint.Sm"
+                  Dense="true"
+                  @ref="_table">
+            <HeaderContent>
+                <MudTh>@Model.Localizer["Col_Status"]</MudTh>
+                <MudTh>@Model.Localizer["Col_Title"]</MudTh>
+                <MudTh>@Model.Localizer["Col_Description"]</MudTh>
+                <MudTh>@Model.Localizer["Col_Updated"]</MudTh>
+                <MudTh Style="text-align: right;">@Model.Localizer["Col_Actions"]</MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd DataLabel="@Model.Localizer[" Col_Status"]">
+                    <MudCheckBox T="bool"
+                                 Value="@context.IsCompleted"
+                                 ValueChanged="@(async _ => await Model.ToggleComplete.ExecuteAsync(context))"
+                                 Color="Color.Success" />
+                </MudTd>
+                <MudTd DataLabel="@Model.Localizer[" Col_Title"]">
+                    <HighlightedText PlainContent="@context.Title"
+                                     HighlightedContent="@Model.GetHighlightedText(context.Id, isTitle: true)"
+                                     UseHighlighting="@(Model.SearchMode != SearchDisplayMode.NORMAL)"
+                                     Strikethrough="@context.IsCompleted" />
+                </MudTd>
+                <MudTd DataLabel="@Model.Localizer[" Col_Description"]">
+                    <HighlightedText PlainContent="@context.Description"
+                                     HighlightedContent="@Model.GetHighlightedText(context.Id, isTitle: false)"
+                                     UseHighlighting="@(Model.SearchMode != SearchDisplayMode.NORMAL)"
+                                     Strikethrough="@context.IsCompleted" />
+                </MudTd>
+                <MudTd DataLabel="@Model.Localizer[" Col_Updated"]">
+                    <MudChip T="string" Size="Size.Small" Variant="Variant.Text">
+                        @context.UpdatedAt.ToString("g")
+                    </MudChip>
+                </MudTd>
+                <MudTd DataLabel="@Model.Localizer[" Col_Actions"]" Style="text-align: right;">
+                    <MudIconButtonAsyncRxOf T="TodoItem"
+                                            Command="@Model.DeleteTodo"
+                                            Parameter="@context"
+                                            Icon="@Icons.Material.Filled.Delete"
+                                            Color="Color.Error"
+                                            Size="Size.Small" />
+                </MudTd>
+            </RowTemplate>
+            <NoRecordsContent>
+                <MudText>@Model.Localizer["Empty_Records"]</MudText>
+            </NoRecordsContent>
+            <PagerContent>
+                <MudTablePager PageSizeOptions="@(new[] { 10, 25, 50, 100 })" />
+            </PagerContent>
+        </MudTable>
+    </MudPaper>
+
+    @* DB stats. *@
+    <MudPaper Elevation="2" Class="pa-4">
+        <MudGrid>
+            <MudItem xs="12" sm="8">
+                <MudText Typo="Typo.h6" Class="mb-2">
+                    <MudIcon Icon="@Icons.Material.Filled.Info" Size="Size.Small" Class="mr-1" />
+                    @Model.Localizer["Card_InfoTitle"]
+                </MudText>
+                <MudStack Spacing="2">
+                    <MudStack Row="true" AlignItems="AlignItems.Center">
+                        <MudIcon Icon="@Icons.Material.Filled.TableChart" Size="Size.Small" />
+                        <MudText Typo="Typo.body2">
+                            <strong>@Model.Localizer["Info_TotalLabel"]:</strong> @Model.TotalCount
+                        </MudText>
+                    </MudStack>
+                    <MudStack Row="true" AlignItems="AlignItems.Center">
+                        <MudIcon Icon="@Icons.Material.Filled.DataUsage" Size="Size.Small" />
+                        <MudText Typo="Typo.body2">
+                            <strong>@Model.Localizer["Info_SizeLabel"]:</strong> @FormatBytes(Model.DatabaseFileSize)
+                        </MudText>
+                    </MudStack>
+                    <MudStack Row="true" AlignItems="AlignItems.Center">
+                        <MudIcon Icon="@Icons.Material.Filled.Storage" Size="Size.Small" />
+                        <MudText Typo="Typo.body2">
+                            <strong>@Model.Localizer["Info_StorageLabel"]:</strong> @Model.Localizer["Info_StorageValue"]
+                        </MudText>
+                    </MudStack>
+                    <MudStack Row="true" AlignItems="AlignItems.Center">
+                        <MudIcon Icon="@Icons.Material.Filled.CheckCircle" Size="Size.Small" />
+                        <MudText Typo="Typo.body2">
+                            <strong>@Model.Localizer["Info_PersistenceLabel"]:</strong> @Model.Localizer["Info_PersistenceValue"]
+                        </MudText>
+                    </MudStack>
+                </MudStack>
+            </MudItem>
+            <MudItem xs="12" sm="4" Style="display: flex; align-items: center; justify-content: center;">
+                <MudButtonAsyncRx Command="@Model.RefreshList"
+                                  Variant="Variant.Filled"
+                                  Color="Color.Success"
+                                  StartIcon="@Icons.Material.Filled.Refresh"
+                                  Size="Size.Large">
+                    @Model.Localizer["Btn_Refresh"]
+                </MudButtonAsyncRx>
+            </MudItem>
+        </MudGrid>
+    </MudPaper>
+
+        </Authorized>
+    </AuthorizeView>
+</MudContainer>
+
+@code {
+    private MudTable<TodoItem>? _table;
+
+    private static string FormatBytes(long bytes) => bytes switch
+    {
+        < 1024 => $"{bytes} B",
+        < 1024 * 1024 => $"{bytes / 1024.0:F2} KB",
+        < 1024L * 1024 * 1024 => $"{bytes / (1024.0 * 1024.0):F2} MB",
+        _ => $"{bytes / (1024.0 * 1024.0 * 1024.0):F2} GB",
+    };
+}

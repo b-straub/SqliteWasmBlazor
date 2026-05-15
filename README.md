@@ -34,6 +34,7 @@ The public API surface is intentionally kept minimal to reduce the risk of break
 
 ## What's New
 
+- **Encrypted VFS** - At-rest encryption for OPFS-stored SQLite databases. Per-page ChaCha20-Poly1305 with PRF-derived keys via BlazorPRF. Defends against stolen-disk and cloud-backup exposure of the OPFS directory [(details)](docs/crypto-vfs.md)
 - **V2 Worker-Side Bulk Import/Export** - Worker-side prepared statement loops for 10-50x faster import. Self-describing V2 MessagePack format with column metadata. Memory-safe streaming for large datasets [(details)](CHANGELOG.md#v2-worker-side-bulk-importexport)
 - **Multi-Part Export** - Large databases automatically split into manageable parts with a meta file. Adaptive part sizing based on configurable MB limit
 - **Raw Database Import/Export** - Export and import complete .db files directly from/to OPFS with schema validation and automatic backup/restore on failure [(details)](CHANGELOG.md#raw-database-importexport)
@@ -350,6 +351,7 @@ var expensive = await dbContext.Products
 | [Advanced Features](docs/advanced-features.md) | Migrations, FTS5 search, JSON collections, logging |
 | [Multi-Database](docs/multi-database.md) | Running multiple databases, cross-database references |
 | [Bulk Import/Export](docs/bulk-import-export.md) | V2 format, multi-part export, delta sync, type conversions |
+| [Encrypted VFS](docs/crypto-vfs.md) | At-rest encryption: ChaCha20-Poly1305, PRF-derived keys, threat model |
 | [Recommended Patterns](docs/patterns.md) | Multi-view pattern, data initialization best practices |
 | [FAQ](docs/faq.md) | Common questions and browser support |
 | [Changelog](CHANGELOG.md) | Release notes and version history |

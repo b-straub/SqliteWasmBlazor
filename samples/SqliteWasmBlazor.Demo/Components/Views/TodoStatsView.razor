@@ -1,0 +1,120 @@
+@using Microsoft.EntityFrameworkCore
+@using SqliteWasmBlazor.Models
+@using SqliteWasmBlazor.Models.Models
+@inject IDbContextFactory<TodoDbContext> DbContextFactory
+@inject TodoDataNotifier Notifier
+@implements IDisposable
+
+<MudDialog>
+    <DialogContent>
+    <MudStack Spacing="4">
+        <MudGrid>
+            <MudItem xs="12" sm="4">
+                <MudPaper Elevation="2" Class="pa-4 d-flex flex-column align-center">
+                    <MudIcon Icon="@Icons.Material.Filled.List" Size="Size.Large" Color="Color.Primary" />
+                    <MudText Typo="Typo.h4" Class="mt-2">@_totalCount</MudText>
+                    <MudText Typo="Typo.body2" Color="Color.Secondary">Total</MudText>
+                </MudPaper>
+            </MudItem>
+            <MudItem xs="12" sm="4">
+                <MudPaper Elevation="2" Class="pa-4 d-flex flex-column align-center">
+                    <MudIcon Icon="@Icons.Material.Filled.CheckCircle" Size="Size.Large" Color="Color.Success" />
+                    <MudText Typo="Typo.h4" Class="mt-2">@_completedCount</MudText>
+                    <MudText Typo="Typo.body2" Color="Color.Secondary">Completed</MudText>
+                </MudPaper>
+            </MudItem>
+            <MudItem xs="12" sm="4">
+                <MudPaper Elevation="2" Class="pa-4 d-flex flex-column align-center">
+                    <MudIcon Icon="@Icons.Material.Filled.Pending" Size="Size.Large" Color="Color.Warning" />
+                    <MudText Typo="Typo.h4" Class="mt-2">@_pendingCount</MudText>
+                    <MudText Typo="Typo.body2" Color="Color.Secondary">Pending</MudText>
+                </MudPaper>
+            </MudItem>
+        </MudGrid>
+
+        <MudPaper Elevation="2" Class="pa-4">
+            <MudText Typo="Typo.h6" Class="mb-2">Completion Progress</MudText>
+            <MudProgressLinear Value="@_completionPercentage"
+                               Color="Color.Success"
+                               Size="Size.Large"
+                               Rounded="true"
+                               Class="mb-2" />
+            <MudText Typo="Typo.body2" Align="Align.Center" Color="Color.Secondary">
+                @_completionPercentage.ToString("F0")% complete
+            </MudText>
+        </MudPaper>
+
+        @if (_recentlyCompleted.Count > 0)
+        {
+            <MudPaper Elevation="2" Class="pa-4">
+                <MudText Typo="Typo.h6" Class="mb-2">Recently Completed</MudText>
+                <MudList T="TodoItem" Dense="true">
+                    @foreach (var todo in _recentlyCompleted)
+                    {
+                        <MudListItem T="TodoItem" Icon="@Icons.Material.Filled.CheckCircle" IconColor="Color.Success">
+                            <MudText Typo="Typo.body2">@todo.Title</MudText>
+                            @if (todo.CompletedAt.HasValue)
+                            {
+                                <MudText Typo="Typo.caption" Color="Color.Secondary">
+                                    @todo.CompletedAt.Value.ToString("g")
+                                </MudText>
+                            }
+                        </MudListItem>
+                    }
+                </MudList>
+            </MudPaper>
+        }
+    </MudStack>
+    </DialogContent>
+</MudDialog>
+
+@code {
+    [CascadingParameter]
+    private IMudDialogInstance? MudDialog { get; set; }
+
+    private int _totalCount;
+    private int _completedCount;
+    private int _pendingCount;
+    private double _completionPercentage;
+    private List<TodoItem> _recentlyCompleted = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        Notifier.OnDataChanged += OnDataChanged;
+        await LoadStatsAsync();
+    }
+
+    private void OnDataChanged()
+    {
+        _ = InvokeAsync(async () =>
+        {
+            await LoadStatsAsync();
+            StateHasChanged();
+        });
+    }
+
+    private async Task LoadStatsAsync()
+    {
+        await using var context = await DbContextFactory.CreateDbContextAsync();
+
+        var activeTodos = context.TodoItems.Where(t => !t.IsDeleted);
+
+        _totalCount = await activeTodos.CountAsync();
+        _completedCount = await activeTodos.CountAsync(t => t.IsCompleted);
+        _pendingCount = _totalCount - _completedCount;
+        _completionPercentage = _totalCount > 0
+            ? (double)_completedCount / _totalCount * 100
+            : 0;
+
+        _recentlyCompleted = await activeTodos
+            .Where(t => t.IsCompleted)
+            .OrderByDescending(t => t.CompletedAt)
+            .Take(5)
+            .ToListAsync();
+    }
+
+    public void Dispose()
+    {
+        Notifier.OnDataChanged -= OnDataChanged;
+    }
+}

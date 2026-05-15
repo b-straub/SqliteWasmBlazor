@@ -1,0 +1,31 @@
+{
+  "name": "@sqlitewasmblazor/crypto-core",
+  "version": "0.2.0",
+  "description": "TypeScript crypto primitives + bridge for SqliteWasmBlazor.Crypto. Consumed by the worker tree (`TypeScript/`) via the `main` field, and bundled by esbuild into the plane-2 package's `wwwroot/noble-prf.js` for the C# JSImport bridge (PrfService loads it via SqliteWasmBlazorCryptoOptions.AssetRoot).",
+  "type": "module",
+  "main": "./src/crypto-core/index.ts",
+  "types": "./src/crypto-core/index.ts",
+  "exports": {
+    ".": {
+      "import": "./src/crypto-core/index.ts",
+      "types": "./src/crypto-core/index.ts"
+    }
+  },
+  "scripts": {
+    "build": "esbuild src/index.ts --bundle --format=esm --sourcemap=inline --outfile=../../../Crypto/SqliteWasmBlazor.Crypto/wwwroot/crypto-bridge.js",
+    "build:release": "esbuild src/index.ts --bundle --format=esm --minify --outfile=../../../Crypto/SqliteWasmBlazor.Crypto/wwwroot/crypto-bridge.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint ."
+  },
+  "devDependencies": {
+    "esbuild": "0.28.0",
+    "eslint": "9.39.0",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.59.3",
+    "vitest": "4.1.6"
+  },
+  "dependencies": {
+    "@awasm/noble": "0.1.2"
+  }
+}

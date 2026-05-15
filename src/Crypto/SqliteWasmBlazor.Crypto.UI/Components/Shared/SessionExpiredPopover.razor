@@ -1,0 +1,39 @@
+@inherits SessionExpiredPopoverModelComponent
+
+<MudOverlay Visible="@Model.Visible"
+            DarkBackground="true"
+            ZIndex="2000"
+            LockScroll="true">
+    <MudAlert Severity="Severity.Warning"
+              Variant="Variant.Filled"
+              NoIcon="true"
+              Class="pa-4"
+              Style="max-width: 400px;">
+        <MudStack Spacing="3">
+            <MudStack Row="true" AlignItems="AlignItems.Center">
+                <MudIcon Icon="@Icons.Material.Filled.Timer" Size="Size.Large" />
+                <MudText Typo="Typo.h6">@Model.Localizer["Header_Title"]</MudText>
+            </MudStack>
+
+            <MudText Typo="Typo.body1">
+                @(Message ?? Model.Localizer["Default_Message"])
+            </MudText>
+
+            <MudStack Row="true" Justify="Justify.FlexEnd" Spacing="2">
+                <MudButtonAsyncRx Command="@Model.Dismiss"
+                                  Variant="Variant.Text"
+                                  Color="Color.Dark"
+                                  Size="Size.Small">
+                    @(DismissLabel ?? Model.Localizer["Default_DismissLabel"])
+                </MudButtonAsyncRx>
+                <MudButtonAsyncRx Command="@Model.ReAuthenticate"
+                                  Variant="Variant.Filled"
+                                  Color="Color.Dark"
+                                  StartIcon="@Icons.Material.Filled.Fingerprint"
+                                  Size="Size.Small">
+                    @(ReAuthenticateLabel ?? Model.Localizer["Default_ReAuthLabel"])
+                </MudButtonAsyncRx>
+            </MudStack>
+        </MudStack>
+    </MudAlert>
+</MudOverlay>

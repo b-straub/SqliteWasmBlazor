@@ -1,0 +1,281 @@
+@page "/database-encryption"
+@inherits EncryptionModelComponent
+
+<PageTitle>Database Encryption</PageTitle>
+
+<MudContainer MaxWidth="MaxWidth.Medium" Class="mt-4">
+    <MudText Typo="Typo.h5" GutterBottom="true">
+        <MudIcon Icon="@Icons.Material.Filled.EnhancedEncryption" Class="mr-1" />
+        @Model.Localizer["Page_Title"]
+    </MudText>
+    <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-4">
+        @Model.Localizer["Page_Subtitle"]
+    </MudText>
+
+    <DatabaseErrorAlert />
+
+    @* VFS state card — shown in every combination so the user always knows
+       where the VFS stands, even before authenticating. *@
+    <MudPaper Elevation="2" Class="pa-4 mb-4">
+        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-3">
+            <MudText Typo="Typo.h6">
+                <MudIcon Icon="@Icons.Material.Filled.Storage" Size="Size.Small" Class="mr-1" />
+                @Model.Localizer["Card_VfsTitle"]
+            </MudText>
+            @if (Model.IsPlain)
+            {
+                <MudChip T="string" Color="Color.Warning" Icon="@Icons.Material.Filled.LockOpen" Variant="Variant.Filled">
+                    @Model.Localizer["Pill_Plain"]
+                </MudChip>
+            }
+            else if (Model.IsUnlocked)
+            {
+                <MudChip T="string" Color="Color.Success" Icon="@Icons.Material.Filled.LockOpen" Variant="Variant.Filled">
+                    @Model.Localizer["Pill_Unlocked"]
+                </MudChip>
+            }
+            else if (Model.IsLocked)
+            {
+                <MudChip T="string" Color="Color.Error" Icon="@Icons.Material.Filled.Lock" Variant="Variant.Filled">
+                    @Model.Localizer["Pill_Locked"]
+                </MudChip>
+            }
+        </MudStack>
+
+        @if (Model.State?.Hint is { Length: > 0 } hint)
+        {
+            <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-2">
+                @Model.Localizer["State_Hint", hint]
+            </MudText>
+        }
+
+        @* Public key — visible whenever a passkey is registered/active so
+           the user can copy it (e.g. to hand to a contact who will then
+           encrypt a disk export for them). Empty Auth.PublicKey simply
+           omits the block; the inner component handles non-empty rendering. *@
+        @if (!string.IsNullOrEmpty(Model.Auth.PublicKey))
+        {
+            <PublicKeyDisplay PublicKey="@Model.Auth.PublicKey" CredentialId="@Model.Auth.CredentialId" />
+        }
+
+        @if (Model.IsPlain)
+        {
+            @* Plain: encrypting requires a passkey. Either point the user at
+               the auth panel below, or fire EnterEncrypted directly if they're
+               already signed in. *@
+            <AuthorizeView>
+                <Authorized>
+                    <MudStack Spacing="2" Class="mt-3">
+                        <MudButtonAsyncRx Command="@Model.EnterEncrypted"
+                                          Variant="Variant.Filled"
+                                          Color="Color.Primary"
+                                          StartIcon="@Icons.Material.Filled.Lock"
+                                          FullWidth="true">
+                            @Model.Localizer["Btn_Encrypt"]
+                        </MudButtonAsyncRx>
+                        <MudButtonAsyncRx Command="@Model.SignOut"
+                                          Variant="Variant.Outlined"
+                                          Color="Color.Default"
+                                          StartIcon="@Icons.Material.Filled.Logout"
+                                          FullWidth="true">
+                            @Model.Localizer["Btn_SignOut"]
+                        </MudButtonAsyncRx>
+                    </MudStack>
+                </Authorized>
+                <NotAuthorized>
+                    <MudText Typo="Typo.body2" Color="Color.Secondary">
+                        @Model.Localizer["Hint_AuthForEncrypt"]
+                    </MudText>
+                </NotAuthorized>
+            </AuthorizeView>
+        }
+        else if (Model.IsUnlocked)
+        {
+            <MudStack Spacing="2" Class="mt-3">
+                <MudButtonAsyncRx Command="@Model.LeaveEncrypted"
+                                  Variant="Variant.Filled"
+                                  Color="Color.Warning"
+                                  StartIcon="@Icons.Material.Filled.LockOpen"
+                                  FullWidth="true">
+                    @Model.Localizer["Btn_Leave"]
+                </MudButtonAsyncRx>
+                <MudButtonAsyncRx Command="@Model.Lock"
+                                  Variant="Variant.Outlined"
+                                  Color="Color.Default"
+                                  StartIcon="@Icons.Material.Filled.Lock"
+                                  FullWidth="true">
+                    @Model.Localizer["Btn_Lock"]
+                </MudButtonAsyncRx>
+                <MudButtonAsyncRx Command="@Model.Reset"
+                                  ConfirmExecutionAsync="ConfirmResetAsync"
+                                  Variant="Variant.Text"
+                                  Color="Color.Error"
+                                  StartIcon="@Icons.Material.Filled.RestartAlt"
+                                  Size="Size.Small">
+                    @Model.Localizer["Btn_Reset"]
+                </MudButtonAsyncRx>
+            </MudStack>
+        }
+        else if (Model.IsLocked)
+        {
+            @* Encrypted-but-locked is normally transient — the lifecycle
+               service auto-unlocks the moment the user authenticates below.
+               Reset stays as the recovery escape hatch but de-emphasised
+               (Variant.Text, secondary hint copy) so the auth panel below
+               is the visual focus, not the destructive button. *@
+            <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-2">
+                @Model.Localizer["Hint_AuthForUnlock"]
+            </MudText>
+            <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mt-3 mb-1">
+                @Model.Localizer["Hint_ResetWhenStuck"]
+            </MudText>
+            <MudButtonAsyncRx Command="@Model.Reset"
+                              ConfirmExecutionAsync="ConfirmResetAsync"
+                              Variant="Variant.Text"
+                              Color="Color.Error"
+                              StartIcon="@Icons.Material.Filled.RestartAlt"
+                              Size="Size.Small">
+                @Model.Localizer["Btn_Reset"]
+            </MudButtonAsyncRx>
+        }
+    </MudPaper>
+
+    @* Auth panel — rendered whenever the VFS isn't Encrypted+Unlocked.
+       Covers initial render (State still null before OnContextReadyAsync's
+       Refresh completes), Plain (sign-in needed to encrypt), and
+       Encrypted+Locked (sign-in needed to unlock). When the user is
+       already authorized the AuthorizeView's NotAuthorized branch is a
+       no-op, so nothing visible appears. *@
+    @if (!Model.IsUnlocked)
+    {
+        <AuthorizeView>
+            <NotAuthorized>
+                <AuthenticationPanel />
+            </NotAuthorized>
+        </AuthorizeView>
+    }
+
+    @* State-aware export/import card. Three branches:
+       - Plain disk: ZIP of native .db files (interop with sqlite3) via
+         the plain ISqliteWasmDatabaseService.
+       - Encrypted+Unlocked: opaque .eds envelopes via
+         IEncryptedSqliteWasmDatabaseService (export + import).
+       - Encrypted+Locked: import-only via the guided primitive
+         (ImportDiskGuidedAsync wipes + rebinds to the envelope's passkey).
+         Exports are inaccessible — the globalKey isn't installed yet. *@
+    @if (Model.IsUnlocked || Model.IsPlain || Model.IsLocked)
+    {
+        <MudPaper Elevation="2" Class="pa-4 mb-4">
+            <MudText Typo="Typo.h6" Class="mb-3">
+                <MudIcon Icon="@Icons.Material.Filled.SwapVert" Size="Size.Small" Class="mr-1" />
+                @Model.Localizer["Card_ExportsTitle"]
+            </MudText>
+
+            @if (Model.IsUnlocked)
+            {
+                @* Encrypted+Unlocked: envelope export (backup or rekey
+                   share) + envelope import (.eds). *@
+                <MudButtonAsyncRx Command="@Model.ExportDiskBackup"
+                                  Variant="Variant.Outlined"
+                                  Color="Color.Primary"
+                                  StartIcon="@Icons.Material.Filled.FileDownload"
+                                  FullWidth="true"
+                                  Class="mb-3">
+                    @Model.Localizer["Btn_ExportDiskBackup"]
+                </MudButtonAsyncRx>
+
+                <MudTextField T="string"
+                              Value="@Model.PastedRecipientKey"
+                              ValueChanged="@(v => Model.PastedRecipientKey = v ?? string.Empty)"
+                              Immediate="true"
+                              Label="@Model.Localizer["Field_RecipientKey"]"
+                              Variant="Variant.Filled"
+                              Sizing="InputSizing.Auto"
+                              MaxLines="10"
+                              Margin="Margin.Dense"
+                              Typo="Typo.caption" />
+                <MudText Typo="Typo.caption" Class="mud-text-secondary mb-2">
+                    @Model.Localizer["Field_RecipientKey_Help"]
+                </MudText>
+                @if (Model.PastedRecipientError is { Length: > 0 } pastedErr)
+                {
+                    <MudAlert Severity="Severity.Warning" Class="mb-2">@pastedErr</MudAlert>
+                }
+                <MudButtonAsyncRx Command="@Model.ExportDiskForRecipient"
+                                  Variant="Variant.Outlined"
+                                  Color="Color.Secondary"
+                                  StartIcon="@Icons.Material.Filled.Share"
+                                  FullWidth="true"
+                                  Class="mb-4">
+                    @Model.Localizer["Btn_ExportDiskForRecipient"]
+                </MudButtonAsyncRx>
+
+                @* Unlocked: only .zip is meaningful here (.eds rebinds the
+                   credential and is rejected via CanImportDisk on Unlocked).
+                   Plain ZIP onto an Unlocked disk re-encrypts each entry on
+                   write under the registered globalKey via the worker's
+                   importDbPlain handler — manifest + passkey binding survive. *@
+                <MudText Typo="Typo.body2" Class="mb-2">
+                    <MudIcon Icon="@Icons.Material.Filled.FileUpload" Size="Size.Small" Class="mr-1" />
+                    @Model.Localizer["Btn_ImportFile_ZipOnly"]
+                </MudText>
+                <MudFileUpload T="IBrowserFile"
+                               FilesChanged="@(file => HandleImportPickedAsync(file))"
+                               Accept=".zip" />
+            }
+            else if (Model.IsPlain)
+            {
+                @* Plain disk: two import paths. ZIP of native .db files
+                   (plain interop, ISqliteWasmDatabaseService.ImportAll) and
+                   .eds envelope (bootstraps Encrypted+Unlocked under the
+                   envelope's passkey via the guided primitive). Single
+                   export path — the ZIP one. .eds export needs an active
+                   encryption key and surfaces on Unlocked only. Export is
+                   hidden when no consumer DbContext has rows (empty
+                   download is meaningless). *@
+                @if (Model.HasPlainData)
+                {
+                    <MudButtonAsyncRx Command="@Model.ExportAllDatabases"
+                                      Variant="Variant.Outlined"
+                                      Color="Color.Primary"
+                                      StartIcon="@Icons.Material.Filled.FolderZip"
+                                      FullWidth="true"
+                                      Class="mb-3">
+                        @Model.Localizer["Btn_ExportAllDatabases"]
+                    </MudButtonAsyncRx>
+                }
+
+                @* Plain: one picker accepts .eds (bootstraps Encrypted+Unlocked
+                   under the envelope's passkey via the guided primitive) or
+                   .zip (replaces the pool with plain ZIP entries). The
+                   handler dispatches by extension. *@
+                <MudText Typo="Typo.body2" Class="mb-2">
+                    <MudIcon Icon="@Icons.Material.Filled.FileUpload" Size="Size.Small" Class="mr-1" />
+                    @Model.Localizer["Btn_ImportFile"]
+                </MudText>
+                <MudFileUpload T="IBrowserFile"
+                               FilesChanged="@(file => HandleImportPickedAsync(file))"
+                               Accept=".eds,.zip" />
+            }
+            else if (Model.IsLocked)
+            {
+                @* Locked: globalKey not installed, so backup/recipient
+                   exports are inaccessible. One picker accepts .eds (guided
+                   import: WebAuthn-ceremonies the envelope's pinned passkey,
+                   wipes the disk, rebinds it to that credential — disk ends
+                   Encrypted+Unlocked) or .zip (recovery path: wipes pool +
+                   clears manifest + drops globalKey — disk ends Plain). *@
+                <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mb-2">
+                    @Model.Localizer["Hint_ImportOnLocked"]
+                </MudText>
+                <MudText Typo="Typo.body2" Class="mb-2">
+                    <MudIcon Icon="@Icons.Material.Filled.FileUpload" Size="Size.Small" Class="mr-1" />
+                    @Model.Localizer["Btn_ImportFile"]
+                </MudText>
+                <MudFileUpload T="IBrowserFile"
+                               FilesChanged="@(file => HandleImportPickedAsync(file))"
+                               Accept=".eds,.zip" />
+            }
+        </MudPaper>
+    }
+</MudContainer>

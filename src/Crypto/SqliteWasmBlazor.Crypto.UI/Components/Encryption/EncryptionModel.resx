@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <resheader name="resmimetype"><value>text/microsoft-resx</value></resheader>
+  <resheader name="version"><value>2.0</value></resheader>
+  <resheader name="reader"><value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e108</value></resheader>
+  <resheader name="writer"><value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e108</value></resheader>
+
+  <data name="Page_Title" xml:space="preserve"><value>Database encryption</value></data>
+  <data name="Page_Subtitle" xml:space="preserve"><value>Single-key encrypted VFS — every database under one passkey-derived key. Sign in to unlock; encrypt or leave the encryption plane in one shot.</value></data>
+
+  <data name="Card_VfsTitle" xml:space="preserve"><value>Encrypted VFS</value></data>
+  <data name="Card_ExportsTitle" xml:space="preserve"><value>Disk export / import</value></data>
+
+  <data name="Pill_Plain" xml:space="preserve"><value>Plain</value></data>
+  <data name="Pill_Unlocked" xml:space="preserve"><value>Encrypted · Unlocked</value></data>
+  <data name="Pill_Locked" xml:space="preserve"><value>Encrypted · Locked</value></data>
+
+  <data name="State_Hint" xml:space="preserve"><value>Passkey hint: {0}</value></data>
+
+  <data name="Hint_AuthForEncrypt" xml:space="preserve"><value>The VFS is currently plain. To encrypt all databases under a passkey, authenticate below first.</value></data>
+  <data name="Hint_AuthForUnlock" xml:space="preserve"><value>The VFS is encrypted but locked. Authenticate below to unlock.</value></data>
+  <data name="Hint_ResetWhenStuck" xml:space="preserve"><value>Can't sign in? Reset removes every database stored by this app and lets you start over.</value></data>
+
+  <data name="Btn_Encrypt" xml:space="preserve"><value>Encrypt VFS with this passkey</value></data>
+  <data name="Btn_Leave" xml:space="preserve"><value>Decrypt VFS (leave encryption)</value></data>
+  <data name="Btn_Lock" xml:space="preserve"><value>Lock now</value></data>
+  <data name="Btn_Reset" xml:space="preserve"><value>Remove all app databases</value></data>
+  <data name="Btn_SignOut" xml:space="preserve"><value>Sign out (use a different passkey)</value></data>
+  <data name="Btn_ExportDiskPlain" xml:space="preserve"><value>Export disk (plain)</value></data>
+  <data name="Btn_ExportDiskRekey" xml:space="preserve"><value>Export disk for recipient</value></data>
+  <data name="Btn_ImportDisk" xml:space="preserve"><value>Import disk</value></data>
+
+  <data name="Field_RecipientKey" xml:space="preserve"><value>Recipient identity (armored PFA PUBLIC KEY)</value></data>
+  <data name="Field_RecipientKey_Help" xml:space="preserve"><value>Paste the recipient's armored PFA PUBLIC KEY block. The block carries both the recipient's X25519 public key (32 bytes) and their WebAuthn credentialId — the guided import on the recipient side uses the credentialId to drive WebAuthn directly to the matching passkey. The export uses ECIES (X25519 + AES-256-GCM) to wrap a fresh per-export key; only the holder of the matching private key can unwrap. No secrets cross between sender and recipient.</value></data>
+
+  <data name="Confirm_ImportDisk" xml:space="preserve"><value>Importing this envelope will replace every database currently in the encrypted disk AND rebind the disk to the passkey embedded in the envelope. The current passkey will no longer unlock this disk. Continue?</value></data>
+  <data name="Hint_ImportOnLocked" xml:space="preserve"><value>Or import an encrypted-disk envelope (.eds) to replace the disk and bind it to the import's passkey — useful for restoring a backup made under a different passkey (e.g. a YubiKey).</value></data>
+  <data name="Confirm_Reset" xml:space="preserve"><value>This removes every database this app has stored in your browser and signs you out. Encrypted content is permanently unrecoverable without a backup. Your computer's files are not affected. Continue?</value></data>
+
+  <data name="Status_Encrypted" xml:space="preserve"><value>VFS encrypted; every database is now under your passkey.</value></data>
+  <data name="Status_Decrypted" xml:space="preserve"><value>VFS decrypted; databases are stored in plain SQLite again. Revoke the passkey separately if no longer needed.</value></data>
+  <data name="Status_Locked" xml:space="preserve"><value>VFS locked; sign in again to access your databases.</value></data>
+  <data name="Status_Reset" xml:space="preserve"><value>All app databases removed. Sign in and Encrypt to start over.</value></data>
+  <data name="Status_SignedOut" xml:space="preserve"><value>Signed out; pick a passkey to continue.</value></data>
+  <data name="Status_DiskExported" xml:space="preserve"><value>Exported encrypted disk ({0}) as {1}.</value></data>
+  <data name="Status_DiskExportedForRecipient" xml:space="preserve"><value>Exported encrypted disk for recipient ({0}) as {1}.</value></data>
+  <data name="Status_DiskImported" xml:space="preserve"><value>Disk imported; every database has been replaced with the envelope's contents.</value></data>
+  <data name="Status_AllExported" xml:space="preserve"><value>Exported all databases ({0}) as {1}.</value></data>
+  <data name="Status_AllImported" xml:space="preserve"><value>All databases imported; the pool has been replaced with the ZIP's contents.</value></data>
+  <data name="Btn_ExportDiskBackup" xml:space="preserve"><value>Backup encrypted disk</value></data>
+  <data name="Btn_ExportDiskForRecipient" xml:space="preserve"><value>Export disk for recipient</value></data>
+  <data name="Btn_ExportAllDatabases" xml:space="preserve"><value>Export all databases (ZIP)</value></data>
+  <data name="Btn_ImportAllDatabases" xml:space="preserve"><value>Import all databases (ZIP)</value></data>
+  <data name="Btn_ImportFile" xml:space="preserve"><value>Import disk file (.eds or .zip)</value></data>
+  <data name="Btn_ImportFile_ZipOnly" xml:space="preserve"><value>Import databases (.zip)</value></data>
+  <data name="Confirm_ImportAllDatabases" xml:space="preserve"><value>Importing this ZIP will replace every database currently in the pool. Continue?</value></data>
+  <data name="Confirm_ImportAllDatabases_Locked" xml:space="preserve"><value>Importing this ZIP will wipe the encrypted disk AND remove encryption — the current passkey will no longer protect any data. You can re-encrypt the disk under any new passkey afterwards. Continue?</value></data>
+  <data name="Confirm_ImportAllDatabases_Unlocked" xml:space="preserve"><value>Importing this ZIP will replace every database currently in the encrypted pool. Encryption stays in place under the current passkey — the imported databases will be re-encrypted on write. Continue?</value></data>
+  <data name="Status_OperationCancelled" xml:space="preserve"><value>Operation cancelled.</value></data>
+  <data name="Btn_Cancel" xml:space="preserve"><value>Cancel</value></data>
+
+  <data name="Error_Operation" xml:space="preserve"><value>Operation failed: {0}</value></data>
+  <data name="Error_PastedKey_BadBase64" xml:space="preserve"><value>Pasted identity is not a valid armored PFA PUBLIC KEY block.</value></data>
+  <data name="Error_PastedKey_WrongLength" xml:space="preserve"><value>Pasted public key must be 32 bytes; got {0} bytes.</value></data>
+  <data name="Error_PastedKey_NoCredentialId" xml:space="preserve"><value>Pasted identity is missing the WebAuthn credentialId. Ask the recipient to copy their armored identity from the Encryption page (a freshly armored block carries the credentialId automatically).</value></data>
+  <data name="Error_ImportEnvelopeHasNoCredentialId" xml:space="preserve"><value>Picked envelope has no credentialId hint — it was produced by an older export path. Re-export from a current build.</value></data>
+</root>

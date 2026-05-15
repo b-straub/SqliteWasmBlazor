@@ -1,0 +1,83 @@
+@inherits DatabaseErrorAlertModelComponent
+
+@if (Model.Failure is { } failure)
+{
+    @* EncryptedDatabaseLockedFailure is the standard "disk encrypted, sign in
+       to unlock" state — the AuthenticationPanel below is the primary
+       recovery path. Render an Info-level notice without a Reset button
+       (Reset is destructive: wipes the encrypted DBs, only appropriate as a
+       last rescue from the dedicated /database-encryption page). *@
+    @if (failure is EncryptedDatabaseLockedFailure)
+    {
+        <MudAlert Severity="Severity.Info" Class="mb-6" Variant="Variant.Filled">
+            <MudText Typo="Typo.body1">@failure.DefaultMessage</MudText>
+        </MudAlert>
+    }
+    else
+    {
+    <MudAlert Severity="Severity.Error" Class="mb-6" Variant="Variant.Filled">
+        <MudText Typo="Typo.h6" Class="mb-2">@Model.Localizer["Header_Title"]</MudText>
+
+        @switch (failure)
+        {
+            case TabLockedFailure or TimeoutFailure:
+                <MudText Typo="Typo.body1" Class="mb-3">@failure.DefaultMessage</MudText>
+                <MudButton Variant="Variant.Filled"
+                           Color="Color.Primary"
+                           OnClick="ReloadPage"
+                           StartIcon="@Icons.Material.Filled.Refresh">
+                    @Model.Localizer["Btn_Reload"]
+                </MudButton>
+                break;
+
+            case SchemaIncompatibleFailure schema:
+                <MudText Typo="Typo.body1" Class="mb-2">@schema.DefaultMessage</MudText>
+                @if (schema.Mismatches.Count > 0)
+                {
+                    <MudText Typo="Typo.body2" Class="mb-3">
+                        @Model.Localizer["Alert_MismatchesPrefix"]
+                        <ul>
+                            @foreach (var m in schema.Mismatches)
+                            {
+                                <li>
+                                    <code>@m.Table</code>:
+                                    @if (m.MissingColumn is not null)
+                                    {
+                                        <text> @Model.Localizer["Alert_MissingColumn"] <code>@m.MissingColumn</code></text>
+                                    }
+                                    else if (m.ExtraColumn is not null)
+                                    {
+                                        <text> @Model.Localizer["Alert_ExtraColumn"] <code>@m.ExtraColumn</code></text>
+                                    }
+                                </li>
+                            }
+                        </ul>
+                    </MudText>
+                }
+                @if (Model.CanReset)
+                {
+                    <MudButtonAsyncRx Command="@Model.RequestReset"
+                                      Variant="Variant.Filled"
+                                      Color="Color.Warning"
+                                      StartIcon="@Icons.Material.Filled.RestartAlt">
+                        @Model.Localizer["Btn_Reset"]
+                    </MudButtonAsyncRx>
+                }
+                break;
+
+            default:
+                <MudText Typo="Typo.body1" Style="white-space: pre-line;" Class="mb-3">@failure.DefaultMessage</MudText>
+                @if (Model.CanReset)
+                {
+                    <MudButtonAsyncRx Command="@Model.RequestReset"
+                                      Variant="Variant.Filled"
+                                      Color="Color.Warning"
+                                      StartIcon="@Icons.Material.Filled.RestartAlt">
+                        @Model.Localizer["Btn_Reset"]
+                    </MudButtonAsyncRx>
+                }
+                break;
+        }
+    </MudAlert>
+    }
+}

@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <resheader name="resmimetype"><value>text/microsoft-resx</value></resheader>
+  <resheader name="version"><value>2.0</value></resheader>
+  <resheader name="reader"><value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e108</value></resheader>
+  <resheader name="writer"><value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e108</value></resheader>
+  <data name="Header_Title" xml:space="preserve"><value>Sign in with your passkey</value></data>
+  <data name="Header_Subtitle" xml:space="preserve"><value>Use your fingerprint, face, or device PIN. Your passkey produces the encryption keys for this app — they never leave your device.</value></data>
+  <data name="Status_CheckingPrf" xml:space="preserve"><value>Checking passkey support…</value></data>
+  <data name="Alert_PrfNotSupported" xml:space="preserve"><value>Passkeys with PRF aren't supported on this browser or device. Try a recent Chrome / Edge / Safari, or a device with a platform authenticator.</value></data>
+  <data name="Alert_DiscoverableCancelled" xml:space="preserve"><value>No passkey selected. Register a new passkey to get started, or try again to pick an existing one.</value></data>
+  <data name="Register_Header" xml:space="preserve"><value>Register a new passkey</value></data>
+  <data name="Register_Description" xml:space="preserve"><value>Add a passkey to this device. Optional display name shows in the platform credential UI and as a label on your public key.</value></data>
+  <data name="Field_DisplayNameLabel" xml:space="preserve"><value>Display name (optional)</value></data>
+  <data name="Field_DisplayNameHelper" xml:space="preserve"><value>Shown in your password manager and credential picker.</value></data>
+  <data name="Btn_Authenticate" xml:space="preserve"><value>Authenticate</value></data>
+  <data name="Btn_Register" xml:space="preserve"><value>Register passkey</value></data>
+  <data name="Btn_TryAgain" xml:space="preserve"><value>Try again</value></data>
+  <data name="Caption_UsingHint" xml:space="preserve"><value>Using your most recent passkey — the platform skips the picker.</value></data>
+  <data name="Caption_DiscoverablePicker" xml:space="preserve"><value>Pick a passkey from the platform list.</value></data>
+  <data name="Status_Registered" xml:space="preserve"><value>Passkey registered. You're signed in.</value></data>
+  <data name="Status_AuthenticationCancelled" xml:space="preserve"><value>Authentication cancelled.</value></data>
+  <data name="Status_DiscoverableCancelled" xml:space="preserve"><value>No passkey selected.</value></data>
+  <data name="Status_RegisterCancelled" xml:space="preserve"><value>Registration cancelled.</value></data>
+  <data name="Status_WrongPasskeyForDisk" xml:space="preserve"><value>Wrong passkey — this passkey doesn't unlock the encrypted database. Use the original passkey, or reset the database.</value></data>
+  <data name="Alert_WrongPasskeyForDisk" xml:space="preserve"><value>This passkey doesn't unlock the current database. You're not signed in — but the passkey's public key is shown below so you can hand it to a peer who will encrypt an export to it.</value></data>
+  <data name="Btn_DismissWrongPasskey" xml:space="preserve"><value>Dismiss</value></data>
+  <data name="Error_Authenticate_REGISTRATION_FAILED" xml:space="preserve"><value>Authentication failed: registration data invalid. Try registering a new passkey.</value></data>
+  <data name="Error_Authenticate_KEY_DERIVATION_FAILED" xml:space="preserve"><value>Couldn't derive keys from this passkey. Try registering a new one.</value></data>
+  <data name="Error_Authenticate_AUTHENTICATION_TAG_MISMATCH" xml:space="preserve"><value>Wrong passkey for this app. Pick a different one or register a new passkey.</value></data>
+  <data name="Error_Authenticate_CREDENTIAL_NOT_FOUND" xml:space="preserve"><value>That passkey isn't on this device. Register a new one or try Authenticate to pick from the available list.</value></data>
+  <data name="Error_Authenticate_INVALID_DATA" xml:space="preserve"><value>The passkey returned unexpected data. Try again, or register a new passkey.</value></data>
+  <data name="Error_Authenticate_NOT_SUPPORTED" xml:space="preserve"><value>This passkey doesn't support PRF. Register a new one with a platform authenticator that supports PRF.</value></data>
+  <data name="Error_Authenticate_PRF_NOT_SUPPORTED" xml:space="preserve"><value>This browser or device doesn't support PRF.</value></data>
+  <data name="Error_Authenticate_Unknown" xml:space="preserve"><value>Authentication failed: {0}</value></data>
+  <data name="Error_Register_REGISTRATION_FAILED" xml:space="preserve"><value>Couldn't register the passkey. Try again or pick a different authenticator.</value></data>
+  <data name="Error_Register_KEY_DERIVATION_FAILED" xml:space="preserve"><value>The new passkey didn't produce derivable keys.</value></data>
+  <data name="Error_Register_AUTHENTICATION_TAG_MISMATCH" xml:space="preserve"><value>Authentication tag mismatch during register-then-derive. Try again.</value></data>
+  <data name="Error_Register_CREDENTIAL_NOT_FOUND" xml:space="preserve"><value>The freshly-created credential disappeared. Try again.</value></data>
+  <data name="Error_Register_INVALID_DATA" xml:space="preserve"><value>The new passkey returned unexpected data.</value></data>
+  <data name="Error_Register_NOT_SUPPORTED" xml:space="preserve"><value>The selected authenticator doesn't support PRF.</value></data>
+  <data name="Error_Register_PRF_NOT_SUPPORTED" xml:space="preserve"><value>This browser or device doesn't support PRF.</value></data>
+  <data name="Error_Register_Unknown" xml:space="preserve"><value>Registration failed: {0}</value></data>
+</root>

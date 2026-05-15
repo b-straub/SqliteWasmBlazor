@@ -1,0 +1,32 @@
+@* Read-only display of the active PRF public key in PFA-armored format
+   with a copy-to-clipboard adornment. Stateless: takes the raw Base64
+   key as a parameter and armors it on render. The consumer page
+   re-renders this whenever AuthenticationModel.PublicKey changes
+   (RxBlazorV2 cross-model property tracking already covers this on any
+   *ModelComponent that injects AuthenticationModel). *@
+
+@if (string.IsNullOrEmpty(PublicKey))
+{
+    <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Dense="true">
+        @L["Empty"]
+    </MudAlert>
+}
+else
+{
+    <MudTextField T="string"
+                  Value="@Armored"
+                  ReadOnly="true"
+                  Label="@L["Header"]"
+                  Variant="Variant.Filled"
+                  Sizing="InputSizing.Auto"
+                  MaxLines="10"
+                  Margin="Margin.Dense"
+                  Typo="Typo.caption"
+                  Adornment="Adornment.End"
+                  AdornmentIcon="@Icons.Material.Filled.ContentCopy"
+                  AdornmentAriaLabel="@L["Btn_Copy"]"
+                  OnAdornmentClick="CopyAsync" />
+    <MudText Typo="Typo.caption" Class="mud-text-secondary">
+        @L["Hint"]
+    </MudText>
+}

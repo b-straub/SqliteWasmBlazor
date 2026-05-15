@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <resheader name="resmimetype"><value>text/microsoft-resx</value></resheader>
+  <resheader name="version"><value>2.0</value></resheader>
+  <resheader name="reader"><value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e108</value></resheader>
+  <resheader name="writer"><value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e108</value></resheader>
+  <data name="Page_Title" xml:space="preserve"><value>Todo-Liste</value></data>
+  <data name="Page_Subtitle" xml:space="preserve"><value>Persistente Speicherung in OPFS via SQLite WASM — Daten überleben das Neuladen der Seite.</value></data>
+  <data name="Card_AddTitle" xml:space="preserve"><value>Neues Todo hinzufügen</value></data>
+  <data name="Card_SearchTitle" xml:space="preserve"><value>Suche</value></data>
+  <data name="Card_ListTitle" xml:space="preserve"><value>Todo-Einträge ({0})</value></data>
+  <data name="Card_InfoTitle" xml:space="preserve"><value>Datenbankinformationen</value></data>
+  <data name="Field_Title" xml:space="preserve"><value>Titel</value></data>
+  <data name="Field_Description" xml:space="preserve"><value>Beschreibung</value></data>
+  <data name="Field_Search" xml:space="preserve"><value>Volltextsuche (FTS5)</value></data>
+  <data name="Btn_Add" xml:space="preserve"><value>Hinzufügen</value></data>
+  <data name="Btn_Refresh" xml:space="preserve"><value>Liste aktualisieren</value></data>
+  <data name="Chip_Fts5Enabled" xml:space="preserve"><value>FTS5 aktiv</value></data>
+  <data name="Chip_Filtered" xml:space="preserve"><value>Gefiltert: {0}</value></data>
+  <data name="Mode_Raw" xml:space="preserve"><value>FTS5-Rohmodus</value></data>
+  <data name="Mode_Processed" xml:space="preserve"><value>Smart-Suchmodus</value></data>
+  <data name="Display_Normal" xml:space="preserve"><value>Normal</value></data>
+  <data name="Display_Highlight" xml:space="preserve"><value>Hervorhebung</value></data>
+  <data name="Display_Snippet" xml:space="preserve"><value>Schnipsel</value></data>
+  <data name="Placeholder_SearchRaw" xml:space="preserve"><value>FTS5-Syntax (z. B. 'task*', 'title:urgent', 'NEAR(task urgent, 5)', 'quarterly OR report')</value></data>
+  <data name="Placeholder_SearchProcessed" xml:space="preserve"><value>Suche während der Eingabe (z. B. 'dring auf', 'quart beric')</value></data>
+  <data name="Helper_SearchRaw" xml:space="preserve"><value>Rohmodus: FTS5-Syntax. Spalte: 'title:term'. Nähe: 'NEAR(term1 term2, distance)'. Leerzeichen = AND. Operatoren: *, AND, OR, NOT.</value></data>
+  <data name="Helper_SearchProcessed" xml:space="preserve"><value>Verarbeiteter Modus (Standard): entfernt Sonderzeichen und reservierte Wörter, tokenisiert per Leerzeichen, fügt Wildcards hinzu.</value></data>
+  <data name="Col_Status" xml:space="preserve"><value>Status</value></data>
+  <data name="Col_Title" xml:space="preserve"><value>Titel</value></data>
+  <data name="Col_Description" xml:space="preserve"><value>Beschreibung</value></data>
+  <data name="Col_Updated" xml:space="preserve"><value>Aktualisiert</value></data>
+  <data name="Col_Actions" xml:space="preserve"><value>Aktionen</value></data>
+  <data name="Empty_Records" xml:space="preserve"><value>Noch keine Todos. Oben eines hinzufügen!</value></data>
+  <data name="Info_TotalLabel" xml:space="preserve"><value>Einträge insgesamt</value></data>
+  <data name="Info_SizeLabel" xml:space="preserve"><value>Datenbankgröße</value></data>
+  <data name="Info_StorageLabel" xml:space="preserve"><value>Speicher</value></data>
+  <data name="Info_StorageValue" xml:space="preserve"><value>OPFS (Origin Private File System)</value></data>
+  <data name="Info_PersistenceLabel" xml:space="preserve"><value>Persistenz</value></data>
+  <data name="Info_PersistenceValue" xml:space="preserve"><value>Daten überleben das Neuladen der Seite</value></data>
+  <data name="Status_TodoAdded" xml:space="preserve"><value>Todo in {0} ms erstellt.</value></data>
+  <data name="Status_TodoCompleted" xml:space="preserve"><value>Todo in {0} ms abgeschlossen.</value></data>
+  <data name="Status_TodoReopened" xml:space="preserve"><value>Todo in {0} ms wieder geöffnet.</value></data>
+  <data name="Status_TodoDeleted" xml:space="preserve"><value>Todo in {0} ms gelöscht.</value></data>
+  <data name="Status_AlreadyDeleted" xml:space="preserve"><value>Eintrag wurde bereits gelöscht.</value></data>
+  <data name="Status_ListRefreshed" xml:space="preserve"><value>Liste in {0} ms aktualisiert.</value></data>
+  <data name="Error_Operation" xml:space="preserve"><value>Vorgang fehlgeschlagen: {0}</value></data>
+  <data name="Error_Search" xml:space="preserve"><value>Suchfehler: {0}</value></data>
+  <data name="Error_Fts5Syntax" xml:space="preserve"><value>FTS5-Syntaxfehler: {0}</value></data>
+  <data name="Error_DiskLocked" xml:space="preserve"><value>Datenbank ist gesperrt. Bitte zur Entsperrung anmelden.</value></data>
+</root>

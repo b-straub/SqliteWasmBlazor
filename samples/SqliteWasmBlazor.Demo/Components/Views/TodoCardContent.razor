@@ -1,0 +1,102 @@
+@using Microsoft.EntityFrameworkCore
+@using SqliteWasmBlazor.Models
+@using SqliteWasmBlazor.Models.Models
+@inject IDbContextFactory<TodoDbContext> DbContextFactory
+@inject TodoDataNotifier Notifier
+@implements IDisposable
+
+@if (_todos.Count == 0)
+{
+    <MudAlert Severity="Severity.Info" Class="mb-4">No todos yet. Create one from the Table View!</MudAlert>
+}
+else
+{
+    <MudGrid>
+        @foreach (var todo in _todos)
+        {
+            <MudItem xs="12" sm="6" md="4">
+                <MudCard Elevation="2"
+                         Class="@(todo.IsCompleted ? "mud-border-primary" : "")">
+                    <MudCardHeader>
+                        <CardHeaderContent>
+                            <MudText Typo="Typo.h6"
+                                     Style="@(todo.IsCompleted ? "text-decoration: line-through;" : "")">
+                                @todo.Title
+                            </MudText>
+                        </CardHeaderContent>
+                        <CardHeaderActions>
+                            <MudCheckBox T="bool"
+                                         Value="@todo.IsCompleted"
+                                         ValueChanged="async (_) => await ToggleCompleteAsync(todo)"
+                                         Color="Color.Success" />
+                        </CardHeaderActions>
+                    </MudCardHeader>
+                    <MudCardContent>
+                        @if (!string.IsNullOrWhiteSpace(todo.Description))
+                        {
+                            <MudText Typo="Typo.body2"
+                                     Style="@(todo.IsCompleted ? "text-decoration: line-through;" : "")">
+                                @todo.Description
+                            </MudText>
+                        }
+                        <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mt-2">
+                            Updated: @todo.UpdatedAt.ToString("g")
+                        </MudText>
+                        @if (todo.IsCompleted && todo.CompletedAt.HasValue)
+                        {
+                            <MudText Typo="Typo.caption" Color="Color.Success">
+                                Completed: @todo.CompletedAt.Value.ToString("g")
+                            </MudText>
+                        }
+                    </MudCardContent>
+                </MudCard>
+            </MudItem>
+        }
+    </MudGrid>
+}
+
+@code {
+    private List<TodoItem> _todos = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        Notifier.OnDataChanged += OnDataChanged;
+        await LoadTodosAsync();
+    }
+
+    private void OnDataChanged()
+    {
+        _ = InvokeAsync(async () =>
+        {
+            await LoadTodosAsync();
+            StateHasChanged();
+        });
+    }
+
+    private async Task LoadTodosAsync()
+    {
+        await using var context = await DbContextFactory.CreateDbContextAsync();
+        _todos = await context.TodoItems
+            .Where(t => !t.IsDeleted)
+            .OrderByDescending(t => t.UpdatedAt)
+            .Take(50)
+            .ToListAsync();
+    }
+
+    private async Task ToggleCompleteAsync(TodoItem todo)
+    {
+        todo.IsCompleted = !todo.IsCompleted;
+        todo.CompletedAt = todo.IsCompleted ? DateTime.UtcNow : null;
+
+        await using var context = await DbContextFactory.CreateDbContextAsync();
+        context.TodoItems.Update(todo);
+        await context.SaveChangesAsync();
+
+        Notifier.NotifyDataChanged();
+    }
+
+    public void Dispose()
+    {
+        Notifier.OnDataChanged -= OnDataChanged;
+    }
+}

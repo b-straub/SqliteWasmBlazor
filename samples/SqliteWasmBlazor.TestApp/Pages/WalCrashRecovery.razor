@@ -1,0 +1,739 @@
+@page "/wal-crash-recovery"
+@using Microsoft.EntityFrameworkCore
+@using Microsoft.EntityFrameworkCore.Storage
+@using SqliteWasmBlazor
+@using SqliteWasmBlazor.TestApp.TestInfrastructure.VfsEncryption
+@implements IAsyncDisposable
+@inject IDbContextFactory<EncryptedTestContext> Factory
+@inject ISqliteWasmDatabaseService DatabaseService
+@inject IEncryptedSqliteWasmDatabaseService Session
+@inject IJSRuntime JS
+
+<PageTitle>Encrypted WAL — crash recovery</PageTitle>
+
+<MudContainer MaxWidth="MaxWidth.Medium" Class="mt-4">
+    <MudText Typo="Typo.h4" GutterBottom="true">Encrypted WAL — crash recovery</MudText>
+    <MudText Typo="Typo.body2" Class="mb-4">
+        Reproducible mid-write interrupt. Picks a <strong>scenario</strong>, arms it, then
+        forces a crash via <code>location.reload()</code> (equivalent to tab close: the
+        worker dies without a clean <code>db.close()</code>, so no checkpoint runs).
+        Verify then opens the DB, triggering SQLite's WAL-recovery path.
+    </MudText>
+
+    @if (!_stateLoaded)
+    {
+        <MudProgressCircular Indeterminate="true" />
+    }
+    else if (_armed is not null)
+    {
+        <MudAlert Severity="Severity.Warning" Class="mb-3">
+            <MudText><strong>Armed as:</strong> @ScenarioLabel(_armed.Scenario)</MudText>
+            <MudText>At @_armed.ArmedAtIso (UTC).</MudText>
+            <MudText>Expected committed rows: @_armed.RowsExpected</MudText>
+            <MudText>wal_autocheckpoint disabled: @_armed.WalAutocheckpointOff</MudText>
+            <MudText>Uncommitted-tx rows left hanging: @_armed.UncommittedRows</MudText>
+        </MudAlert>
+
+        <MudStack Row="true" Class="mb-4">
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@_busy"
+                       OnClick="VerifyAsync">Verify recovery</MudButton>
+            <MudButton Variant="Variant.Outlined" Color="Color.Secondary" Disabled="@_busy"
+                       OnClick="ResetAsync">Reset (wipe DB + marker)</MudButton>
+        </MudStack>
+    }
+    else
+    {
+        <MudAlert Severity="Severity.Info" Class="mb-3">
+            No armed run detected. Pick a scenario; with auto-crash on, Arm reloads the page
+            to simulate the crash and auto-verifies on the way back in.
+        </MudAlert>
+
+        <MudPaper Class="pa-4 mb-4" Elevation="1">
+            <MudStack>
+                <MudSelect T="Scenario" Value="_scenario" ValueChanged="OnScenarioChangedAsync"
+                           Label="Scenario" Disabled="@_busy">
+                    @foreach (var s in AllScenarios)
+                    {
+                        <MudSelectItem Value="@s">@ScenarioLabel(s)</MudSelectItem>
+                    }
+                </MudSelect>
+
+                <MudNumericField T="int" Value="_rowCount" ValueChanged="OnRowCountChangedAsync"
+                                 Label="Committed rows" Min="10" Max="20000" Disabled="@_busy" />
+                <MudCheckBox T="bool" Value="_walAutocheckpointOff"
+                             ValueChanged="OnAutocheckpointOffChangedAsync"
+                             Label="Disable wal_autocheckpoint (keep committed frames in WAL)"
+                             Disabled="@_busy" />
+                <MudCheckBox T="bool" Value="_startUncommittedTx"
+                             ValueChanged="OnStartUncommittedChangedAsync"
+                             Label="Leave an uncommitted tx open (torn-tail path)"
+                             Disabled="@_busy" />
+                @if (_startUncommittedTx)
+                {
+                    <MudNumericField T="int" Value="_uncommittedRowCount"
+                                     ValueChanged="OnUncommittedCountChangedAsync"
+                                     Label="Uncommitted rows (should NOT appear after recovery)"
+                                     Min="1" Max="5000" Disabled="@_busy" />
+                    <MudText Typo="Typo.caption" Class="pl-2">
+                        A small cache_size is pinned (100 pages) so these rows actually spill
+                        into the WAL file before the tab dies; otherwise they'd sit in page
+                        cache and recovery would be trivial.
+                    </MudText>
+                }
+
+                <MudDivider Class="my-2" />
+
+                <MudCheckBox T="bool" Value="_autoCrash" ValueChanged="OnAutoCrashChangedAsync"
+                             Label="Auto-crash: reload page after arm (simulates tab close)"
+                             Disabled="@_busy" />
+                <MudCheckBox T="bool" Value="_autoVerify" ValueChanged="OnAutoVerifyChangedAsync"
+                             Label="Auto-verify: run verify automatically on page load when armed"
+                             Disabled="@_busy" />
+            </MudStack>
+        </MudPaper>
+
+        <MudStack Row="true" Class="mb-4">
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@_busy"
+                       OnClick="ArmAsync">Arm @(_autoCrash ? "+ crash + verify" : "")</MudButton>
+            <MudButton Variant="Variant.Filled" Color="Color.Tertiary" Disabled="@_busy"
+                       OnClick="RunAllAsync">Run all scenarios</MudButton>
+            <MudButton Variant="Variant.Outlined" Color="Color.Secondary" Disabled="@_busy"
+                       OnClick="ResetAsync">Reset (wipe DB)</MudButton>
+        </MudStack>
+
+        @if (_matrixResults.Count > 0)
+        {
+            <MudPaper Class="pa-3 mb-4" Elevation="1">
+                <MudText Typo="Typo.subtitle1">Matrix results</MudText>
+                @foreach (var r in _matrixResults)
+                {
+                    <MudText Typo="Typo.body2"
+                             Style="@(r.Passed ? "color:#2e7d32" : "color:#c62828")">
+                        @(r.Passed ? "PASS" : "FAIL") — @ScenarioLabel(r.Scenario): @r.Detail
+                    </MudText>
+                }
+            </MudPaper>
+        }
+    }
+
+    @if (_busy)
+    {
+        <MudProgressLinear Color="Color.Primary" Indeterminate="true" Class="mb-3" />
+    }
+
+    @if (_armedInstructionsVisible && !_autoCrash)
+    {
+        <MudAlert Severity="Severity.Error" Class="mb-3">
+            <MudText Typo="Typo.h6">Close the tab now (⌘W / Ctrl+W)</MudText>
+            <MudText>
+                Auto-crash is off. Close the tab manually — the worker terminates without a
+                clean shutdown, which is the mid-write interrupt. Any other action would
+                checkpoint the WAL, delete the DB, or rollback the uncommitted tx.
+            </MudText>
+        </MudAlert>
+    }
+
+    @if (_log.Count > 0)
+    {
+        <MudPaper Class="pa-3" Elevation="0" Style="background-color:#fafafa;">
+            <MudText Typo="Typo.subtitle2" GutterBottom="true">Log</MudText>
+            @foreach (var line in _log)
+            {
+                <MudText Typo="Typo.body2" Style="@LineStyle(line)">@line.Text</MudText>
+            }
+        </MudPaper>
+    }
+</MudContainer>
+
+@code {
+    private const string MarkerKey = "vfs-wal-crash.armed";
+    private const string SettingsKey = "vfs-wal-crash.settings";
+    private const string MatrixKey = "vfs-wal-crash.matrix";
+    private const string CommittedMarkerPrefix = "crash-";
+    private const string UncommittedMarkerPrefix = "uncommitted-";
+
+    // Scenarios run by "Run all" — excludes Custom.
+    private static readonly Scenario[] AllScenarios =
+    {
+        Scenario.Baseline,
+        Scenario.AutocheckpointOn,
+        Scenario.TornTail,
+        Scenario.BigTorn,
+        Scenario.BigTornAutocheckpoint,
+        Scenario.Custom,
+    };
+
+    private static readonly Scenario[] MatrixScenarios =
+    {
+        Scenario.Baseline,
+        Scenario.AutocheckpointOn,
+        Scenario.TornTail,
+        Scenario.BigTorn,
+        Scenario.BigTornAutocheckpoint,
+    };
+
+    // Configurable arm parameters.
+    private Scenario _scenario = Scenario.Baseline;
+    private int _rowCount = 200;
+    private bool _walAutocheckpointOff = true;
+    private bool _startUncommittedTx;
+    private int _uncommittedRowCount = 200;
+    private bool _autoCrash = true;
+    private bool _autoVerify = true;
+
+    // Held refs for the uncommitted-tx path. Must survive ArmAsync's return
+    // so the tx is still open when the crash happens (tab close or reload).
+    private EncryptedTestContext? _heldContext;
+    private IDbContextTransaction? _heldTransaction;
+
+    private bool _stateLoaded;
+    private bool _busy;
+    private bool _armedInstructionsVisible;
+    private ArmedState? _armed;
+    private MatrixState? _matrix;
+    private readonly List<LogLine> _log = new();
+    private readonly List<MatrixResult> _matrixResults = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Restore persisted form settings first.
+        var persisted = await ReadSettingsAsync();
+        if (persisted is not null)
+        {
+            ApplyToFields(persisted);
+        }
+        else
+        {
+            ApplyToFields(PresetFor(Scenario.Baseline, GetCurrentSettings()));
+        }
+
+        _armed = await ReadMarkerAsync();
+        _matrix = await ReadMatrixAsync();
+        if (_matrix is not null)
+        {
+            _matrixResults.AddRange(_matrix.Completed);
+        }
+        _stateLoaded = true;
+
+        // Auto-verify if armed and either (a) user asked for it or (b) a
+        // matrix run is in progress (matrix always auto-verifies).
+        if (_armed is not null && (_autoVerify || _matrix is not null))
+        {
+            // Yield once so the initial render lands before we flip _busy
+            // and re-render with the verify log.
+            await Task.Yield();
+            await VerifyAsync();
+        }
+    }
+
+    private async Task ArmAsync()
+    {
+        _busy = true;
+        _log.Clear();
+        try
+        {
+            AddInfo($"Arming ({ScenarioLabel(_scenario)}): wiping " +
+                    $"{VfsEncryptionTestBase.EncryptedDatabaseName}, " +
+                    $"committing {_rowCount} rows " +
+                    $"(autocheckpoint off={_walAutocheckpointOff}, " +
+                    $"uncommitted tx={(_startUncommittedTx ? _uncommittedRowCount : 0)} rows).");
+
+            // Install the canonical TestKey as the worker's globalKey so the
+            // EncryptedTestDb is created encrypted. The page tests WAL-crash
+            // recovery against an encrypted disk; without this, the disk's
+            // key state would depend on whichever test ran previously, which
+            // breaks under the new pool-wipe cleanup pattern.
+            await Session.UnlockAsync(VfsEncryptionTestBase.TestKey);
+
+            await using (var ctx = await Factory.CreateDbContextAsync())
+            {
+                await ctx.Database.EnsureDeletedAsync();
+                await ctx.Database.EnsureCreatedAsync();
+            }
+
+            await using (var ctx = await Factory.CreateDbContextAsync())
+            {
+                var conn = ctx.Database.GetDbConnection();
+                if (conn.State != System.Data.ConnectionState.Open)
+                {
+                    await conn.OpenAsync();
+                }
+
+                if (_walAutocheckpointOff)
+                {
+                    await using var pragma = conn.CreateCommand();
+                    pragma.CommandText = "PRAGMA wal_autocheckpoint = 0;";
+                    await pragma.ExecuteNonQueryAsync();
+                }
+
+                for (var i = 0; i < _rowCount; i++)
+                {
+                    ctx.Items.Add(new VfsTestItem
+                    {
+                        Marker = $"{CommittedMarkerPrefix}{i}",
+                        Payload = new string('x', 400),
+                    });
+                }
+                await ctx.SaveChangesAsync();
+
+                await using (var mode = conn.CreateCommand())
+                {
+                    mode.CommandText = "PRAGMA journal_mode;";
+                    var jm = (await mode.ExecuteScalarAsync())?.ToString();
+                    if (!string.Equals(jm, "wal", StringComparison.OrdinalIgnoreCase))
+                    {
+                        AddError($"Aborting arm: journal_mode is '{jm}', expected 'wal'. Marker not written.");
+                        return;
+                    }
+                }
+            }
+
+            if (_startUncommittedTx)
+            {
+                _heldContext = await Factory.CreateDbContextAsync();
+                var conn = _heldContext.Database.GetDbConnection();
+                if (conn.State != System.Data.ConnectionState.Open)
+                {
+                    await conn.OpenAsync();
+                }
+
+                await using (var cs = conn.CreateCommand())
+                {
+                    cs.CommandText = "PRAGMA cache_size = 100;";
+                    await cs.ExecuteNonQueryAsync();
+                }
+
+                _heldTransaction = await _heldContext.Database.BeginTransactionAsync();
+
+                for (var i = 0; i < _uncommittedRowCount; i++)
+                {
+                    _heldContext.Items.Add(new VfsTestItem
+                    {
+                        Marker = $"{UncommittedMarkerPrefix}{i}",
+                        Payload = new string('u', 400),
+                    });
+                }
+                await _heldContext.SaveChangesAsync();
+            }
+
+            var armed = new ArmedState(
+                Scenario: _scenario,
+                RowsExpected: _rowCount,
+                WalAutocheckpointOff: _walAutocheckpointOff,
+                UncommittedRows: _startUncommittedTx ? _uncommittedRowCount : 0,
+                ArmedAtIso: DateTime.UtcNow.ToString("O"));
+            await WriteMarkerAsync(armed);
+            _armed = armed;
+
+            AddOk($"Armed: {_rowCount} rows committed; " +
+                  (_startUncommittedTx
+                      ? $"{_uncommittedRowCount} uncommitted rows held in an open tx."
+                      : "no uncommitted tx."));
+            _armedInstructionsVisible = true;
+
+            if (_autoCrash || _matrix is not null)
+            {
+                AddInfo("Auto-crash: reloading page to simulate tab close.");
+                // location.reload() tears down the page without awaiting any
+                // async Blazor disposal — the worker dies the same way it
+                // would on tab close, leaving the held tx dangling and the
+                // WAL in its mid-write state.
+                await JS.InvokeVoidAsync("location.reload");
+                // Execution effectively ends here; the runtime is being
+                // destroyed. Any code past this point is best-effort.
+            }
+        }
+        catch (Exception ex)
+        {
+            AddError($"Arm failed: {ex.GetType().Name}: {ex.Message}");
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task VerifyAsync()
+    {
+        _busy = true;
+        _armedInstructionsVisible = false;
+        var passed = false;
+        var detail = string.Empty;
+        Scenario? verifiedScenario = null;
+        try
+        {
+            if (_armed is null)
+            {
+                AddError("No armed state to verify.");
+                return;
+            }
+            verifiedScenario = _armed.Scenario;
+
+            AddInfo($"Verifying ({ScenarioLabel(_armed.Scenario)}): opening encrypted DB " +
+                    $"(triggers WAL recovery). Expecting {_armed.RowsExpected} committed " +
+                    $"rows, 0 uncommitted rows (of {_armed.UncommittedRows} attempted).");
+
+            // Restore the canonical TestKey on the worker — Arm wrote
+            // encrypted bytes under TestKey; after a page reload (the
+            // simulated "crash") the worker's globalKey is gone. Without
+            // this, xRead would read the ciphertext bytes via the plain
+            // path and SQLite would surface SQLITE_NOTADB.
+            await Session.UnlockAsync(VfsEncryptionTestBase.TestKey);
+
+            await using var ctx = await Factory.CreateDbContextAsync();
+            var rows = await ctx.Items.OrderBy(x => x.Id).ToListAsync();
+
+            var committed = rows.Count(r => r.Marker.StartsWith(CommittedMarkerPrefix, StringComparison.Ordinal));
+            var uncommitted = rows.Count(r => r.Marker.StartsWith(UncommittedMarkerPrefix, StringComparison.Ordinal));
+
+            if (committed != _armed.RowsExpected)
+            {
+                detail = $"expected {_armed.RowsExpected} committed rows, found {committed}";
+                AddError($"FAIL: {detail}.");
+                return;
+            }
+            if (uncommitted != 0)
+            {
+                detail = $"{uncommitted} uncommitted-tx rows survived recovery";
+                AddError($"FAIL: {detail}.");
+                return;
+            }
+            if (rows.Count != committed)
+            {
+                detail = $"{rows.Count - committed} rows with unrecognized markers";
+                AddError($"FAIL: {detail}.");
+                return;
+            }
+
+            var committedRows = rows
+                .Where(r => r.Marker.StartsWith(CommittedMarkerPrefix, StringComparison.Ordinal))
+                .ToList();
+            for (var i = 0; i < committedRows.Count; i++)
+            {
+                if (committedRows[i].Marker != $"{CommittedMarkerPrefix}{i}")
+                {
+                    detail = $"committed row {i} marker mismatch — got '{committedRows[i].Marker}'";
+                    AddError($"FAIL: {detail}.");
+                    return;
+                }
+            }
+
+            detail = $"{committed} committed recovered, {_armed.UncommittedRows} uncommitted discarded";
+            AddOk($"PASS [{ScenarioLabel(_armed.Scenario)}]: {detail}.");
+            passed = true;
+
+            await ClearMarkerAsync();
+            _armed = null;
+            await DatabaseService.CloseDatabaseAsync(VfsEncryptionTestBase.EncryptedDatabaseName);
+        }
+        catch (Exception ex)
+        {
+            detail = $"{ex.GetType().Name}: {ex.Message}";
+            AddError($"Verify failed: {detail}");
+        }
+        finally
+        {
+            _busy = false;
+            if (verifiedScenario is not null)
+            {
+                await RecordMatrixStepAsync(verifiedScenario.Value, passed, detail);
+            }
+        }
+    }
+
+    private async Task ResetAsync()
+    {
+        _busy = true;
+        try
+        {
+            await ReleaseHeldAsync();
+            await ClearMarkerAsync();
+            await ClearMatrixAsync();
+            _armed = null;
+            _matrix = null;
+            _matrixResults.Clear();
+            _armedInstructionsVisible = false;
+            try
+            {
+                await DatabaseService.DeleteDatabaseAsync(VfsEncryptionTestBase.EncryptedDatabaseName);
+            }
+            catch
+            {
+                // DeleteDatabase may fail if the DB was never opened in this
+                // session — harmless.
+            }
+            AddInfo("Reset: marker cleared, DB wiped. Form settings preserved.");
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    // ---- Matrix runner ----------------------------------------------------
+
+    private async Task RunAllAsync()
+    {
+        // Start a fresh matrix: queue all scenarios, arm the first, let
+        // auto-crash + auto-verify walk through them across reloads.
+        var queue = MatrixScenarios.ToList();
+        var first = queue[0];
+        queue.RemoveAt(0);
+
+        _matrix = new MatrixState(
+            Remaining: queue,
+            Completed: new List<MatrixResult>(),
+            Current: first);
+        _matrixResults.Clear();
+        await WriteMatrixAsync(_matrix);
+
+        // Apply the first scenario's preset and arm. ArmAsync will see
+        // _matrix != null and force the reload regardless of _autoCrash.
+        ApplyToFields(PresetFor(first, GetCurrentSettings()));
+        await SaveSettingsAsync();
+        await ArmAsync();
+    }
+
+    private async Task RecordMatrixStepAsync(Scenario verified, bool passed, string detail)
+    {
+        if (_matrix is null || _matrix.Current != verified)
+        {
+            // Not part of an active matrix run — single-scenario verify.
+            return;
+        }
+
+        var completed = new List<MatrixResult>(_matrix.Completed)
+        {
+            new(verified, passed, detail),
+        };
+        _matrixResults.Clear();
+        _matrixResults.AddRange(completed);
+
+        if (_matrix.Remaining.Count == 0)
+        {
+            // Matrix done.
+            AddOk(
+                $"Matrix complete: {completed.Count(r => r.Passed)}/{completed.Count} passed.");
+            _matrix = null;
+            await ClearMatrixAsync();
+            return;
+        }
+
+        // Arm the next scenario.
+        var next = _matrix.Remaining[0];
+        var remainingTail = _matrix.Remaining.Skip(1).ToList();
+        _matrix = new MatrixState(remainingTail, completed, next);
+        await WriteMatrixAsync(_matrix);
+
+        ApplyToFields(PresetFor(next, GetCurrentSettings()));
+        await SaveSettingsAsync();
+        await ArmAsync();
+    }
+
+    // ---- Scenario plumbing ------------------------------------------------
+
+    private async Task OnScenarioChangedAsync(Scenario s)
+    {
+        _scenario = s;
+        if (s != Scenario.Custom)
+        {
+            ApplyToFields(PresetFor(s, GetCurrentSettings()));
+        }
+        await SaveSettingsAsync();
+    }
+
+    private Task OnRowCountChangedAsync(int v) { _rowCount = v; return AfterFieldEditAsync(); }
+    private Task OnAutocheckpointOffChangedAsync(bool v) { _walAutocheckpointOff = v; return AfterFieldEditAsync(); }
+    private Task OnStartUncommittedChangedAsync(bool v) { _startUncommittedTx = v; return AfterFieldEditAsync(); }
+    private Task OnUncommittedCountChangedAsync(int v) { _uncommittedRowCount = v; return AfterFieldEditAsync(); }
+
+    private async Task OnAutoCrashChangedAsync(bool v)
+    {
+        _autoCrash = v;
+        await SaveSettingsAsync();
+    }
+
+    private async Task OnAutoVerifyChangedAsync(bool v)
+    {
+        _autoVerify = v;
+        await SaveSettingsAsync();
+    }
+
+    private async Task AfterFieldEditAsync()
+    {
+        _scenario = DetectScenario(GetCurrentSettings());
+        await SaveSettingsAsync();
+    }
+
+    private ArmSettings GetCurrentSettings() => new(
+        Scenario: _scenario,
+        RowCount: _rowCount,
+        WalAutocheckpointOff: _walAutocheckpointOff,
+        StartUncommittedTx: _startUncommittedTx,
+        UncommittedRowCount: _uncommittedRowCount,
+        AutoCrash: _autoCrash,
+        AutoVerify: _autoVerify);
+
+    private void ApplyToFields(ArmSettings s)
+    {
+        _scenario = s.Scenario;
+        _rowCount = s.RowCount;
+        _walAutocheckpointOff = s.WalAutocheckpointOff;
+        _startUncommittedTx = s.StartUncommittedTx;
+        _uncommittedRowCount = s.UncommittedRowCount;
+        _autoCrash = s.AutoCrash;
+        _autoVerify = s.AutoVerify;
+    }
+
+    private static ArmSettings PresetFor(Scenario s, ArmSettings current) => s switch
+    {
+        Scenario.Baseline =>
+            current with { Scenario = s, RowCount = 200, WalAutocheckpointOff = true, StartUncommittedTx = false },
+        Scenario.AutocheckpointOn =>
+            current with { Scenario = s, RowCount = 6000, WalAutocheckpointOff = false, StartUncommittedTx = false },
+        Scenario.TornTail =>
+            current with { Scenario = s, RowCount = 200, WalAutocheckpointOff = true, StartUncommittedTx = true, UncommittedRowCount = 200 },
+        Scenario.BigTorn =>
+            current with { Scenario = s, RowCount = 5000, WalAutocheckpointOff = true, StartUncommittedTx = true, UncommittedRowCount = 500 },
+        Scenario.BigTornAutocheckpoint =>
+            current with { Scenario = s, RowCount = 5000, WalAutocheckpointOff = false, StartUncommittedTx = true, UncommittedRowCount = 500 },
+        Scenario.Custom => current with { Scenario = s },
+        _ => current,
+    };
+
+    private static Scenario DetectScenario(ArmSettings s)
+    {
+        foreach (var candidate in AllScenarios)
+        {
+            if (candidate == Scenario.Custom)
+            {
+                continue;
+            }
+            var preset = PresetFor(candidate, s);
+            if (preset.RowCount == s.RowCount
+                && preset.WalAutocheckpointOff == s.WalAutocheckpointOff
+                && preset.StartUncommittedTx == s.StartUncommittedTx
+                && (!s.StartUncommittedTx || preset.UncommittedRowCount == s.UncommittedRowCount))
+            {
+                return candidate;
+            }
+        }
+        return Scenario.Custom;
+    }
+
+    private static string ScenarioLabel(Scenario s) => s switch
+    {
+        Scenario.Baseline => "Baseline (200 rows, autocheckpoint off)",
+        Scenario.AutocheckpointOn => "Autocheckpoint on (6000 rows)",
+        Scenario.TornTail => "Torn tail (200 committed + 200 uncommitted)",
+        Scenario.BigTorn => "Big + torn (5000 + 500 uncommitted)",
+        Scenario.BigTornAutocheckpoint => "Big + torn + autocheckpoint on (5000 + 500)",
+        Scenario.Custom => "Custom",
+        _ => s.ToString(),
+    };
+
+    // ---- localStorage plumbing --------------------------------------------
+
+    private async Task<ArmedState?> ReadMarkerAsync() => await ReadJsonAsync<ArmedState>(MarkerKey);
+    private Task WriteMarkerAsync(ArmedState state) => WriteJsonAsync(MarkerKey, state);
+    private Task ClearMarkerAsync() => JS.InvokeVoidAsync("localStorage.removeItem", MarkerKey).AsTask();
+
+    private async Task<ArmSettings?> ReadSettingsAsync() => await ReadJsonAsync<ArmSettings>(SettingsKey);
+    private Task SaveSettingsAsync() => WriteJsonAsync(SettingsKey, GetCurrentSettings());
+
+    private async Task<MatrixState?> ReadMatrixAsync() => await ReadJsonAsync<MatrixState>(MatrixKey);
+    private Task WriteMatrixAsync(MatrixState m) => WriteJsonAsync(MatrixKey, m);
+    private Task ClearMatrixAsync() => JS.InvokeVoidAsync("localStorage.removeItem", MatrixKey).AsTask();
+
+    private async Task<T?> ReadJsonAsync<T>(string key)
+    {
+        var raw = await JS.InvokeAsync<string?>("localStorage.getItem", key);
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            return default;
+        }
+        try
+        {
+            return System.Text.Json.JsonSerializer.Deserialize<T>(raw);
+        }
+        catch
+        {
+            return default;
+        }
+    }
+
+    private async Task WriteJsonAsync<T>(string key, T value)
+    {
+        var raw = System.Text.Json.JsonSerializer.Serialize(value);
+        await JS.InvokeVoidAsync("localStorage.setItem", key, raw);
+    }
+
+    // ---- Uncommitted-tx lifecycle -----------------------------------------
+
+    private async Task ReleaseHeldAsync()
+    {
+        if (_heldTransaction is not null)
+        {
+            try { await _heldTransaction.RollbackAsync(); } catch { }
+            try { await _heldTransaction.DisposeAsync(); } catch { }
+            _heldTransaction = null;
+        }
+        if (_heldContext is not null)
+        {
+            try { await _heldContext.DisposeAsync(); } catch { }
+            _heldContext = null;
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        await ReleaseHeldAsync();
+    }
+
+    private void AddInfo(string s) => _log.Add(new LogLine(s, LogLevel.Info));
+    private void AddOk(string s) => _log.Add(new LogLine(s, LogLevel.Ok));
+    private void AddError(string s) => _log.Add(new LogLine(s, LogLevel.Error));
+
+    private static string LineStyle(LogLine line) => line.Level switch
+    {
+        LogLevel.Error => "color: #c62828;",
+        LogLevel.Ok => "color: #2e7d32;",
+        _ => "color: #555;",
+    };
+
+    public enum Scenario
+    {
+        Baseline,
+        AutocheckpointOn,
+        TornTail,
+        BigTorn,
+        BigTornAutocheckpoint,
+        Custom,
+    }
+
+    public sealed record ArmSettings(
+        Scenario Scenario,
+        int RowCount,
+        bool WalAutocheckpointOff,
+        bool StartUncommittedTx,
+        int UncommittedRowCount,
+        bool AutoCrash,
+        bool AutoVerify);
+
+    public sealed record ArmedState(
+        Scenario Scenario,
+        int RowsExpected,
+        bool WalAutocheckpointOff,
+        int UncommittedRows,
+        string ArmedAtIso);
+
+    public sealed record MatrixState(
+        List<Scenario> Remaining,
+        List<MatrixResult> Completed,
+        Scenario Current);
+
+    public sealed record MatrixResult(Scenario Scenario, bool Passed, string Detail);
+
+    private enum LogLevel { Info, Ok, Error }
+    private sealed record LogLine(string Text, LogLevel Level);
+}

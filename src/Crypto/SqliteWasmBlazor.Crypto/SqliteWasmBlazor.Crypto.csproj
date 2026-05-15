@@ -1,0 +1,99 @@
+<Project Sdk="Microsoft.NET.Sdk.Razor">
+
+  <!--
+    Plane 2 engine: PRF-keyed at-rest encryption. Hosts the encrypted-VFS
+    lifecycle service (IEncryptedSqliteWasmDatabaseService), PRF key
+    derivation (PrfService + SubtleCryptoProvider), the secure key cache,
+    signing service, and the EncryptedSqliteWasmWorkerBridge that wraps
+    plane-1's worker bridge for encrypted operations.
+
+    Plane 2 = SqliteWasmBlazor.Crypto (this assembly, engine) +
+              SqliteWasmBlazor.Crypto.UI (panels).
+    Carved out of SqliteWasmBlazor in plane-split Phase 2b.
+  -->
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+
+    <Version>$(SqliteWasmBlazorVersion)</Version>
+    <PackageId>SqliteWasmBlazor.Crypto</PackageId>
+    <Authors>bernisoft</Authors>
+    <Description>Plane 2 engine for SqliteWasmBlazor: PRF-keyed at-rest encryption on top of the plain SQLite engine. Encrypted VFS lifecycle, WebAuthn-PRF key derivation, secure key cache, signing service. Add SqliteWasmBlazor.Crypto.UI for default auth/lock/unlock panels.</Description>
+    <PackageTags>blazor;wasm;sqlite;encryption;webauthn;prf;vfs;at-rest</PackageTags>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/b-straub/SqliteWasmBlazor</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/b-straub/SqliteWasmBlazor</RepositoryUrl>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <GeneratePackageOnBuild Condition="'$(Configuration)' == 'Release'">true</GeneratePackageOnBuild>
+    <IncludeSymbols>true</IncludeSymbols>
+    <EmbedAllSources>true</EmbedAllSources>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <PackageOutputPath>$(MSBuildThisFileDirectory)../../../.nuget</PackageOutputPath>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="../../../README.md" Pack="true" PackagePath="/" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <SupportedPlatform Include="browser" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Plane 2 UI sub-assembly consumes plane 2 engine internals (the
+         EncryptedSqliteWasmWorkerBridge is internal; UI calls go through
+         IEncryptedSqliteWasmDatabaseService but the lifecycle helper
+         needs the bridge too). -->
+    <InternalsVisibleTo Include="SqliteWasmBlazor.Crypto.UI" />
+    <!-- Plane 3 engine reaches into Plane 2's worker bridge for delta
+         export/import/rotate primitives. Mirrors plane 1's existing
+         InternalsVisibleTo for CryptoSync. -->
+    <InternalsVisibleTo Include="SqliteWasmBlazor.CryptoSync" />
+    <!-- Test apps call internal bridge methods directly for focused per-DB
+         unit coverage (matches plane 1's pattern). -->
+    <InternalsVisibleTo Include="SqliteWasmBlazor.TestApp" />
+    <!-- xUnit layer-guard tests need to reference the internal
+         EncryptedSqliteWasmWorkerBridge type for reflection-based assertions. -->
+    <InternalsVisibleTo Include="SqliteWasmBlazor.CryptoSync.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="MessagePack" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Options" />
+    <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" />
+    <PackageReference Include="Microsoft.SourceLink.GitHub" PrivateAssets="All" />
+    <PackageReference Include="R3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\Base\SqliteWasmBlazor\SqliteWasmBlazor.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Exclude TypeScript/ source from both NuGet pack AND publish output —
+         only the bundled wwwroot/sqlite-wasm-worker.js ships to consumers. -->
+    <Content Remove="TypeScript/**" />
+    <None Remove="TypeScript/**" />
+  </ItemGroup>
+
+  <!-- npm install for plane-2's TypeScript workspace before bundling. -->
+  <Target Name="NpmInstallCryptoWorker" BeforeTargets="BuildTypeScriptCryptoDebug;BuildTypeScriptCryptoRelease">
+    <Exec WorkingDirectory="TypeScript" Command="npm audit signatures" Condition="Exists('TypeScript/package.json') And !Exists('TypeScript/node_modules')" />
+    <Exec WorkingDirectory="TypeScript" Command="npm ci --ignore-scripts" Condition="Exists('TypeScript/package.json') And !Exists('TypeScript/node_modules')" />
+  </Target>
+
+  <!-- Build plane-2's worker bundle into wwwroot/ before static-web-assets discovery. -->
+  <Target Name="BuildTypeScriptCryptoDebug" BeforeTargets="BeforeCompile;ResolveStaticWebAssetsInputs" Condition="'$(Configuration)' == 'Debug'">
+    <Exec WorkingDirectory="TypeScript" Command="npm run build" Condition="Exists('TypeScript/package.json')" />
+  </Target>
+
+  <Target Name="BuildTypeScriptCryptoRelease" BeforeTargets="BeforeCompile;ResolveStaticWebAssetsInputs" Condition="'$(Configuration)' == 'Release'">
+    <Exec WorkingDirectory="TypeScript" Command="npm run build:release" Condition="Exists('TypeScript/package.json')" />
+  </Target>
+
+</Project>

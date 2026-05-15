@@ -1,0 +1,121 @@
+@inherits AuthenticationModelComponent
+
+@* BlazorPRF.Sample/Pages/Home.razor NotAuthorized branch — 1:1 shape with
+   inline Register section (no /setup navigation). The consumer wraps this
+   panel in <AuthorizeView><NotAuthorized>...</NotAuthorized></AuthorizeView>;
+   the panel pushes session state through PrfAuthenticationStateProvider
+   so the AuthorizeView flips to Authorized on success. *@
+<MudContainer MaxWidth="MaxWidth.Small" Class="d-flex flex-column align-center justify-center" Style="min-height: 60vh;">
+    <MudIcon Icon="@Icons.Material.Filled.Security"
+             Color="Color.Primary"
+             Style="font-size: 6rem;"
+             Class="mb-4" />
+
+    <MudText Typo="Typo.h4" Align="Align.Center" GutterBottom="true">
+        @Model.Localizer["Header_Title"]
+    </MudText>
+
+    <MudText Typo="Typo.body1" Align="Align.Center" Class="mb-6 mud-text-secondary">
+        @Model.Localizer["Header_Subtitle"]
+    </MudText>
+
+    @if (!string.IsNullOrEmpty(Model.WrongPasskeyPublicKey))
+    {
+        @* Wrong-passkey-for-disk: the just-derived pubkey is shown so the
+           user can copy it for "export disk for recipient" testing. The
+           session itself is rejected — the user is NOT signed in. *@
+        <MudPaper Elevation="0" Outlined="true" Class="pa-4 mb-4" Style="width: 100%;">
+            <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Class="mb-3">
+                @Model.Localizer["Alert_WrongPasskeyForDisk"]
+            </MudAlert>
+            <PublicKeyDisplay PublicKey="@Model.WrongPasskeyPublicKey" CredentialId="@Model.WrongPasskeyCredentialId" />
+            <MudStack Row="true" Spacing="2" Class="mt-3">
+                <MudButton OnClick="@Model.DismissWrongPasskey"
+                           Variant="Variant.Outlined"
+                           Color="Color.Default"
+                           StartIcon="@Icons.Material.Filled.Close">
+                    @Model.Localizer["Btn_DismissWrongPasskey"]
+                </MudButton>
+            </MudStack>
+        </MudPaper>
+    }
+
+    @if (Model.IsPrfSupported is null)
+    {
+        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="mb-4">
+            <MudProgressCircular Indeterminate="true" Size="Size.Small" />
+            <MudText>@Model.Localizer["Status_CheckingPrf"]</MudText>
+        </MudStack>
+    }
+    else if (Model.IsPrfSupported == false)
+    {
+        <MudAlert Severity="Severity.Error" Class="mb-4" Variant="Variant.Outlined">
+            @Model.Localizer["Alert_PrfNotSupported"]
+        </MudAlert>
+    }
+    else if (Model.DiscoverableCancelled)
+    {
+        @* User cancelled discoverable picker — show register section + try again. *@
+        <MudAlert Severity="Severity.Info" Class="mb-4" Variant="Variant.Outlined">
+            @Model.Localizer["Alert_DiscoverableCancelled"]
+        </MudAlert>
+
+        <MudPaper Elevation="0" Outlined="true" Class="pa-4 mb-4" Style="width: 100%;">
+            <MudStack Spacing="2">
+                <MudText Typo="Typo.subtitle1">@Model.Localizer["Register_Header"]</MudText>
+                <MudText Typo="Typo.body2" Color="Color.Secondary">
+                    @Model.Localizer["Register_Description"]
+                </MudText>
+                <MudTextField @bind-Value="@Model.RegisterDisplayName"
+                              Label="@(Model.Localizer["Field_DisplayNameLabel"])"
+                              Variant="Variant.Outlined"
+                              HelperText="@(Model.Localizer["Field_DisplayNameHelper"])"
+                              Disabled="@Model.Register.Executing" />
+                <MudButtonAsyncRx Command="@Model.Register"
+                                  Variant="Variant.Filled"
+                                  Color="Color.Primary"
+                                  Size="Size.Large"
+                                  StartIcon="@Icons.Material.Filled.PersonAdd"
+                                  FullWidth="true">
+                    @Model.Localizer["Btn_Register"]
+                </MudButtonAsyncRx>
+            </MudStack>
+        </MudPaper>
+
+        <MudButtonAsyncRx Command="@Model.DeriveKeysDiscoverable"
+                          Variant="Variant.Outlined"
+                          Color="Color.Primary"
+                          Size="Size.Large"
+                          StartIcon="@Icons.Material.Filled.Fingerprint">
+            @Model.Localizer["Btn_TryAgain"]
+        </MudButtonAsyncRx>
+    }
+    else if (!string.IsNullOrWhiteSpace(Model.CredentialId))
+    {
+        @* Returning user — direct auth using stored credential hint. *@
+        <MudButtonAsyncRx Command="@Model.DeriveKeys"
+                          Variant="Variant.Filled"
+                          Color="Color.Primary"
+                          Size="Size.Large"
+                          StartIcon="@Icons.Material.Filled.Fingerprint">
+            @Model.Localizer["Btn_Authenticate"]
+        </MudButtonAsyncRx>
+        <MudText Typo="Typo.caption" Class="mt-2 mud-text-secondary">
+            @Model.Localizer["Caption_UsingHint"]
+        </MudText>
+    }
+    else
+    {
+        @* No hint stored — discoverable picker. *@
+        <MudButtonAsyncRx Command="@Model.DeriveKeysDiscoverable"
+                          Variant="Variant.Filled"
+                          Color="Color.Primary"
+                          Size="Size.Large"
+                          StartIcon="@Icons.Material.Filled.Fingerprint">
+            @Model.Localizer["Btn_Authenticate"]
+        </MudButtonAsyncRx>
+        <MudText Typo="Typo.caption" Class="mt-2 mud-text-secondary">
+            @Model.Localizer["Caption_DiscoverablePicker"]
+        </MudText>
+    }
+</MudContainer>
