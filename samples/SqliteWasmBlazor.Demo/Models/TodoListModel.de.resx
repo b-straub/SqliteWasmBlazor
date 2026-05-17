@@ -21,7 +21,7 @@
   <data name="Mode_Processed" xml:space="preserve"><value>Smart-Suchmodus</value></data>
   <data name="Display_Normal" xml:space="preserve"><value>Normal</value></data>
   <data name="Display_Highlight" xml:space="preserve"><value>Hervorhebung</value></data>
-  <data name="Display_Snippet" xml:space="preserve"><value>Schnipsel</value></data>
+  <data name="Display_Snippet" xml:space="preserve"><value>Ausschnitte</value></data>
   <data name="Placeholder_SearchRaw" xml:space="preserve"><value>FTS5-Syntax (z. B. 'task*', 'title:urgent', 'NEAR(task urgent, 5)', 'quarterly OR report')</value></data>
   <data name="Placeholder_SearchProcessed" xml:space="preserve"><value>Suche während der Eingabe (z. B. 'dring auf', 'quart beric')</value></data>
   <data name="Helper_SearchRaw" xml:space="preserve"><value>Rohmodus: FTS5-Syntax. Spalte: 'title:term'. Nähe: 'NEAR(term1 term2, distance)'. Leerzeichen = AND. Operatoren: *, AND, OR, NOT.</value></data>

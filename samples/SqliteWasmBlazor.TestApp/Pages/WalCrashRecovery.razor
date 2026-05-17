@@ -34,7 +34,7 @@
             <MudText>Uncommitted-tx rows left hanging: @_armed.UncommittedRows</MudText>
         </MudAlert>
 
-        <MudStack Row="true" Class="mb-4">
+        <MudStack Row="true" Wrap="Wrap.Wrap" Class="mb-4">
             <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@_busy"
                        OnClick="VerifyAsync">Verify recovery</MudButton>
             <MudButton Variant="Variant.Outlined" Color="Color.Secondary" Disabled="@_busy"
@@ -92,7 +92,7 @@
             </MudStack>
         </MudPaper>
 
-        <MudStack Row="true" Class="mb-4">
+        <MudStack Row="true" Wrap="Wrap.Wrap" Class="mb-4">
             <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@_busy"
                        OnClick="ArmAsync">Arm @(_autoCrash ? "+ crash + verify" : "")</MudButton>
             <MudButton Variant="Variant.Filled" Color="Color.Tertiary" Disabled="@_busy"

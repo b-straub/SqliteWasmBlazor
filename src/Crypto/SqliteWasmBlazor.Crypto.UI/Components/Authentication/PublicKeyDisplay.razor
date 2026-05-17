@@ -16,7 +16,7 @@ else
     <MudTextField T="string"
                   Value="@Armored"
                   ReadOnly="true"
-                  Label="@L["Header"]"
+                  Label="@(L["Header"])"
                   Variant="Variant.Filled"
                   Sizing="InputSizing.Auto"
                   MaxLines="10"
@@ -24,7 +24,7 @@ else
                   Typo="Typo.caption"
                   Adornment="Adornment.End"
                   AdornmentIcon="@Icons.Material.Filled.ContentCopy"
-                  AdornmentAriaLabel="@L["Btn_Copy"]"
+                  AdornmentAriaLabel="@(L["Btn_Copy"])"
                   OnAdornmentClick="CopyAsync" />
     <MudText Typo="Typo.caption" Class="mud-text-secondary">
         @L["Hint"]

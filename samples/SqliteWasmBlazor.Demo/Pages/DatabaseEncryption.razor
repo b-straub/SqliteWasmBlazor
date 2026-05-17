@@ -188,7 +188,7 @@
                               Value="@Model.PastedRecipientKey"
                               ValueChanged="@(v => Model.PastedRecipientKey = v ?? string.Empty)"
                               Immediate="true"
-                              Label="@Model.Localizer["Field_RecipientKey"]"
+                              Label="@(Model.Localizer["Field_RecipientKey"])"
                               Variant="Variant.Filled"
                               Sizing="InputSizing.Auto"
                               MaxLines="10"

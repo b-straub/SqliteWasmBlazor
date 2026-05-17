@@ -81,17 +81,17 @@
                        Label="@(Model.IsRawMode ? Model.Localizer["Mode_Raw"] : Model.Localizer["Mode_Processed"])" />
             <MudRadioGroup @bind-Value="@Model.SearchMode" T="SearchDisplayMode">
                 <MudGrid Spacing="1">
-                    <MudItem xs="4">
+                    <MudItem xs="12" sm="4">
                         <MudRadio Value="@SearchDisplayMode.NORMAL" Color="Color.Default" Dense="true">
                             @Model.Localizer["Display_Normal"]
                         </MudRadio>
                     </MudItem>
-                    <MudItem xs="4">
+                    <MudItem xs="12" sm="4">
                         <MudRadio Value="@SearchDisplayMode.HIGHLIGHT" Color="Color.Primary" Dense="true">
                             @Model.Localizer["Display_Highlight"]
                         </MudRadio>
                     </MudItem>
-                    <MudItem xs="4">
+                    <MudItem xs="12" sm="4">
                         <MudRadio Value="@SearchDisplayMode.SNIPPET" Color="Color.Secondary" Dense="true">
                             @Model.Localizer["Display_Snippet"]
                         </MudRadio>
@@ -130,30 +130,30 @@
                 <MudTh Style="text-align: right;">@Model.Localizer["Col_Actions"]</MudTh>
             </HeaderContent>
             <RowTemplate>
-                <MudTd DataLabel="@Model.Localizer[" Col_Status"]">
+                <MudTd DataLabel="@(Model.Localizer["Col_Status"])">
                     <MudCheckBox T="bool"
                                  Value="@context.IsCompleted"
                                  ValueChanged="@(async _ => await Model.ToggleComplete.ExecuteAsync(context))"
                                  Color="Color.Success" />
                 </MudTd>
-                <MudTd DataLabel="@Model.Localizer[" Col_Title"]">
+                <MudTd DataLabel="@(Model.Localizer["Col_Title"])">
                     <HighlightedText PlainContent="@context.Title"
                                      HighlightedContent="@Model.GetHighlightedText(context.Id, isTitle: true)"
                                      UseHighlighting="@(Model.SearchMode != SearchDisplayMode.NORMAL)"
                                      Strikethrough="@context.IsCompleted" />
                 </MudTd>
-                <MudTd DataLabel="@Model.Localizer[" Col_Description"]">
+                <MudTd DataLabel="@(Model.Localizer["Col_Description"])">
                     <HighlightedText PlainContent="@context.Description"
                                      HighlightedContent="@Model.GetHighlightedText(context.Id, isTitle: false)"
                                      UseHighlighting="@(Model.SearchMode != SearchDisplayMode.NORMAL)"
                                      Strikethrough="@context.IsCompleted" />
                 </MudTd>
-                <MudTd DataLabel="@Model.Localizer[" Col_Updated"]">
+                <MudTd DataLabel="@(Model.Localizer["Col_Updated"])">
                     <MudChip T="string" Size="Size.Small" Variant="Variant.Text">
                         @context.UpdatedAt.ToString("g")
                     </MudChip>
                 </MudTd>
-                <MudTd DataLabel="@Model.Localizer[" Col_Actions"]" Style="text-align: right;">
+                <MudTd DataLabel="@(Model.Localizer["Col_Actions"])" Style="text-align: right;">
                     <MudIconButtonAsyncRxOf T="TodoItem"
                                             Command="@Model.DeleteTodo"
                                             Parameter="@context"
