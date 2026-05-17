@@ -97,15 +97,12 @@ jobs:
     - name: Build SqliteWasmBlazor.Crypto.UI — auto-pack
       run: dotnet build src/Crypto/SqliteWasmBlazor.Crypto.UI/SqliteWasmBlazor.Crypto.UI.csproj -c Release
 
-    - name: Build SqliteWasmBlazor.Crypto.BouncyCastle
-      run: dotnet build src/Crypto/SqliteWasmBlazor.Crypto.BouncyCastle/SqliteWasmBlazor.Crypto.BouncyCastle.csproj -c Release
-
-    - name: Build samples
-      run: |
-        dotnet build samples/SqliteWasmBlazor.FloatingWindow/SqliteWasmBlazor.FloatingWindow.csproj -c Release
-        dotnet build samples/SqliteWasmBlazor.Demo/SqliteWasmBlazor.Demo.csproj -c Release
-        dotnet build samples/SqliteWasmBlazor.AdoNetSample/SqliteWasmBlazor.AdoNetSample.csproj -c Release
-        dotnet build samples/SqliteWasmBlazor.TestApp/SqliteWasmBlazor.TestApp.csproj -c Release
+    # Only the test pipeline. Samples (FloatingWindow, Demo, AdoNetSample)
+    # and Crypto.BouncyCastle are not consumed by Tests / TestHost / TestApp
+    # and not packed — building them here would just burn runner minutes.
+    # The full-repo sanity build belongs in build.yml.
+    - name: Build SqliteWasmBlazor.TestApp
+      run: dotnet build samples/SqliteWasmBlazor.TestApp/SqliteWasmBlazor.TestApp.csproj -c Release
 
     - name: Build tests
       run: |
