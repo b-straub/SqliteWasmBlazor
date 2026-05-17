@@ -221,7 +221,7 @@
                 </MudText>
                 <MudFileUpload T="IBrowserFile"
                                FilesChanged="@(file => HandleImportPickedAsync(file))"
-                               Accept=".zip" />
+                               Accept=".zip,application/zip,application/octet-stream" />
             }
             else if (Model.IsPlain)
             {
@@ -255,7 +255,7 @@
                 </MudText>
                 <MudFileUpload T="IBrowserFile"
                                FilesChanged="@(file => HandleImportPickedAsync(file))"
-                               Accept=".eds,.zip" />
+                               Accept=".eds,.zip,application/zip,application/octet-stream" />
             }
             else if (Model.IsLocked)
             {
@@ -274,7 +274,7 @@
                 </MudText>
                 <MudFileUpload T="IBrowserFile"
                                FilesChanged="@(file => HandleImportPickedAsync(file))"
-                               Accept=".eds,.zip" />
+                               Accept=".eds,.zip,application/zip,application/octet-stream" />
             }
         </MudPaper>
     }
