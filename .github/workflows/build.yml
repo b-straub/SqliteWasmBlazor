@@ -65,23 +65,58 @@ jobs:
       run: npm install
       working-directory: src/Crypto/SqliteWasmBlazor.Crypto/TypeScript
 
-    - name: Restore all dependencies
-      run: dotnet restore
+    # Build each csproj individually in dependency order. We deliberately
+    # avoid `dotnet restore SqliteWasmBlazor.slnx` followed by `dotnet build
+    # --no-restore`: the solution-wide restore evaluates BOTH branches of the
+    # Demo's `<ItemGroup Condition="'$(Configuration)' == 'Debug'">` block
+    # (where the in-repo ProjectReferences live for inner-loop iteration)
+    # AND its Release-only `<PackageReference Include="SqliteWasmBlazor.
+    # Crypto.UI" ... />` block — ItemGroup conditions are ignored at restore
+    # time. NuGet then picks the leaked ProjectReference (project wins over
+    # package) and writes type=project into Crypto's project.assets.json.
+    # At build time `Condition='Debug'` excludes the @(ProjectReference)
+    # item, but assets.json still claims the dep is satisfied — so csc gets
+    # neither the project's bin/ nor the package's lib/ reference and fails
+    # with `error CS0234: 'Hosting' does not exist`.
+    #
+    # Per-project `dotnet build` does single-project restore, which honors
+    # Conditions at the project level. Each lib auto-packs into the
+    # repo-local `.nuget/` source via `GeneratePackageOnBuild=true`, so the
+    # downstream PackageReference chain (Components -> base, Crypto.UI ->
+    # Crypto -> base, Demo -> Crypto.UI/Components/FloatingWindow) resolves
+    # cleanly on the next build.
+    - name: Build SqliteWasmBlazor (base) — auto-pack
+      run: dotnet build src/Base/SqliteWasmBlazor/SqliteWasmBlazor.csproj -c Release
 
-    - name: Build solution
-      run: dotnet build --configuration Release --no-restore
+    - name: Build SqliteWasmBlazor.Models
+      run: dotnet build src/Base/SqliteWasmBlazor.Models/SqliteWasmBlazor.Models.csproj -c Release
 
-    - name: Pack SqliteWasmBlazor
-      run: dotnet pack src/Base/SqliteWasmBlazor/SqliteWasmBlazor.csproj --configuration Release --no-build
+    - name: Build SqliteWasmBlazor.Components
+      run: dotnet build src/Base/SqliteWasmBlazor.Components/SqliteWasmBlazor.Components.csproj -c Release
 
-    - name: Pack SqliteWasmBlazor.Crypto
-      run: dotnet pack src/Crypto/SqliteWasmBlazor.Crypto/SqliteWasmBlazor.Crypto.csproj --configuration Release --no-build
+    - name: Build SqliteWasmBlazor.Crypto — auto-pack
+      run: dotnet build src/Crypto/SqliteWasmBlazor.Crypto/SqliteWasmBlazor.Crypto.csproj -c Release
 
-    - name: Pack SqliteWasmBlazor.Crypto.UI
-      run: dotnet pack src/Crypto/SqliteWasmBlazor.Crypto.UI/SqliteWasmBlazor.Crypto.UI.csproj --configuration Release --no-build
+    - name: Build SqliteWasmBlazor.Crypto.UI — auto-pack
+      run: dotnet build src/Crypto/SqliteWasmBlazor.Crypto.UI/SqliteWasmBlazor.Crypto.UI.csproj -c Release
+
+    - name: Build SqliteWasmBlazor.Crypto.BouncyCastle
+      run: dotnet build src/Crypto/SqliteWasmBlazor.Crypto.BouncyCastle/SqliteWasmBlazor.Crypto.BouncyCastle.csproj -c Release
+
+    - name: Build samples
+      run: |
+        dotnet build samples/SqliteWasmBlazor.FloatingWindow/SqliteWasmBlazor.FloatingWindow.csproj -c Release
+        dotnet build samples/SqliteWasmBlazor.Demo/SqliteWasmBlazor.Demo.csproj -c Release
+        dotnet build samples/SqliteWasmBlazor.AdoNetSample/SqliteWasmBlazor.AdoNetSample.csproj -c Release
+        dotnet build samples/SqliteWasmBlazor.TestApp/SqliteWasmBlazor.TestApp.csproj -c Release
+
+    - name: Build tests
+      run: |
+        dotnet build tests/SqliteWasmBlazor.TestHost/SqliteWasmBlazor.TestHost.csproj -c Release
+        dotnet build tests/SqliteWasmBlazor.Tests/SqliteWasmBlazor.Tests.csproj -c Release
 
     - name: Install Playwright browsers
       run: pwsh tests/SqliteWasmBlazor.Tests/bin/Release/net10.0/playwright.ps1 install --with-deps
 
     - name: Test
-      run: dotnet test --configuration Release --verbosity normal
+      run: dotnet test tests/SqliteWasmBlazor.Tests/SqliteWasmBlazor.Tests.csproj -c Release --no-build --verbosity normal

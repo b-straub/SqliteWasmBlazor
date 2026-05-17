@@ -74,6 +74,23 @@ jobs:
         dotnet clean -c Release --nologo
         rm -rf samples/SqliteWasmBlazor.Demo/bin/Release samples/SqliteWasmBlazor.Demo/obj/Release
 
+    # Build the publishable libraries individually so the Demo's
+    # Release-only PackageReference chain (Demo -> Crypto.UI -> Crypto ->
+    # base) resolves cleanly. See build.yml for the full explanation of
+    # why a solution-level restore would leak the Debug-only
+    # ProjectReference and poison Crypto's project.assets.json.
+    - name: Build SqliteWasmBlazor (base) — auto-pack
+      run: dotnet build src/Base/SqliteWasmBlazor/SqliteWasmBlazor.csproj -c Release --nologo
+
+    - name: Build SqliteWasmBlazor.Components
+      run: dotnet build src/Base/SqliteWasmBlazor.Components/SqliteWasmBlazor.Components.csproj -c Release --nologo
+
+    - name: Build SqliteWasmBlazor.Crypto — auto-pack
+      run: dotnet build src/Crypto/SqliteWasmBlazor.Crypto/SqliteWasmBlazor.Crypto.csproj -c Release --nologo
+
+    - name: Build SqliteWasmBlazor.Crypto.UI — auto-pack
+      run: dotnet build src/Crypto/SqliteWasmBlazor.Crypto.UI/SqliteWasmBlazor.Crypto.UI.csproj -c Release --nologo
+
     - name: Build Demo
       run: dotnet build samples/SqliteWasmBlazor.Demo/SqliteWasmBlazor.Demo.csproj -c Release --nologo
 
