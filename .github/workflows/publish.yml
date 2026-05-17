@@ -125,6 +125,9 @@ jobs:
     - name: Pack SqliteWasmBlazor.Crypto.UI with version
       run: dotnet pack src/Crypto/SqliteWasmBlazor.Crypto.UI/SqliteWasmBlazor.Crypto.UI.csproj -c Release --no-build --output ./.nuget /p:PackageVersion=${{ steps.get_version.outputs.VERSION }}
 
+    - name: Install Playwright browsers
+      run: pwsh tests/SqliteWasmBlazor.Tests/bin/Release/net10.0/playwright.ps1 install --with-deps
+
     # `--logger trx` writes a structured XML report naming each failed test
     # plus its exception message — critical when VSTestTask returns false
     # without logging (MSB4181), which hides the actual assertion failure.
