@@ -125,8 +125,27 @@ jobs:
     - name: Pack SqliteWasmBlazor.Crypto.UI with version
       run: dotnet pack src/Crypto/SqliteWasmBlazor.Crypto.UI/SqliteWasmBlazor.Crypto.UI.csproj -c Release --no-build --output ./.nuget /p:PackageVersion=${{ steps.get_version.outputs.VERSION }}
 
+    # `--logger trx` writes a structured XML report naming each failed test
+    # plus its exception message — critical when VSTestTask returns false
+    # without logging (MSB4181), which hides the actual assertion failure.
     - name: Test
-      run: dotnet test tests/SqliteWasmBlazor.Tests/SqliteWasmBlazor.Tests.csproj -c Release --no-build --verbosity normal
+      run: |
+        dotnet test tests/SqliteWasmBlazor.Tests/SqliteWasmBlazor.Tests.csproj \
+          -c Release --no-build --verbosity normal \
+          --logger "trx;LogFileName=test-results.trx" \
+          --logger "console;verbosity=detailed" \
+          --blame-hang-timeout 5m --blame-crash \
+          --results-directory TestResults
+
+    - name: Upload test diagnostics on failure
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: test-diagnostics
+        path: |
+          TestResults/**/*
+          tests/SqliteWasmBlazor.Tests/TestResults/**/*
+        if-no-files-found: warn
 
     - name: Publish to NuGet
       run: dotnet nuget push ./.nuget/*.nupkg --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate

@@ -118,5 +118,26 @@ jobs:
     - name: Install Playwright browsers
       run: pwsh tests/SqliteWasmBlazor.Tests/bin/Release/net10.0/playwright.ps1 install --with-deps
 
+    # `--logger trx` writes a structured XML report naming each failed test
+    # plus its exception message — critical when VSTestTask returns false
+    # without logging (MSB4181), which hides the actual assertion failure.
+    # `--blame-hang-timeout 5m` produces a dump on hangs; `--blame-crash`
+    # produces a dump on crashes. Both land under TestResults/.
     - name: Test
-      run: dotnet test tests/SqliteWasmBlazor.Tests/SqliteWasmBlazor.Tests.csproj -c Release --no-build --verbosity normal
+      run: |
+        dotnet test tests/SqliteWasmBlazor.Tests/SqliteWasmBlazor.Tests.csproj \
+          -c Release --no-build --verbosity normal \
+          --logger "trx;LogFileName=test-results.trx" \
+          --logger "console;verbosity=detailed" \
+          --blame-hang-timeout 5m --blame-crash \
+          --results-directory TestResults
+
+    - name: Upload test diagnostics on failure
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: test-diagnostics
+        path: |
+          TestResults/**/*
+          tests/SqliteWasmBlazor.Tests/TestResults/**/*
+        if-no-files-found: warn
