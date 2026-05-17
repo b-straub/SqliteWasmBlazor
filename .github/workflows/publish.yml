@@ -97,16 +97,24 @@ jobs:
     - name: Build SqliteWasmBlazor.Crypto.UI — auto-pack
       run: dotnet build src/Crypto/SqliteWasmBlazor.Crypto.UI/SqliteWasmBlazor.Crypto.UI.csproj -c Release
 
-    # Only the test pipeline. Samples (FloatingWindow, Demo, AdoNetSample)
-    # and Crypto.BouncyCastle are not consumed by Tests / TestHost / TestApp
-    # and not packed — building them here would just burn runner minutes.
-    # The full-repo sanity build belongs in build.yml.
+    # Test-pipeline projects, each built explicitly. Letting `dotnet build
+    # Tests.csproj` walk transitively to TestApp puts the Razor / static-
+    # web-asset targets in graph-evaluation mode, which produces a subtly
+    # different TestApp wwwroot than per-project build — and the wasm
+    # runner served from that wwwroot then flakes one Playwright test
+    # (SessionExpiresOnTtl). build.yml builds TestApp / TestHost / Tests
+    # one at a time and passes consistently; match that here.
     #
-    # `dotnet build Tests.csproj` transitively walks TestHost ->
-    # TestApp -> Components / Models (TestApp's unconditional ProjectReferences
-    # to base / Crypto are also walked, but those already auto-packed
-    # above and MSBuild's UpToDate check skips them).
-    - name: Build tests
+    # Samples NOT in the test pipeline (FloatingWindow, Demo, AdoNetSample,
+    # Crypto.BouncyCastle) stay out — build.yml covers the full-repo
+    # sanity build on every push/PR.
+    - name: Build SqliteWasmBlazor.TestApp
+      run: dotnet build samples/SqliteWasmBlazor.TestApp/SqliteWasmBlazor.TestApp.csproj -c Release
+
+    - name: Build SqliteWasmBlazor.TestHost
+      run: dotnet build tests/SqliteWasmBlazor.TestHost/SqliteWasmBlazor.TestHost.csproj -c Release
+
+    - name: Build SqliteWasmBlazor.Tests
       run: dotnet build tests/SqliteWasmBlazor.Tests/SqliteWasmBlazor.Tests.csproj -c Release
 
     - name: Install Playwright browsers
