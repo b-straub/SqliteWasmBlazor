@@ -32,11 +32,16 @@ public abstract class SqliteWasmTestBase(IWaFixture fixture, ITestOutputHelper o
         //     cover the *cumulative* queue, not just one test's runtime.
         //   Per-test — fresh navigation per case; wait covers a single WASM
         //     boot + run.
-        // 60 s comfortably absorbs the queue today; bump only if the queue
-        // grows past that.
+        // GitHub Actions runners are noticeably slower than a dev box, and
+        // OnePass-mode tail-end tests (e.g. TimeSpan_Conversion) wait for the
+        // full queue to drain before their label appears. The Chromium budget
+        // was 10 s which passed locally but flaked one test on CI with no
+        // diagnostic (VSTestTask returned false without logging the actual
+        // failure). Bumped to 60 s to match the comment intent and absorb CI
+        // jitter; Firefox/WebKit already at the longer values.
         var timeout = _fixture.Type switch
         {
-            IWaFixture.BrowserType.CHROMIUM => 10000,
+            IWaFixture.BrowserType.CHROMIUM => 60000,
             IWaFixture.BrowserType.FIREFOX => 90000,
             IWaFixture.BrowserType.WEBKIT => 60000,
             _ => throw new ArgumentOutOfRangeException(nameof(_fixture.Type), nameof(_fixture.Type))
