@@ -36,6 +36,131 @@ function keyFingerprint(key: Uint8Array | undefined): string {
 }
 
 /**
+ * Per-chunk plain → encrypted. Reads <paramref name="plainChunk"/>
+ * (slot-aligned plain pages, <paramref name="plainChunk"/>.length must
+ * be a multiple of 4096), encrypts each slot under
+ * <paramref name="targetKey"/> with AAD <c>prf-vfs-v1|{dbPath}|{slotIdx}</c>
+ * where <c>slotIdx = slotIndexBase + i</c>, writes the resulting 4124-
+ * byte encrypted slot into <paramref name="out"/> at the same slot
+ * index. Used by the chunked <c>encryptDatabaseInPlace</c> /
+ * <c>importDbPlain</c> paths so worker JS heap holds at most one
+ * chunk (~1 MB input + ~1 MB output) instead of the full file's worth
+ * of bytes.
+ *
+ * Caller pre-allocates <paramref name="out"/> at the matching size
+ * (slotCount × 4124). On exit <paramref name="plainChunk"/> is
+ * unchanged; caller wipes it if it holds sensitive plaintext.
+ */
+export function encryptChunkInto(
+    plainChunk: Uint8Array,
+    out: Uint8Array,
+    dbPath: string,
+    slotIndexBase: number,
+    targetKey: Uint8Array,
+): void {
+    if (plainChunk.length === 0) {
+        return;
+    }
+    if (plainChunk.length % SECTOR_SIZE !== 0) {
+        throw new Error(
+            `encryptChunkInto: plainChunk length ${plainChunk.length} is not a multiple of plain slot size ${SECTOR_SIZE}`,
+        );
+    }
+    const slotCount = plainChunk.length / SECTOR_SIZE;
+    if (out.length !== slotCount * PHYSICAL_SLOT_SIZE) {
+        throw new Error(
+            `encryptChunkInto: out length ${out.length} != slotCount(${slotCount}) × ${PHYSICAL_SLOT_SIZE}`,
+        );
+    }
+    if (slotIndexBase < 0 || !Number.isInteger(slotIndexBase)) {
+        throw new Error(`encryptChunkInto: slotIndexBase must be a non-negative integer (got ${slotIndexBase})`);
+    }
+
+    for (let i = 0; i < slotCount; i++) {
+        const aad = buildPageAad(dbPath, slotIndexBase + i);
+        const plainView = plainChunk.subarray(i * SECTOR_SIZE, (i + 1) * SECTOR_SIZE);
+        const enc = encryptChaCha20Poly1305(plainView, targetKey, aad);
+        const dstStart = i * PHYSICAL_SLOT_SIZE;
+        out.set(enc.ciphertext.subarray(0, PAGE_PLAINTEXT_LEN), dstStart);
+        out.set(enc.nonce, dstStart + PAGE_PLAINTEXT_LEN);
+        out.set(
+            enc.ciphertext.subarray(PAGE_PLAINTEXT_LEN),
+            dstStart + PAGE_PLAINTEXT_LEN + PAGE_NONCE_LEN,
+        );
+    }
+}
+
+/**
+ * Per-chunk encrypted → plain. Reads <paramref name="encChunk"/>
+ * (slot-aligned encrypted slots, <paramref name="encChunk"/>.length
+ * must be a multiple of 4124), decrypts each slot under
+ * <paramref name="sourceKey"/> with AAD
+ * <c>prf-vfs-v1|{dbPath}|{slotIdx}</c>, writes the resulting 4096-
+ * byte plaintext page into <paramref name="out"/> at the same slot
+ * index. Used by the chunked <c>decryptDatabaseInPlace</c> path.
+ *
+ * Caller pre-allocates <paramref name="out"/> at the matching size
+ * (slotCount × 4096). On AEAD tag failure the per-slot
+ * <c>decryptChaCha20Poly1305</c> throws — caller decides whether to
+ * abort or surface WRONG_KEY.
+ */
+export function decryptChunkInto(
+    encChunk: Uint8Array,
+    out: Uint8Array,
+    dbPath: string,
+    slotIndexBase: number,
+    sourceKey: Uint8Array,
+): void {
+    if (encChunk.length === 0) {
+        return;
+    }
+    if (encChunk.length % PHYSICAL_SLOT_SIZE !== 0) {
+        throw new Error(
+            `decryptChunkInto: encChunk length ${encChunk.length} is not a multiple of slot size ${PHYSICAL_SLOT_SIZE}`,
+        );
+    }
+    const slotCount = encChunk.length / PHYSICAL_SLOT_SIZE;
+    if (out.length !== slotCount * SECTOR_SIZE) {
+        throw new Error(
+            `decryptChunkInto: out length ${out.length} != slotCount(${slotCount}) × ${SECTOR_SIZE}`,
+        );
+    }
+    if (slotIndexBase < 0 || !Number.isInteger(slotIndexBase)) {
+        throw new Error(`decryptChunkInto: slotIndexBase must be a non-negative integer (got ${slotIndexBase})`);
+    }
+
+    for (let i = 0; i < slotCount; i++) {
+        const slotStart = i * PHYSICAL_SLOT_SIZE;
+        const aad = buildPageAad(dbPath, slotIndexBase + i);
+        const cipherPlusTag = new Uint8Array(PAGE_PLAINTEXT_LEN + PAGE_TAG_LEN);
+        cipherPlusTag.set(encChunk.subarray(slotStart, slotStart + PAGE_PLAINTEXT_LEN), 0);
+        cipherPlusTag.set(
+            encChunk.subarray(
+                slotStart + PAGE_PLAINTEXT_LEN + PAGE_NONCE_LEN,
+                slotStart + PHYSICAL_SLOT_SIZE,
+            ),
+            PAGE_PLAINTEXT_LEN,
+        );
+        const nonce = new Uint8Array(
+            encChunk.subarray(
+                slotStart + PAGE_PLAINTEXT_LEN,
+                slotStart + PAGE_PLAINTEXT_LEN + PAGE_NONCE_LEN,
+            ),
+        );
+        const plaintext = decryptChaCha20Poly1305(
+            { ciphertext: cipherPlusTag, nonce },
+            sourceKey,
+            aad,
+        );
+        try {
+            out.set(plaintext, i * SECTOR_SIZE);
+        } finally {
+            clearBytes(plaintext);
+        }
+    }
+}
+
+/**
  * Per-chunk variant of <see cref="rekeySlotsInPlace"/>. Used by the
  * chunked encrypted export path: each chunk is a slot-aligned slice of
  * an SAH file (typically 256 slots = ~1 MB). <paramref name="slotIndexBase"/>

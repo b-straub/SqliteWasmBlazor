@@ -26,6 +26,8 @@ import {
     decryptSlotsInPlace,
     encryptSlotsInPlace,
     rekeyChunkInPlace,
+    encryptChunkInto,
+    decryptChunkInto,
 } from './vfs-prf/rekey';
 import { importDiskStreamPreflight, importDiskStreamCommit } from './vfs-prf/import-streamed';
 import { base64ToBytes, clearBytes } from '@sqlitewasmblazor/crypto-core';
@@ -1593,26 +1595,66 @@ async function importDatabasePlain(
             `Disk must be Encrypted+Unlocked before plain bytes can be ` +
             `re-encrypted under the disk key.`);
     }
-    let rekeyed: Uint8Array | undefined;
+    const dbPath = `/databases/${dbName}`;
+    if (plainBytes.length === 0 || plainBytes.length % PLAIN_SLOT_SIZE !== 0) {
+        clearBytes(globalKey);
+        throw new Error(
+            `importDbPlain: ${dbName} length ${plainBytes.length} is not a non-zero multiple of ` +
+            `the plain page size ${PLAIN_SLOT_SIZE}`);
+    }
+    // Refuse to overwrite an existing DB — same contract as the
+    // non-chunked importDatabase opaque path. Caller must wipe first.
+    if (poolUtil.getFileNames().includes(dbPath)) {
+        clearBytes(globalKey);
+        return { rowsAffected: 2 /* EXISTING_DB_REFUSED */ };
+    }
+
+    logger.info(
+        MODULE_NAME,
+        `[plain-import] chunked rekey-in: dbPath=${dbPath} ` +
+        `globalKey=${keyFingerprint(globalKey)} ` +
+        `plainBytes=${plainBytes.length}B`);
+
+    const PLAIN_IMPORT_CHUNK_SLOTS = 256;
+    const totalSlots = plainBytes.length / PLAIN_SLOT_SIZE;
+    const tempPath = `${dbPath}.plain-import-tmp`;
+    if (poolUtil.getFileNames().includes(tempPath)) {
+        try { poolUtil.unlink(tempPath); } catch { /* best-effort */ }
+    }
+
+    let encChunk: Uint8Array | null = null;
     try {
-        const dbPath = `/databases/${dbName}`;
+        // Chunked plain → encrypted: each slot batch's encrypted output
+        // (~1 MB) writes directly to a temp SAH slot via writeFileSlice;
+        // no whole-DB encrypted buffer ever exists in JS heap. plainBytes
+        // is the caller's input — we read from it via subarray views
+        // (no copies) per chunk.
+        for (let slotBase = 0; slotBase < totalSlots; slotBase += PLAIN_IMPORT_CHUNK_SLOTS) {
+            const slotCount = Math.min(PLAIN_IMPORT_CHUNK_SLOTS, totalSlots - slotBase);
+            const plainView = plainBytes.subarray(
+                slotBase * PLAIN_SLOT_SIZE,
+                (slotBase + slotCount) * PLAIN_SLOT_SIZE);
+            encChunk = new Uint8Array(slotCount * ENCRYPTED_SLOT_SIZE);
+            try {
+                encryptChunkInto(plainView, encChunk, dbPath, slotBase, globalKey);
+                poolUtil.writeFileSlice(tempPath, slotBase * ENCRYPTED_SLOT_SIZE, encChunk);
+            } finally {
+                clearBytes(encChunk);
+                encChunk = null;
+            }
+        }
+        poolUtil.atomicReplaceFile(tempPath, dbPath);
         logger.info(
             MODULE_NAME,
-            `[plain-import] rekey-in: dbPath=${dbPath} ` +
-            `globalKey=${keyFingerprint(globalKey)} ` +
-            `plainBytes=${plainBytes.length}B`);
-        // Plain → encrypted via backward in-place: same buffer holds the
-        // plain input then the encrypted output (1× output-size peak in
-        // the loop). Matches the encryptSlotsInPlace path that EnterEncrypted
-        // uses; AAD shape is identical to the legacy rekeySlots call.
-        rekeyed = encryptSlotsInPlace(plainBytes, dbPath, globalKey);
-        logger.info(
-            MODULE_NAME,
-            `[plain-import] rekey-out: rekeyed=${rekeyed.length}B`);
-        return await importDatabase(dbName, rekeyed, /* opaque */ true);
+            `[plain-import] chunked rekey-out: dbPath=${dbPath} ` +
+            `encrypted=${totalSlots * ENCRYPTED_SLOT_SIZE}B`);
+        return { rowsAffected: 0 };
+    } catch (error) {
+        try { poolUtil.unlink(tempPath); } catch { /* best-effort */ }
+        throw error;
     } finally {
-        if (rekeyed !== undefined) {
-            clearBytes(rekeyed);
+        if (encChunk !== null) {
+            clearBytes(encChunk);
         }
         clearBytes(globalKey);
     }
@@ -1931,68 +1973,82 @@ async function encryptDatabaseInPlace(dbName: string, key: Uint8Array) {
         throw new Error(`encryptDb: no existing DB at ${dbPath}`);
     }
 
-    let raw: Uint8Array | null = null;
-    let encrypted: Uint8Array | null = null;
+    await closeDatabase(dbName);
+
+    const fileSize = poolUtil.getFileSize(dbPath);
+    if (fileSize === 0 || fileSize % PLAIN_SLOT_SIZE !== 0) {
+        throw new Error(
+            `encryptDb: ${dbName} length ${fileSize} is not a non-zero multiple of ` +
+            `the plain page size ${PLAIN_SLOT_SIZE}; refusing to encrypt a non-plain source.`,
+        );
+    }
+    // Length is necessary but not sufficient — 1024 encrypted slots and
+    // 1031 plain pages have the same byte length. Verify the SQLite
+    // magic header on the first 16 bytes before committing to encryption.
+    const headerProbe = poolUtil.exportFileSlice(dbPath, 0, Math.min(16, fileSize));
+    if (!hasSqliteMagicHeader(headerProbe)) {
+        clearBytes(headerProbe);
+        throw new Error(
+            `encryptDb: ${dbName} does not start with the SQLite magic header — ` +
+            `refusing to treat ciphertext as plain pages.`,
+        );
+    }
+    clearBytes(headerProbe);
+
+    // Chunked encrypt — read one slot batch at a time from the source
+    // SAH, encrypt into a chunk-sized output buffer, write to a temp SAH
+    // slot at the matching encrypted offset. JS heap peak per chunk is
+    // ~1 MB input + ~1 MB output regardless of DB size. On all chunks
+    // done, atomic-rename temp → real path. See
+    // ~/.claude/plans/let-each-slot-fit-the-pocket.md (G3).
+    const ENCRYPT_CHUNK_SLOTS = 256;
+    const totalSlots = fileSize / PLAIN_SLOT_SIZE;
+    const tempPath = `${dbPath}.encrypt-tmp`;
+    // Clean stale temp from any prior crashed attempt.
+    if (fileNames.includes(tempPath)) {
+        try { poolUtil.unlink(tempPath); } catch { /* best-effort */ }
+    }
+
+    let plainChunk: Uint8Array | null = null;
+    let encChunk: Uint8Array | null = null;
     try {
-        await closeDatabase(dbName);
-
-        raw = poolUtil.exportFile(dbPath);
-
-        // Shape check: source must be plain SQLite pages. The registry
-        // says no key, but a real encrypted-at-rest file after a registry
-        // loss would still be slot-format ciphertext (4124-byte slots).
-        // Reject before rekeySlots so we can't accidentally treat the
-        // ciphertext as plain pages and corrupt it.
-        if (raw!.length === 0 || raw!.length % PLAIN_SLOT_SIZE !== 0) {
-            throw new Error(
-                `encryptDb: ${dbName} length ${raw!.length} is not a non-zero multiple of ` +
-                `the plain page size ${PLAIN_SLOT_SIZE}; refusing to encrypt a non-plain source.`,
-            );
+        for (let slotBase = 0; slotBase < totalSlots; slotBase += ENCRYPT_CHUNK_SLOTS) {
+            const slotCount = Math.min(ENCRYPT_CHUNK_SLOTS, totalSlots - slotBase);
+            const plainOffset = slotBase * PLAIN_SLOT_SIZE;
+            const encOffset = slotBase * ENCRYPTED_SLOT_SIZE;
+            plainChunk = poolUtil.exportFileSlice(dbPath, plainOffset, slotCount * PLAIN_SLOT_SIZE);
+            encChunk = new Uint8Array(slotCount * ENCRYPTED_SLOT_SIZE);
+            try {
+                encryptChunkInto(plainChunk, encChunk, dbPath, slotBase, key);
+                poolUtil.writeFileSlice(tempPath, encOffset, encChunk);
+            } finally {
+                clearBytes(plainChunk);
+                plainChunk = null;
+                clearBytes(encChunk);
+                encChunk = null;
+            }
         }
-
-        // Length is necessary but not sufficient — 1024 encrypted slots
-        // and 1031 plain pages have the same byte length. Verify the
-        // SQLite magic header so we can't misclassify ciphertext.
-        if (!hasSqliteMagicHeader(raw!)) {
-            throw new Error(
-                `encryptDb: ${dbName} does not start with the SQLite magic header — ` +
-                `refusing to treat ciphertext as plain pages.`,
-            );
-        }
-
-        // Backwards in-place encrypt: allocates a single output-size
-        // buffer, copies plain bytes into its leading portion, processes
-        // slots N-1 → 0 so each slot's larger output overlaps memory
-        // earlier-index inputs no longer need. Loop peak = 1× output
-        // size; brief 2× peak only at the initial set copy below.
-        encrypted = encryptSlotsInPlace(raw!, dbPath, key);
-        // Free the plain input ref immediately — encryptSlotsInPlace
-        // copied the bytes into `encrypted`. Keeping `raw` alive would
-        // hold the 2× peak across the replaceOpfsFileAtomically call.
-        clearBytes(raw);
-        raw = null;
-
-        // Non-destructive replace: temp-write + double-rename means the
-        // original survives any failure inside replaceOpfsFileAtomically.
-        replaceOpfsFileAtomically(dbPath, encrypted, /* opaque */ true);
-
+        // All chunks committed to temp — atomically promote it.
+        poolUtil.atomicReplaceFile(tempPath, dbPath);
         logger.info(
             MODULE_NAME,
-            `✓ Encrypted in place ${dbName}: → ${encrypted.length}B`,
+            `✓ Encrypted in place ${dbName} (chunked): ${fileSize}B plain → ${totalSlots * ENCRYPTED_SLOT_SIZE}B encrypted`,
         );
-
         return { rowsAffected: 0 };
+    } catch (error) {
+        // Roll back: temp slot may have partial data; unlink it. Source
+        // DB at dbPath is untouched until the atomicReplaceFile call,
+        // so a partial-chunk failure leaves the original intact.
+        try { poolUtil.unlink(tempPath); } catch { /* best-effort */ }
+        throw error;
     } finally {
-        // raw is plain SQLite pages from OPFS — sensitive plaintext.
-        // Already cleared + nulled on the success path above; defensive
-        // clear here covers the error path before encryptSlotsInPlace runs.
-        if (raw !== null) {
-            clearBytes(raw);
+        // Defensive — buffers cleared in the inner finally on the
+        // success path, but the error path may leave them set.
+        if (plainChunk !== null) {
+            clearBytes(plainChunk);
         }
-        // encrypted is ciphertext (post-write) — not sensitive, but
-        // clearing it costs almost nothing and keeps the GC heap clean.
-        if (encrypted !== null) {
-            clearBytes(encrypted);
+        if (encChunk !== null) {
+            clearBytes(encChunk);
         }
     }
 }
@@ -2033,56 +2089,67 @@ async function decryptDatabaseInPlace(dbName: string) {
         throw new Error(`decryptDb: globalKey not set but hasGlobalKey returned true for ${dbName}`);
     }
 
-    let plain: Uint8Array | null = null;
-    let raw: Uint8Array | null = null;
+    await closeDatabase(dbName);
+
+    const fileSize = poolUtil.getFileSize(dbPath);
+    if (fileSize === 0 || fileSize % ENCRYPTED_SLOT_SIZE !== 0) {
+        clearBytes(sourceKey);
+        throw new Error(
+            `decryptDb: ${dbName} length ${fileSize} is not a non-zero multiple of ` +
+            `the encrypted slot size ${ENCRYPTED_SLOT_SIZE}; registry says encrypted but ` +
+            `the file shape says plain — refusing to decrypt a non-encrypted source.`,
+        );
+    }
+
+    const DECRYPT_CHUNK_SLOTS = 256;
+    const totalSlots = fileSize / ENCRYPTED_SLOT_SIZE;
+    const tempPath = `${dbPath}.decrypt-tmp`;
+    if (fileNames.includes(tempPath)) {
+        try { poolUtil.unlink(tempPath); } catch { /* best-effort */ }
+    }
+
+    let encChunk: Uint8Array | null = null;
+    let plainChunk: Uint8Array | null = null;
     try {
-        await closeDatabase(dbName);
-
-        raw = poolUtil.exportFile(dbPath);
-
-        // Shape check: source must be slot-format ciphertext.
-        if (raw!.length === 0 || raw!.length % ENCRYPTED_SLOT_SIZE !== 0) {
-            throw new Error(
-                `decryptDb: ${dbName} length ${raw!.length} is not a non-zero multiple of ` +
-                `the encrypted slot size ${ENCRYPTED_SLOT_SIZE}; registry says encrypted but ` +
-                `the file shape says plain — refusing to decrypt a non-encrypted source.`,
-            );
+        // Chunked decrypt — read one slot batch at a time from the
+        // encrypted source, decrypt into a chunk-sized plain output,
+        // write to a temp SAH slot at the matching plain offset. JS
+        // heap peak per chunk is ~1 MB input + ~1 MB plain output
+        // regardless of DB size. On all chunks done, atomic-rename
+        // temp → real path. The plain output IS sensitive plaintext;
+        // both chunk buffers are wiped between iterations.
+        for (let slotBase = 0; slotBase < totalSlots; slotBase += DECRYPT_CHUNK_SLOTS) {
+            const slotCount = Math.min(DECRYPT_CHUNK_SLOTS, totalSlots - slotBase);
+            const encOffset = slotBase * ENCRYPTED_SLOT_SIZE;
+            const plainOffset = slotBase * PLAIN_SLOT_SIZE;
+            encChunk = poolUtil.exportFileSlice(dbPath, encOffset, slotCount * ENCRYPTED_SLOT_SIZE);
+            plainChunk = new Uint8Array(slotCount * PLAIN_SLOT_SIZE);
+            try {
+                decryptChunkInto(encChunk, plainChunk, dbPath, slotBase, sourceKey);
+                poolUtil.writeFileSlice(tempPath, plainOffset, plainChunk);
+            } finally {
+                clearBytes(encChunk);
+                encChunk = null;
+                clearBytes(plainChunk);
+                plainChunk = null;
+            }
         }
-
-        // In-place decrypt — write plain bytes back into `raw`'s buffer
-        // at slot offsets aligned to 4096-byte plain pages. Halves the
-        // worker heap peak (1× DB size instead of 2× input+output) so
-        // LeaveEncrypted on ~250 MB DBs fits mobile-browser renderer
-        // caps without retries.
-        plain = decryptSlotsInPlace(raw!, dbPath, sourceKey);
-        // raw and plain now alias the same backing buffer; finally must
-        // not clear raw (would zero the plain bytes too).
-        raw = null;
-
-        replaceOpfsFileAtomically(dbPath, plain!, /* opaque */ false);
-
+        poolUtil.atomicReplaceFile(tempPath, dbPath);
         logger.info(
             MODULE_NAME,
-            `✓ Decrypted in place ${dbName}: → ${plain!.length}B`,
+            `✓ Decrypted in place ${dbName} (chunked): ${fileSize}B encrypted → ${totalSlots * PLAIN_SLOT_SIZE}B plain`,
         );
-
         return { rowsAffected: 0 };
+    } catch (error) {
+        try { poolUtil.unlink(tempPath); } catch { /* best-effort */ }
+        throw error;
     } finally {
-        // Single-key model: the on-disk DB is now plain, but globalKey may
-        // still be set (caller-controlled). Caller is responsible for
-        // dropping globalKey via ClearEncryptionKeyAsync if the worker
-        // should be in plain mode after this op.
-        // sourceKey is the fresh snapshot — wipe so K_old doesn't
-        // linger past the operation.
         clearBytes(sourceKey);
-        // raw is encrypted ciphertext from OPFS — not a secret.
-        if (raw !== null) {
-            clearBytes(raw);
+        if (encChunk !== null) {
+            clearBytes(encChunk);
         }
-        // plain is the decrypted intermediate — file is now plain on
-        // OPFS, but the in-memory buffer is a copy that should be wiped.
-        if (plain !== null) {
-            clearBytes(plain);
+        if (plainChunk !== null) {
+            clearBytes(plainChunk);
         }
     }
 }
