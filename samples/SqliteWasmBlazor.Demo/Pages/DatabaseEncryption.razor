@@ -215,13 +215,14 @@
                    Plain ZIP onto an Unlocked disk re-encrypts each entry on
                    write under the registered globalKey via the worker's
                    importDbPlain handler — manifest + passkey binding survive. *@
-                <MudText Typo="Typo.body2" Class="mb-2">
-                    <MudIcon Icon="@Icons.Material.Filled.FileUpload" Size="Size.Small" Class="mr-1" />
-                    @Model.Localizer["Btn_ImportFile_ZipOnly"]
-                </MudText>
                 <MudFileUpload T="IBrowserFile"
                                FilesChanged="@(file => HandleImportPickedAsync(file))"
-                               Accept=".zip,application/zip,application/octet-stream" />
+                               Accept=".zip,application/zip,application/octet-stream"
+                               Disabled="@IsImporting">
+                    <CustomContent Context="upload">
+                        @RenderImportButton(upload, Model.Localizer["Btn_ImportFile_ZipOnly"])
+                    </CustomContent>
+                </MudFileUpload>
             }
             else if (Model.IsPlain)
             {
@@ -249,13 +250,14 @@
                    under the envelope's passkey via the guided primitive) or
                    .zip (replaces the pool with plain ZIP entries). The
                    handler dispatches by extension. *@
-                <MudText Typo="Typo.body2" Class="mb-2">
-                    <MudIcon Icon="@Icons.Material.Filled.FileUpload" Size="Size.Small" Class="mr-1" />
-                    @Model.Localizer["Btn_ImportFile"]
-                </MudText>
                 <MudFileUpload T="IBrowserFile"
                                FilesChanged="@(file => HandleImportPickedAsync(file))"
-                               Accept=".eds,.zip,application/zip,application/octet-stream" />
+                               Accept=".eds,.zip,application/zip,application/octet-stream"
+                               Disabled="@IsImporting">
+                    <CustomContent Context="upload">
+                        @RenderImportButton(upload, Model.Localizer["Btn_ImportFile"])
+                    </CustomContent>
+                </MudFileUpload>
             }
             else if (Model.IsLocked)
             {
@@ -268,13 +270,14 @@
                 <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mb-2">
                     @Model.Localizer["Hint_ImportOnLocked"]
                 </MudText>
-                <MudText Typo="Typo.body2" Class="mb-2">
-                    <MudIcon Icon="@Icons.Material.Filled.FileUpload" Size="Size.Small" Class="mr-1" />
-                    @Model.Localizer["Btn_ImportFile"]
-                </MudText>
                 <MudFileUpload T="IBrowserFile"
                                FilesChanged="@(file => HandleImportPickedAsync(file))"
-                               Accept=".eds,.zip,application/zip,application/octet-stream" />
+                               Accept=".eds,.zip,application/zip,application/octet-stream"
+                               Disabled="@IsImporting">
+                    <CustomContent Context="upload">
+                        @RenderImportButton(upload, Model.Localizer["Btn_ImportFile"])
+                    </CustomContent>
+                </MudFileUpload>
             }
         </MudPaper>
     }

@@ -1,5 +1,7 @@
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Forms;
+using Microsoft.AspNetCore.Components.Web;
+using Microsoft.Extensions.Localization;
 using MudBlazor;
 using SqliteWasmBlazor.Components.Interop;
 using SqliteWasmBlazor.Crypto.UI.Components.Encryption;
@@ -8,16 +10,50 @@ namespace SqliteWasmBlazor.Demo.Pages;
 
 public partial class DatabaseEncryption
 {
-    /// <summary>
-    /// Maximum size accepted from <see cref="MudFileUpload{T}"/> on disk
-    /// import. The encrypted-VFS pool is bounded by the SAH capacity (~25
-    /// slots × ~few MB each); 100 MiB covers practical envelopes with
-    /// headroom while preventing a malicious / corrupt picker from
-    /// pinning the WASM heap.
-    /// </summary>
-    private const long MaxImportEnvelopeBytes = 100L * 1024 * 1024;
-
     [Inject] public required IDialogService DialogService { get; init; }
+
+    /// <summary>
+    /// True while either import command is executing. Drives the activator
+    /// button's busy state (spinner + disabled) on every <c>MudFileUpload</c>
+    /// branch so the user gets the same working-indicator feedback the
+    /// export <c>MudButtonAsyncRx</c> already shows out of the box.
+    /// </summary>
+    private bool IsImporting =>
+        Model.ImportDisk.Executing || Model.ImportAllDatabases.Executing;
+
+    /// <summary>
+    /// Shared activator markup for the three <c>MudFileUpload.CustomContent</c>
+    /// slots. Renders a <c>MudButton</c> that mirrors <c>MudButtonAsyncRx</c>'s
+    /// visual when an import command is executing (spinner + disabled state)
+    /// and triggers the picker on click otherwise. <c>upload</c> is the
+    /// <c>MudFileUpload</c> instance the slot exposes — its
+    /// <c>OpenFilePickerAsync()</c> drives the native picker.
+    /// </summary>
+    private RenderFragment RenderImportButton(MudFileUpload<IBrowserFile> upload, LocalizedString label) => builder =>
+    {
+        var busy = IsImporting;
+        builder.OpenComponent<MudButton>(0);
+        builder.AddAttribute(1, "Variant", Variant.Outlined);
+        builder.AddAttribute(2, "Color", Color.Primary);
+        builder.AddAttribute(3, "StartIcon", busy ? null : Icons.Material.Filled.FileUpload);
+        builder.AddAttribute(4, "FullWidth", true);
+        builder.AddAttribute(5, "Disabled", busy);
+        builder.AddAttribute(6, "OnClick", EventCallback.Factory.Create<MouseEventArgs>(
+            this, _ => upload.OpenFilePickerAsync()));
+        builder.AddAttribute(7, "ChildContent", (RenderFragment)(child =>
+        {
+            if (busy)
+            {
+                child.OpenComponent<MudProgressCircular>(0);
+                child.AddAttribute(1, "Indeterminate", true);
+                child.AddAttribute(2, "Size", Size.Small);
+                child.AddAttribute(3, "Class", "ms-n1 me-2");
+                child.CloseComponent();
+            }
+            child.AddContent(4, label);
+        }));
+        builder.CloseComponent();
+    };
 
     /// <summary>
     /// Triggered when <see cref="EncryptionModel.PendingDownload"/>
@@ -151,14 +187,17 @@ public partial class DatabaseEncryption
     }
 
     /// <summary>
-    /// Common file-bytes read with size cap. Returns null on
-    /// no-file-picked; throws on oversize.
+    /// Common file-bytes read. Uses the picked file's own <see cref="IBrowserFile.Size"/>
+    /// as the stream cap so legitimate large DB pools (multi-DB host, FTS5
+    /// indices, blob columns) aren't rejected by an arbitrary constant —
+    /// the browser/picker already bounds what the user can hand in. Returns
+    /// null on no-file-picked.
     /// </summary>
     private static async Task<byte[]?> ReadPickedAsync(IBrowserFile? file)
     {
         if (file is null) return null;
-        await using var stream = file.OpenReadStream(maxAllowedSize: MaxImportEnvelopeBytes);
-        using var ms = new MemoryStream();
+        await using var stream = file.OpenReadStream(maxAllowedSize: file.Size);
+        using var ms = new MemoryStream(checked((int)file.Size));
         await stream.CopyToAsync(ms);
         return ms.ToArray();
     }
