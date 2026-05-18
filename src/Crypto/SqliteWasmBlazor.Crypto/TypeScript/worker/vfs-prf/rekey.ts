@@ -119,6 +119,157 @@ export function rekeySlotsInPlace(
     return bytes;
 }
 
+/**
+ * In-place variant of <see cref="rekeySlots"/> for the
+ * <c>encrypted → plain</c> case (source key defined, target undefined,
+ * output slot is smaller than input slot). Decrypts each input slot
+ * under <paramref name="sourceKey"/>, writes the 4096-byte plaintext
+ * back to <paramref name="bytes"/> at the matching plain-slot offset.
+ *
+ * Forward iteration is safe: slot i's write at <c>[i*4096..(i+1)*4096)</c>
+ * never overlaps slot i+1's input at <c>[(i+1)*4124..(i+2)*4124)</c> —
+ * the write always ends 28*(i+1) bytes before the next input read
+ * starts. Returns a subarray view of <paramref name="bytes"/> covering
+ * just the plain output (<c>slotCount * 4096</c> bytes); the trailing
+ * portion of the buffer is dead but allocated.
+ *
+ * Halves the worker peak for <c>decryptDb</c> / <c>LeaveEncrypted</c>
+ * (was 1× input + 1× output ≈ 2× DB size; now 1× buffer for both).
+ */
+export function decryptSlotsInPlace(
+    bytes: Uint8Array,
+    dbPath: string,
+    sourceKey: Uint8Array,
+): Uint8Array {
+    if (bytes.length === 0) {
+        return new Uint8Array(0);
+    }
+    if (bytes.length % PHYSICAL_SLOT_SIZE !== 0) {
+        throw new Error(
+            `decryptSlotsInPlace: input length ${bytes.length} is not a multiple of slot size ${PHYSICAL_SLOT_SIZE}`,
+        );
+    }
+
+    const slotCount = bytes.length / PHYSICAL_SLOT_SIZE;
+    console.log(
+        `[decryptSlotsInPlace] dbPath=${dbPath} ` +
+        `sourceKey=${keyFingerprint(sourceKey)} ` +
+        `targetKey=<plain> ` +
+        `slots=${slotCount} (in-place; peak = 1× DB size)`);
+
+    for (let i = 0; i < slotCount; i++) {
+        const inputStart = i * PHYSICAL_SLOT_SIZE;
+        const aad = buildPageAad(dbPath, i);
+
+        // Lift slot's ct + tag into a fresh combined buffer for the
+        // AEAD decrypt. Nonce gets a fresh copy too — overwriting the
+        // input slot region while the AEAD is still consuming it
+        // would corrupt the operation; `new Uint8Array(nonce)` lifts
+        // the bytes off the source.
+        const cipherPlusTag = new Uint8Array(PAGE_PLAINTEXT_LEN + PAGE_TAG_LEN);
+        cipherPlusTag.set(bytes.subarray(inputStart, inputStart + PAGE_PLAINTEXT_LEN), 0);
+        cipherPlusTag.set(
+            bytes.subarray(
+                inputStart + PAGE_PLAINTEXT_LEN + PAGE_NONCE_LEN,
+                inputStart + PHYSICAL_SLOT_SIZE,
+            ),
+            PAGE_PLAINTEXT_LEN,
+        );
+        const nonce = new Uint8Array(
+            bytes.subarray(
+                inputStart + PAGE_PLAINTEXT_LEN,
+                inputStart + PAGE_PLAINTEXT_LEN + PAGE_NONCE_LEN,
+            ),
+        );
+        const plaintext = decryptChaCha20Poly1305(
+            { ciphertext: cipherPlusTag, nonce },
+            sourceKey,
+            aad,
+        );
+        try {
+            // Write plain bytes back at the slot's plain offset. This
+            // overwrites part of slot i's old encrypted bytes (which
+            // we've already consumed) — slot i+1's input at
+            // [(i+1)*4124..) is untouched.
+            bytes.set(plaintext, i * SECTOR_SIZE);
+        } finally {
+            clearBytes(plaintext);
+        }
+    }
+    // Plain output is in [0..slotCount*4096); the remaining bytes
+    // [slotCount*4096..slotCount*4124) are dead (old encrypted
+    // bytes). Caller receives just the plain portion via subarray.
+    return bytes.subarray(0, slotCount * SECTOR_SIZE);
+}
+
+/**
+ * In-place variant of <see cref="rekeySlots"/> for the
+ * <c>plain → encrypted</c> case (source undefined, target defined,
+ * output slot is larger than input slot). Allocates the output-sized
+ * buffer, copies the plain input into its leading portion, then
+ * processes slots BACKWARDS so each slot's encrypt output (at
+ * <c>[i*4124..(i+1)*4124)</c>) overwrites memory that earlier-indexed
+ * inputs no longer need.
+ *
+ * Why backwards: forward iteration would corrupt slot i+1's plain input
+ * when slot i's 4124-byte output overwrites <c>[(i+1)*4096..(i+1)*4124)</c>
+ * before the next iteration reads it. Backwards iteration writes slot
+ * N-1 first, slot 0 last — slot i's input region is touched only after
+ * every j > i has already been encrypted.
+ *
+ * Memory peak: 1× output-size during the loop (1× input + 1× output
+ * for a brief moment at the initial <c>set</c> call; caller should
+ * release the input ref immediately after this returns).
+ */
+export function encryptSlotsInPlace(
+    bytesIn: Uint8Array,
+    dbPath: string,
+    targetKey: Uint8Array,
+): Uint8Array {
+    if (bytesIn.length === 0) {
+        return new Uint8Array(0);
+    }
+    if (bytesIn.length % SECTOR_SIZE !== 0) {
+        throw new Error(
+            `encryptSlotsInPlace: input length ${bytesIn.length} is not a multiple of plain slot size ${SECTOR_SIZE}`,
+        );
+    }
+
+    const slotCount = bytesIn.length / SECTOR_SIZE;
+    // Allocate the output-sized buffer up front; copy the plain bytes
+    // into its leading portion. Brief 2× peak here — caller drops
+    // bytesIn after we return to free the input.
+    const out = new Uint8Array(slotCount * PHYSICAL_SLOT_SIZE);
+    out.set(bytesIn, 0);
+
+    console.log(
+        `[encryptSlotsInPlace] dbPath=${dbPath} ` +
+        `sourceKey=<plain> ` +
+        `targetKey=${keyFingerprint(targetKey)} ` +
+        `slots=${slotCount} (in-place backwards; loop peak = 1× output size)`);
+
+    for (let i = slotCount - 1; i >= 0; i--) {
+        const aad = buildPageAad(dbPath, i);
+        // Plain input occupies [0..slotCount*4096) of `out`. Slot i's
+        // input view is [i*4096..(i+1)*4096). Backwards iteration
+        // ensures this region is still intact when we read it.
+        const plaintextView = out.subarray(i * SECTOR_SIZE, (i + 1) * SECTOR_SIZE);
+        const enc = encryptChaCha20Poly1305(plaintextView, targetKey, aad);
+        // Encrypted output goes to [i*4124..(i+1)*4124). For i < N-1
+        // this overlaps with slot i+1's input region, but slot i+1
+        // was already processed in this backwards loop — its input
+        // bytes are no longer needed.
+        const dstStart = i * PHYSICAL_SLOT_SIZE;
+        out.set(enc.ciphertext.subarray(0, PAGE_PLAINTEXT_LEN), dstStart);
+        out.set(enc.nonce, dstStart + PAGE_PLAINTEXT_LEN);
+        out.set(
+            enc.ciphertext.subarray(PAGE_PLAINTEXT_LEN),
+            dstStart + PAGE_PLAINTEXT_LEN + PAGE_NONCE_LEN,
+        );
+    }
+    return out;
+}
+
 export function rekeySlots(
     bytesIn: Uint8Array,
     dbPath: string,

@@ -20,7 +20,7 @@ import {
     setGlobalKey,
     clearGlobalKey,
 } from './vfs-prf/key-registry';
-import { rekeySlots, rekeySlotsInPlace } from './vfs-prf/rekey';
+import { rekeySlots, rekeySlotsInPlace, decryptSlotsInPlace, encryptSlotsInPlace } from './vfs-prf/rekey';
 import { importDiskStreamPreflight, importDiskStreamCommit } from './vfs-prf/import-streamed';
 import { base64ToBytes, clearBytes } from '@sqlitewasmblazor/crypto-core';
 import {
@@ -1522,10 +1522,11 @@ async function importDatabaseWithRekey(
             `wrapKey=${keyFingerprint(wrapKey)} ` +
             `globalKey=${keyFingerprint(globalKey)} ` +
             `dbBytes=${dbBytes.length}B`);
-        // rekeySlots: decrypt under wrapKey (sourceKey), re-encrypt under
-        // globalKey (targetKey). Same primitive used for ExportDatabaseAsync
-        // mode='rekey', just with the source/target keys swapped.
-        rekeyed = rekeySlots(dbBytes, dbPath, wrapKey, globalKey);
+        // Encrypted → encrypted via in-place rekey: same buffer holds
+        // the rekeyed slots (1× DB size peak in the loop). dbBytes is
+        // mutated and returned; caller's reference now points at the
+        // rekeyed output.
+        rekeyed = rekeySlotsInPlace(dbBytes, dbPath, wrapKey, globalKey);
         logger.info(
             MODULE_NAME,
             `[asym-import] rekey-out: rekeyed=${rekeyed.length}B`);
@@ -1573,11 +1574,11 @@ async function importDatabasePlain(
             `[plain-import] rekey-in: dbPath=${dbPath} ` +
             `globalKey=${keyFingerprint(globalKey)} ` +
             `plainBytes=${plainBytes.length}B`);
-        // sourceKey=undefined → input is plain SQLite pages; rekeySlots
-        // aliases each 4096-byte slot as plaintext and emits 4124-byte
-        // encrypted slots under globalKey. AAD binds dbPath + slotIndex,
-        // matching the VFS read path's per-page AAD.
-        rekeyed = rekeySlots(plainBytes, dbPath, undefined, globalKey);
+        // Plain → encrypted via backward in-place: same buffer holds the
+        // plain input then the encrypted output (1× output-size peak in
+        // the loop). Matches the encryptSlotsInPlace path that EnterEncrypted
+        // uses; AAD shape is identical to the legacy rekeySlots call.
+        rekeyed = encryptSlotsInPlace(plainBytes, dbPath, globalKey);
         logger.info(
             MODULE_NAME,
             `[plain-import] rekey-out: rekeyed=${rekeyed.length}B`);
@@ -1932,7 +1933,17 @@ async function encryptDatabaseInPlace(dbName: string, key: Uint8Array) {
             );
         }
 
-        encrypted = rekeySlots(raw!, dbPath, undefined, key);
+        // Backwards in-place encrypt: allocates a single output-size
+        // buffer, copies plain bytes into its leading portion, processes
+        // slots N-1 → 0 so each slot's larger output overlaps memory
+        // earlier-index inputs no longer need. Loop peak = 1× output
+        // size; brief 2× peak only at the initial set copy below.
+        encrypted = encryptSlotsInPlace(raw!, dbPath, key);
+        // Free the plain input ref immediately — encryptSlotsInPlace
+        // copied the bytes into `encrypted`. Keeping `raw` alive would
+        // hold the 2× peak across the replaceOpfsFileAtomically call.
+        clearBytes(raw);
+        raw = null;
 
         // Non-destructive replace: temp-write + double-rename means the
         // original survives any failure inside replaceOpfsFileAtomically.
@@ -1940,12 +1951,14 @@ async function encryptDatabaseInPlace(dbName: string, key: Uint8Array) {
 
         logger.info(
             MODULE_NAME,
-            `✓ Encrypted in place ${dbName}: ${raw!.length}B → ${encrypted.length}B`,
+            `✓ Encrypted in place ${dbName}: → ${encrypted.length}B`,
         );
 
         return { rowsAffected: 0 };
     } finally {
         // raw is plain SQLite pages from OPFS — sensitive plaintext.
+        // Already cleared + nulled on the success path above; defensive
+        // clear here covers the error path before encryptSlotsInPlace runs.
         if (raw !== null) {
             clearBytes(raw);
         }
@@ -2009,13 +2022,21 @@ async function decryptDatabaseInPlace(dbName: string) {
             );
         }
 
-        plain = rekeySlots(raw!, dbPath, sourceKey, undefined);
+        // In-place decrypt — write plain bytes back into `raw`'s buffer
+        // at slot offsets aligned to 4096-byte plain pages. Halves the
+        // worker heap peak (1× DB size instead of 2× input+output) so
+        // LeaveEncrypted on ~250 MB DBs fits mobile-browser renderer
+        // caps without retries.
+        plain = decryptSlotsInPlace(raw!, dbPath, sourceKey);
+        // raw and plain now alias the same backing buffer; finally must
+        // not clear raw (would zero the plain bytes too).
+        raw = null;
 
         replaceOpfsFileAtomically(dbPath, plain!, /* opaque */ false);
 
         logger.info(
             MODULE_NAME,
-            `✓ Decrypted in place ${dbName}: ${raw!.length}B → ${plain!.length}B`,
+            `✓ Decrypted in place ${dbName}: → ${plain!.length}B`,
         );
 
         return { rowsAffected: 0 };
