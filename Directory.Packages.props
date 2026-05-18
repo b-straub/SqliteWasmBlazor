@@ -69,10 +69,17 @@
   <ItemGroup>
     <PackageVersion Include="BouncyCastle.Cryptography" Version="2.6.2" />
   </ItemGroup>
-  <!-- SqliteWasmBlazor (own packages, pre-release) -->
+  <!-- SqliteWasmBlazor (own packages, pre-release).
+       Versions derive from $(SqliteWasmBlazorVersion) in Directory.Build.props
+       so a single bump propagates: source projects pack at the new version AND
+       Release-mode consumers (Demo via dual-mode PackageReference) pull the
+       freshly-packed nupkg. Without this single-source, bumping
+       SqliteWasmBlazorVersion alone leaves CPM pinned to the old version and
+       Release publish fails with "SqliteWasmWorkerBridge enthält keine
+       Definition für ..." because it's consuming the stale NuGet. -->
   <ItemGroup>
-    <PackageVersion Include="SqliteWasmBlazor" Version="0.9.1-pre" />
-    <PackageVersion Include="SqliteWasmBlazor.Crypto" Version="0.9.1-pre" />
-    <PackageVersion Include="SqliteWasmBlazor.Crypto.UI" Version="0.9.1-pre" />
+    <PackageVersion Include="SqliteWasmBlazor" Version="$(SqliteWasmBlazorVersion)" />
+    <PackageVersion Include="SqliteWasmBlazor.Crypto" Version="$(SqliteWasmBlazorVersion)" />
+    <PackageVersion Include="SqliteWasmBlazor.Crypto.UI" Version="$(SqliteWasmBlazorVersion)" />
   </ItemGroup>
 </Project>
