@@ -211,9 +211,21 @@ self.onmessage = async (event: MessageEvent<WorkerRequest | { type: 'setLogLevel
 
     // Handle regular requests
     const { id, data, binaryPayload, binaryHeader } = event.data as WorkerRequest;
+    // Streaming requests (currently only encrypted-disk export) carry a
+    // separate `streamId` instead of (or in addition to) `id`. The handler
+    // posts back streamChunk/streamDone messages keyed by streamId and
+    // returns a `{ streamed: true }` sentinel so the wrapper below skips
+    // its normal single-response dispatch.
+    const streamId = (event.data as { streamId?: number }).streamId;
 
     try {
-        const result = await handleRequest(data, binaryPayload, binaryHeader);
+        const result = await handleRequest(data, binaryPayload, binaryHeader, streamId);
+
+        // Streaming handler has already posted its terminator via streamDone;
+        // suppress the standard single-response dispatch.
+        if (result && typeof result === 'object' && 'streamed' in result && (result as { streamed?: boolean }).streamed === true) {
+            return;
+        }
 
         // Check if result contains raw binary data (export operations)
         if (result && typeof result === 'object' && 'rawBinary' in result && result.rawBinary) {
@@ -243,19 +255,31 @@ self.onmessage = async (event: MessageEvent<WorkerRequest | { type: 'setLogLevel
             self.postMessage(response);
         }
     } catch (error) {
-        const response: WorkerResponse = {
-            id,
-            data: {
-                success: false,
-                error: error instanceof Error ? error.message : 'Unknown error'
-            }
-        };
-
-        self.postMessage(response);
+        const message = error instanceof Error ? error.message : 'Unknown error';
+        if (streamId !== undefined) {
+            // Streaming caller is awaiting on its JS-side stream registry,
+            // not on the id-keyed Tcs; route the failure through streamError
+            // so the right Promise rejects.
+            self.postMessage({ streamId, streamError: true, error: message });
+        } else {
+            const response: WorkerResponse = {
+                id,
+                data: {
+                    success: false,
+                    error: message,
+                }
+            };
+            self.postMessage(response);
+        }
     }
 };
 
-async function handleRequest(data: WorkerRequest['data'], binaryPayload?: ArrayBuffer, binaryHeader?: ArrayBuffer) {
+async function handleRequest(
+    data: WorkerRequest['data'],
+    binaryPayload?: ArrayBuffer,
+    binaryHeader?: ArrayBuffer,
+    streamId?: number,
+) {
     const { type, database, sql, parameters } = data;
 
     switch (type) {
@@ -404,14 +428,13 @@ async function handleRequest(data: WorkerRequest['data'], binaryPayload?: ArrayB
         }
 
         case 'exportDiskToEnvelope': {
-            // Whole-disk envelope export — moves the per-DB byte[] accumulation
-            // and MessagePack envelope assembly out of C# into the worker.
-            // Mobile Safari OOMs the C# round-trip path on ~150 MB DBs because
-            // each DB's rekeyed byte[] lands in the managed heap, then
-            // MessagePackSerializer.Serialize doubles it again. Assembling
-            // here keeps the bytes in JS heap and ships one transferable
-            // buffer back via the existing rawBinary channel.
-            // See project_ios_export_memory_profile.md.
+            // In-memory whole-disk envelope export — loops every DB
+            // internally and returns a single MessagePack-encoded buffer
+            // via the existing rawBinary channel. Used by callers that
+            // need the envelope bytes in managed memory (round-trip tests,
+            // server-side persistence) where the Mobile-Safari memory
+            // pressure that drives the streaming variant doesn't apply.
+            // See `exportDiskStream` below for the production UI path.
             if (!binaryPayload) {
                 throw new Error(
                     "exportDiskToEnvelope requires binaryPayload (VfsKeyHeader for K_wrap)");
@@ -443,12 +466,15 @@ async function handleRequest(data: WorkerRequest['data'], binaryPayload?: ArrayB
                 new Uint8Array(binaryPayload),
                 async (kWrap) => {
                     const names = poolUtil!.listDatabases();
-                    // [name, bytes] tuples — MessagePack-CSharp [Key(0)] / [Key(1)]
-                    // on EncryptedDiskFile serializes as a 2-element msgpack array
-                    // in the same positional order; msgpackr `pack` of a JS array
-                    // emits the matching wire shape so the existing
-                    // MessagePackSerializer.Deserialize<EncryptedDiskEnvelope>
-                    // on the C# import path keeps decoding.
+                    // EncryptedDiskEnvelope wire shape (MessagePack-CSharp
+                    // [Key(N)] positional record):
+                    //   [0] Version (int)
+                    //   [1] AadVersion (string)
+                    //   [2] Files (List<EncryptedDiskFile>) — [Name(str), Bytes(bin)]
+                    //   [3] EphemeralPublicKey (string, Base64)
+                    //   [4] WrappedContentKeyCiphertext (string, Base64)
+                    //   [5] WrappedContentKeyNonce (string, Base64)
+                    //   [6] CredentialIdHint (string, Base64)
                     const files: [string, Uint8Array][] = [];
                     try {
                         for (const name of names) {
@@ -465,15 +491,6 @@ async function handleRequest(data: WorkerRequest['data'], binaryPayload?: ArrayB
                             }
                             files.push([name, rekeyed.data]);
                         }
-                        // EncryptedDiskEnvelope wire shape (MessagePack-CSharp
-                        // [Key(N)] positional record):
-                        //   [0] Version (int)
-                        //   [1] AadVersion (string)
-                        //   [2] Files (List<EncryptedDiskFile>)
-                        //   [3] EphemeralPublicKey (string, Base64)
-                        //   [4] WrappedContentKeyCiphertext (string, Base64)
-                        //   [5] WrappedContentKeyNonce (string, Base64)
-                        //   [6] CredentialIdHint (string, Base64)
                         const envelope = pack([
                             meta.version,
                             meta.aadVersion,
@@ -485,15 +502,62 @@ async function handleRequest(data: WorkerRequest['data'], binaryPayload?: ArrayB
                         ]);
                         return { rawBinary: true, data: envelope };
                     } finally {
-                        // Per-DB rekeyed bytes are ciphertext under K_wrap so
-                        // not secret-bearing, but they're no longer needed
-                        // after pack — drop refs so V8 GCs them as soon as
-                        // the worker yields.
                         for (let i = 0; i < files.length; i++) {
                             files[i][1] = new Uint8Array(0);
                         }
                     }
                 });
+        }
+
+        case 'exportDiskStream': {
+            // Streaming variant of the whole-disk envelope export. Caller
+            // (bridge `exportDiskToDownload`) is awaiting a sequence of
+            // streamChunk messages keyed by streamId — one per DB — then a
+            // terminating streamDone. The bridge assembles the MessagePack
+            // envelope as a composed Blob on the main thread; no buffer the
+            // size of the full envelope ever exists in JS heap, which is
+            // what makes 200+ MB encrypted-disk exports fit mobile-browser
+            // renderer caps (Mobile Safari ~380 MB; Android Chrome similar
+            // tier). See project_mobile_export_memory_profile.md.
+            if (streamId === undefined) {
+                throw new Error('exportDiskStream requires streamId on the request');
+            }
+            if (!binaryPayload) {
+                throw new Error('exportDiskStream requires binaryPayload (VfsKeyHeader for K_wrap)');
+            }
+            await withVfsKeyHeader(
+                new Uint8Array(binaryPayload),
+                async (kWrap) => {
+                    const names = poolUtil!.listDatabases();
+                    for (const name of names) {
+                        const rekeyed = await exportDatabase(name, 'rekey', kWrap);
+                        if (
+                            !rekeyed ||
+                            typeof rekeyed !== 'object' ||
+                            !('rawBinary' in rekeyed) ||
+                            !rekeyed.rawBinary ||
+                            !(rekeyed.data instanceof Uint8Array)
+                        ) {
+                            throw new Error(
+                                `exportDatabase returned unexpected shape for ${name}`);
+                        }
+                        // Transfer the rekeyed buffer to main, drop it from
+                        // worker heap immediately. Worker peak per DB stays
+                        // at one input + one output (the same peak as the
+                        // existing encryptDb path) — no envelope accumulation.
+                        self.postMessage(
+                            {
+                                streamId,
+                                streamChunk: true,
+                                name,
+                                data: rekeyed.data,
+                            },
+                            [rekeyed.data.buffer],
+                        );
+                    }
+                });
+            self.postMessage({ streamId, streamDone: true });
+            return { streamed: true };
         }
 
         case 'encryptDb':

@@ -3,6 +3,13 @@
 // Exposes a single async initializeBridge(baseHref, assetRoot) entry point;
 // C# awaits its returned Promise so worker creation errors surface on the .NET side.
 
+import {
+    packArrayHeader,
+    packBinHeader,
+    packStr,
+    packUint,
+} from './msgpack-stream';
+
 /**
  * IMemoryView interface from dotnet runtime — view over managed Span/ArraySegment.
  */
@@ -13,6 +20,22 @@ interface IMemoryView {
 }
 
 let worker: Worker | null = null;
+
+/**
+ * JS-side stream handler registry — separate from the C# request-id space.
+ * Streaming worker calls (currently only the encrypted disk export) post
+ * a sequence of `streamChunk` messages followed by `streamDone`, all keyed
+ * by `streamId`. Until streamDone arrives the handler stays installed,
+ * accumulating the per-DB rekey output as standalone Blobs (so each one
+ * can be released from JS heap and disk-backed by Safari independently).
+ */
+interface StreamHandler {
+    onChunk(name: string, data: Uint8Array): void;
+    onDone(): void;
+    onError(message: string): void;
+}
+const streamHandlers = new Map<number, StreamHandler>();
+let nextStreamId = -1; // negative IDs sit clear of the C#-side _nextRequestId (which only ever increments positively).
 
 /**
  * Create the Web Worker and wire up message handling.
@@ -47,6 +70,31 @@ export async function initializeBridge(baseHref: string, assetRoot: string): Pro
                 exports.SqliteWasmBlazor.SqliteWasmWorkerBridge.OnWorkerError(event.data.error || 'Unknown worker error');
             } catch (error) {
                 console.error('[Worker Bridge] Failed to call OnWorkerError:', error);
+            }
+            return;
+        }
+
+        // Streaming responses — keyed by `streamId`, dispatched JS-side to
+        // a handler in `streamHandlers`. Worker emits a sequence of
+        // streamChunk → ... → streamDone (or streamError) all under the same
+        // streamId. C# never sees these messages.
+        if (event.data.streamId !== undefined) {
+            const handler = streamHandlers.get(event.data.streamId);
+            if (!handler) {
+                console.warn(
+                    '[Worker Bridge] Stream message for unknown streamId',
+                    event.data.streamId);
+                return;
+            }
+            if (event.data.streamChunk === true) {
+                handler.onChunk(event.data.name as string, event.data.data as Uint8Array);
+            } else if (event.data.streamDone === true) {
+                handler.onDone();
+            } else if (event.data.streamError === true) {
+                handler.onError(
+                    typeof event.data.error === 'string' ? event.data.error : 'unknown stream error');
+            } else {
+                console.warn('[Worker Bridge] Unknown stream message shape', event.data);
             }
             return;
         }
@@ -127,6 +175,145 @@ export function sendBinaryToWorker(memoryView: IMemoryView, metadataJson: string
     }
 }
 
+/**
+ * Encrypted-disk envelope export, streaming variant. Replaces the legacy
+ * "C# returns byte[]" flow that OOM'd mobile browsers on ~250 MB DBs.
+ * Drives the worker via a streaming protocol: each rekeyed DB lands on
+ * the main thread as its own Blob (which the browser can disk-back)
+ * instead of being marshaled into a managed byte[] then re-copied for
+ * the Blob download.
+ *
+ * Memory peak shifts from ~3× envelope-size (worker pack + C# byte[] + JS
+ * Blob copy) down to ~1× the largest single DB transient during one
+ * rekey + assembly. See project_mobile_export_memory_profile.md.
+ *
+ * @param filename Suggested download filename (passed straight to `<a download>`).
+ * @param metadataJson JSON-encoded envelope header fields: { version,
+ *   aadVersion, ephemeralPublicKey, wrappedContentKeyCiphertext,
+ *   wrappedContentKeyNonce, credentialIdHint }. All strings are Base64
+ *   except `version` (positive int).
+ * @param kWrapView 32-byte ChaCha20 wrap key, transferred to the worker
+ *   wrapped in a VfsKeyHeader so the existing rekey path consumes it.
+ */
+export function exportDiskToDownload(
+    filename: string,
+    metadataJson: string,
+    kWrapView: IMemoryView,
+): Promise<boolean> {
+    if (!worker) {
+        return Promise.reject(new Error('Worker not initialized'));
+    }
+    const meta = JSON.parse(metadataJson) as {
+        version: number;
+        aadVersion: string;
+        ephemeralPublicKey: string;
+        wrappedContentKeyCiphertext: string;
+        wrappedContentKeyNonce: string;
+        credentialIdHint: string;
+    };
+
+    const streamId = nextStreamId--;
+    const kWrap = kWrapView.slice();
+    const fileParts: { name: string; size: number; blob: Blob }[] = [];
+
+    return new Promise((resolve, reject) => {
+        streamHandlers.set(streamId, {
+            onChunk(name, data) {
+                // Wrap each rekeyed Uint8Array as its own Blob. Dropping the
+                // Uint8Array reference (returning from this callback) lets
+                // Safari hold the bytes in a disk-backed Blob instead of
+                // pinning them in JS heap — that's the central memory win.
+                fileParts.push({ name, size: data.length, blob: new Blob([data]) });
+            },
+            onDone() {
+                streamHandlers.delete(streamId);
+                try {
+                    triggerEnvelopeDownload(filename, meta, fileParts);
+                    resolve(true);
+                } catch (e) {
+                    reject(e instanceof Error ? e : new Error(String(e)));
+                }
+            },
+            onError(message) {
+                streamHandlers.delete(streamId);
+                reject(new Error(message));
+            },
+        });
+
+        // Transfer K_wrap into the worker — the buffer detaches from the
+        // main side immediately, matching the existing sendBinaryToWorker
+        // ownership semantics. Worker wipes the unpacked key in finally.
+        worker!.postMessage(
+            {
+                streamId,
+                type: 'exportDiskStream',
+                binaryPayload: kWrap.buffer,
+            },
+            [kWrap.buffer],
+        );
+    });
+}
+
+/**
+ * Compose the EncryptedDiskEnvelope wire shape as a Blob — header bytes +
+ * per-DB Blob parts — and trigger the download via an anchor click. The
+ * Blob is a virtual concatenation; Safari materialises chunks on read,
+ * disk-backing the per-DB segments so the full envelope never lives in
+ * JS heap as one buffer.
+ */
+function triggerEnvelopeDownload(
+    filename: string,
+    meta: {
+        version: number;
+        aadVersion: string;
+        ephemeralPublicKey: string;
+        wrappedContentKeyCiphertext: string;
+        wrappedContentKeyNonce: string;
+        credentialIdHint: string;
+    },
+    fileParts: { name: string; size: number; blob: Blob }[],
+): void {
+    // EncryptedDiskEnvelope wire shape — positional MessagePack-CSharp
+    // [Key(N)] record, decoded by ImportDiskAsync via
+    // MessagePackSerializer.Deserialize<EncryptedDiskEnvelope>.
+    //   [0] Version (int)
+    //   [1] AadVersion (string)
+    //   [2] Files (List<EncryptedDiskFile>) — each [Name(str), Bytes(bin)]
+    //   [3] EphemeralPublicKey (string, Base64)
+    //   [4] WrappedContentKeyCiphertext (string, Base64)
+    //   [5] WrappedContentKeyNonce (string, Base64)
+    //   [6] CredentialIdHint (string, Base64)
+    const parts: BlobPart[] = [];
+    parts.push(packArrayHeader(7));
+    parts.push(packUint(meta.version));
+    parts.push(...packStr(meta.aadVersion));
+    parts.push(packArrayHeader(fileParts.length));
+    for (const f of fileParts) {
+        parts.push(packArrayHeader(2));
+        parts.push(...packStr(f.name));
+        parts.push(packBinHeader(f.size));
+        parts.push(f.blob);
+    }
+    parts.push(...packStr(meta.ephemeralPublicKey));
+    parts.push(...packStr(meta.wrappedContentKeyCiphertext));
+    parts.push(...packStr(meta.wrappedContentKeyNonce));
+    parts.push(...packStr(meta.credentialIdHint));
+
+    const envelope = new Blob(parts, { type: 'application/x-msgpack' });
+    const url = URL.createObjectURL(envelope);
+    try {
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = filename;
+        link.style.display = 'none';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    } finally {
+        URL.revokeObjectURL(url);
+    }
+}
+
 export const logger = {
     setLogLevel(level: number): void {
         if (!worker) {
@@ -143,7 +330,8 @@ export const logger = {
 (globalThis as any).sqliteWasmWorker = {
     initializeBridge,
     sendToWorker,
-    sendBinaryToWorker
+    sendBinaryToWorker,
+    exportDiskToDownload,
 };
 
 (globalThis as any).__sqliteWasmLogger = logger;

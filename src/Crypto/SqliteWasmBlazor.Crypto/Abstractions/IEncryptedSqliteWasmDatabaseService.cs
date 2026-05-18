@@ -192,6 +192,29 @@ public interface IEncryptedSqliteWasmDatabaseService
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Streaming variant of <see cref="ExportDiskToPubkeyAsync"/>: assembles
+    /// the envelope as a composed Blob on the main thread and triggers the
+    /// browser download directly, never materialising the envelope as a
+    /// managed <c>byte[]</c>. The wire format is identical
+    /// (<see cref="EncryptedDiskEnvelope"/>); same ECIES wrap, same AAD,
+    /// same recipient-side import flow.
+    ///
+    /// <para>
+    /// Use this overload for production downloads on memory-constrained
+    /// mobile browsers (renderer-tier WASM heap caps — Mobile Safari
+    /// ~380 MB, Android Chrome variable by device — get overshot by the
+    /// C#-byte[] path on ~250 MB DBs). Prefer
+    /// <see cref="ExportDiskToPubkeyAsync"/> when an in-memory round-trip
+    /// is required (tests, server-side persistence).
+    /// </para>
+    /// </summary>
+    Task ExportDiskToPubkeyAndDownloadAsync(
+        string filename,
+        string recipientX25519PublicKeyBase64,
+        string recipientCredentialId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Replace the entire SAH pool with the contents of
     /// <paramref name="envelope"/>. Preflights every file against the current
     /// disk state/key before wiping any currently-registered DB. Auto-detects

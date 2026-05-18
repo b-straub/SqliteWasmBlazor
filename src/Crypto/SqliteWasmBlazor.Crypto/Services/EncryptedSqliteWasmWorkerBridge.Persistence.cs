@@ -270,8 +270,9 @@ internal sealed partial class EncryptedSqliteWasmWorkerBridge
     /// bytes. Skips the per-DB <see cref="byte"/>[] round-trip + the
     /// <see cref="MessagePackSerializer.Serialize"/> step the legacy C#-side
     /// loop incurred, so the managed heap holds at most one copy of the
-    /// envelope (vs. ~2× under the legacy path). Mobile Safari OOMs the
-    /// legacy path on ~150 MB DBs — see <c>project_ios_export_memory_profile.md</c>.
+    /// envelope (vs. ~2× under the legacy path). Mobile browsers OOM
+    /// the legacy path on ~150 MB DBs — see
+    /// <c>project_mobile_export_memory_profile.md</c>.
     /// </summary>
     internal async Task<byte[]> ExportDiskToEnvelopeAsync(
         int version,

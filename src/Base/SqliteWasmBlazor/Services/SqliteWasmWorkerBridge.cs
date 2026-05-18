@@ -921,6 +921,28 @@ internal sealed partial class SqliteWasmWorkerBridge : ISqliteWasmDatabaseServic
         [JSMarshalAs<JSType.MemoryView>] Span<byte> data,
         string metadataJson,
         [JSMarshalAs<JSType.MemoryView>] Span<byte> header);
+
+    /// <summary>
+    /// Streaming whole-disk envelope export: bridges drive a worker-side
+    /// rekey loop, assembles the MessagePack envelope as a composed Blob
+    /// on the main thread, and triggers the download directly. C# never
+    /// materialises the envelope as a managed <c>byte[]</c> — that's the
+    /// path the byte[]-returning <see cref="EncryptedSqliteWasmDatabaseService.ExportDiskToPubkeyAsync"/>
+    /// can't take because mobile browsers OOM on ~250 MB DBs.
+    /// </summary>
+    /// <remarks>
+    /// <c>kWrap</c> uses the <c>ArraySegment&lt;byte&gt;</c> + <c>MemoryView</c>
+    /// marshaling pattern rather than the <c>Span&lt;byte&gt;</c> one
+    /// <see cref="SendBinaryToWorker"/> takes — Span isn't supported on
+    /// <c>Task</c>-returning interop (SYSLIB1072). The JS side
+    /// <c>.slice()</c>s into a real Uint8Array; caller wipes the source
+    /// buffer in <c>finally</c>.
+    /// </remarks>
+    [JSImport("exportDiskToDownload", "sqliteWasmWorker")]
+    internal static partial Task<bool> ExportDiskToDownloadAsync(
+        string filename,
+        string metadataJson,
+        [JSMarshalAs<JSType.MemoryView>] ArraySegment<byte> kWrap);
 }
 
 /// <summary>

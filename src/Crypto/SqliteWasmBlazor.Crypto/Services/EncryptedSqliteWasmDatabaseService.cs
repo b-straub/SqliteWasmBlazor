@@ -560,6 +560,89 @@ internal sealed class EncryptedSqliteWasmDatabaseService
         string recipientCredentialId,
         CancellationToken cancellationToken = default)
     {
+        await ValidateExportPreconditionsAsync(
+            recipientX25519PublicKeyBase64, recipientCredentialId, cancellationToken);
+
+        var (wrapKeyMem, wrapKey, wrapped) = await GenerateAndWrapAsync(
+            recipientX25519PublicKeyBase64, "ExportDiskToPubkeyAsync");
+        try
+        {
+            // Single worker round-trip: worker assembles the MessagePack
+            // envelope and returns it as one transferable buffer. Used by
+            // in-memory consumers (tests, server-side); see
+            // ExportDiskToPubkeyAndDownloadAsync for the streaming variant
+            // memory-constrained UIs should call.
+            return await _encryptedBridge.ExportDiskToEnvelopeAsync(
+                version: 2,
+                aadVersion: "v1",
+                ephemeralPublicKey: wrapped.EphemeralPublicKey,
+                wrappedContentKeyCiphertext: wrapped.Ciphertext,
+                wrappedContentKeyNonce: wrapped.Nonce,
+                credentialIdHint: recipientCredentialId,
+                wrapKey: wrapKey,
+                cancellationToken: cancellationToken);
+        }
+        finally
+        {
+            WipeWrapKey(wrapKeyMem, wrapKey);
+        }
+    }
+
+    public async Task ExportDiskToPubkeyAndDownloadAsync(
+        string filename,
+        string recipientX25519PublicKeyBase64,
+        string recipientCredentialId,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(filename))
+        {
+            throw new ArgumentException(
+                "filename must be a non-empty string.",
+                nameof(filename));
+        }
+        await ValidateExportPreconditionsAsync(
+            recipientX25519PublicKeyBase64, recipientCredentialId, cancellationToken);
+
+        var (wrapKeyMem, wrapKey, wrapped) = await GenerateAndWrapAsync(
+            recipientX25519PublicKeyBase64, "ExportDiskToPubkeyAndDownloadAsync");
+        try
+        {
+            // Streaming worker → main pipeline: each DB's rekey output
+            // lands on the main thread as its own Blob, the bridge
+            // composes the MessagePack envelope from header bytes + per-DB
+            // Blob parts and triggers `<a download>` directly. C# never
+            // sees a managed byte[] of the envelope — that's the difference
+            // that keeps ~250 MB single-DB exports under mobile-browser
+            // renderer caps (project_mobile_export_memory_profile.md).
+            var metadata = new
+            {
+                version = 2,
+                aadVersion = "v1",
+                ephemeralPublicKey = wrapped.EphemeralPublicKey,
+                wrappedContentKeyCiphertext = wrapped.Ciphertext,
+                wrappedContentKeyNonce = wrapped.Nonce,
+                credentialIdHint = recipientCredentialId,
+            };
+            var metadataJson = System.Text.Json.JsonSerializer.Serialize(metadata);
+            var ok = await SqliteWasmWorkerBridge.ExportDiskToDownloadAsync(
+                filename, metadataJson, new ArraySegment<byte>(wrapKey));
+            if (!ok)
+            {
+                throw new InvalidOperationException(
+                    "ExportDiskToPubkeyAndDownloadAsync: bridge reported failure.");
+            }
+        }
+        finally
+        {
+            WipeWrapKey(wrapKeyMem, wrapKey);
+        }
+    }
+
+    private async Task ValidateExportPreconditionsAsync(
+        string recipientX25519PublicKeyBase64,
+        string recipientCredentialId,
+        CancellationToken cancellationToken)
+    {
         if (string.IsNullOrWhiteSpace(recipientX25519PublicKeyBase64))
         {
             throw new ArgumentException(
@@ -598,57 +681,43 @@ internal sealed class EncryptedSqliteWasmDatabaseService
         if (!current.Encrypted || !current.Unlocked)
         {
             throw new InvalidOperationException(
-                "ExportDiskToPubkeyAsync requires Encrypted + Unlocked — call UnlockAsync first.");
+                "Disk export requires Encrypted + Unlocked — call UnlockAsync first.");
         }
+    }
 
-        // Generate the per-export wrap key (K_wrap). 32 random bytes used
-        // both as the symmetric ChaCha20 key for the page-rekey loop AND
-        // as the plaintext to ECIES-wrap to the recipient.
+    private async Task<(ReadOnlyMemory<byte> WrapKeyMem, byte[] WrapKey, AsymmetricEncryptedData Wrapped)> GenerateAndWrapAsync(
+        string recipientX25519PublicKeyBase64,
+        string callerName)
+    {
+        // 32 random bytes used both as the symmetric ChaCha20 key for the
+        // page-rekey loop AND as the plaintext to ECIES-wrap to the recipient.
         var wrapKeyMem = await _cryptoProvider.GenerateContentKeyAsync();
         var wrapKey = wrapKeyMem.ToArray();
         try
         {
-            // ECIES-wrap the wrap key to the recipient's pubkey. The
-            // resulting AsymmetricEncryptedData carries the ephemeral
-            // pubkey, AES-GCM ciphertext, and nonce — exactly what the
-            // recipient needs to invert. Bytes-shaped path (P21) — the
-            // 32-byte wrap key never lands in a managed string.
             var wrappedResult = await _cryptoProvider.EncryptAsymmetricFromBytesAsync(
-                wrapKey,
-                recipientX25519PublicKeyBase64);
+                wrapKey, recipientX25519PublicKeyBase64);
             if (!wrappedResult.Success || wrappedResult.Value is null)
             {
                 throw new InvalidOperationException(
-                    $"ExportDiskToPubkeyAsync: ECIES wrap of K_wrap failed " +
-                    $"({wrappedResult.ErrorCode}).");
+                    $"{callerName}: ECIES wrap of K_wrap failed ({wrappedResult.ErrorCode}).");
             }
-            var wrapped = wrappedResult.Value;
-
-            // Single worker round-trip: the worker rekeys every DB under
-            // K_wrap and MessagePack-assembles the envelope internally,
-            // returning one transferable buffer. Avoids the C#-side
-            // per-DB byte[] accumulation + MessagePackSerializer.Serialize
-            // that doubled the managed peak and OOM'd Mobile Safari on
-            // ~150 MB DBs. Same wire format as the legacy path — the
-            // ImportDiskAsync deserializer below still decodes it.
-            return await _encryptedBridge.ExportDiskToEnvelopeAsync(
-                version: 2,
-                aadVersion: "v1",
-                ephemeralPublicKey: wrapped.EphemeralPublicKey,
-                wrappedContentKeyCiphertext: wrapped.Ciphertext,
-                wrappedContentKeyNonce: wrapped.Nonce,
-                credentialIdHint: recipientCredentialId,
-                wrapKey: wrapKey,
-                cancellationToken: cancellationToken);
+            return (wrapKeyMem, wrapKey, wrappedResult.Value);
         }
-        finally
+        catch
         {
-            CryptographicOperations.ZeroMemory(wrapKey);
-            if (MemoryMarshal.TryGetArray(wrapKeyMem, out var wrapKeySegment)
-                && wrapKeySegment.Array is not null)
-            {
-                CryptographicOperations.ZeroMemory(wrapKeySegment.AsSpan());
-            }
+            WipeWrapKey(wrapKeyMem, wrapKey);
+            throw;
+        }
+    }
+
+    private static void WipeWrapKey(ReadOnlyMemory<byte> wrapKeyMem, byte[] wrapKey)
+    {
+        CryptographicOperations.ZeroMemory(wrapKey);
+        if (MemoryMarshal.TryGetArray(wrapKeyMem, out var wrapKeySegment)
+            && wrapKeySegment.Array is not null)
+        {
+            CryptographicOperations.ZeroMemory(wrapKeySegment.AsSpan());
         }
     }
 

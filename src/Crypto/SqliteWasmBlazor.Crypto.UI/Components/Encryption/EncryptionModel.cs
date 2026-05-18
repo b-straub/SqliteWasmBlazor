@@ -206,13 +206,17 @@ public partial class EncryptionModel : ObservableModel
             throw new InvalidOperationException(
                 "Cannot back up: not signed in (no WebAuthn credentialId available).");
         }
-        var envelope = await Session.ExportDiskToPubkeyAsync(
-            Auth.PublicKey, Auth.CredentialId, cancellationToken);
         var stamp = DateTime.Now.ToString("yyyyMMdd-HHmmss");
         var fileName = $"disk-backup-{stamp}.eds";
-        await DownloadBytesAsync(envelope, fileName);
+        // Streaming export — bridge assembles the MessagePack envelope on
+        // the main thread as a composed Blob and triggers `<a download>`
+        // directly. C# never holds the envelope as a managed byte[]; the
+        // managed-heap peak that used to OOM mobile browsers on ~250 MB
+        // DBs is gone. See project_mobile_export_memory_profile.md.
+        await Session.ExportDiskToPubkeyAndDownloadAsync(
+            fileName, Auth.PublicKey, Auth.CredentialId, cancellationToken);
         StatusModel.AddSuccess(
-            Localizer["Status_DiskExported", FormatSize(envelope.Length), fileName],
+            Localizer["Status_DiskExported", fileName],
             nameof(ExportDiskBackup));
     }
 
@@ -221,13 +225,12 @@ public partial class EncryptionModel : ObservableModel
         var recipient = TryGetPastedRecipientIdentity()
             ?? throw new InvalidOperationException(
                 "Pasted recipient identity is missing or invalid.");
-        var envelope = await Session.ExportDiskToPubkeyAsync(
-            recipient.PublicKey, recipient.CredentialId, cancellationToken);
         var stamp = DateTime.Now.ToString("yyyyMMdd-HHmmss");
         var fileName = $"disk-recipient-{stamp}.eds";
-        await DownloadBytesAsync(envelope, fileName);
+        await Session.ExportDiskToPubkeyAndDownloadAsync(
+            fileName, recipient.PublicKey, recipient.CredentialId, cancellationToken);
         StatusModel.AddSuccess(
-            Localizer["Status_DiskExportedForRecipient", FormatSize(envelope.Length), fileName],
+            Localizer["Status_DiskExportedForRecipient", fileName],
             nameof(ExportDiskForRecipient));
     }
 
