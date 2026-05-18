@@ -403,6 +403,99 @@ async function handleRequest(data: WorkerRequest['data'], binaryPayload?: ArrayB
             }
         }
 
+        case 'exportDiskToEnvelope': {
+            // Whole-disk envelope export — moves the per-DB byte[] accumulation
+            // and MessagePack envelope assembly out of C# into the worker.
+            // Mobile Safari OOMs the C# round-trip path on ~150 MB DBs because
+            // each DB's rekeyed byte[] lands in the managed heap, then
+            // MessagePackSerializer.Serialize doubles it again. Assembling
+            // here keeps the bytes in JS heap and ships one transferable
+            // buffer back via the existing rawBinary channel.
+            // See project_ios_export_memory_profile.md.
+            if (!binaryPayload) {
+                throw new Error(
+                    "exportDiskToEnvelope requires binaryPayload (VfsKeyHeader for K_wrap)");
+            }
+            const meta = (data as any).envelopeMeta as {
+                version: number;
+                aadVersion: string;
+                ephemeralPublicKey: string;
+                wrappedContentKeyCiphertext: string;
+                wrappedContentKeyNonce: string;
+                credentialIdHint: string;
+            };
+            if (
+                !meta ||
+                typeof meta.version !== "number" ||
+                typeof meta.aadVersion !== "string" ||
+                typeof meta.ephemeralPublicKey !== "string" ||
+                typeof meta.wrappedContentKeyCiphertext !== "string" ||
+                typeof meta.wrappedContentKeyNonce !== "string" ||
+                typeof meta.credentialIdHint !== "string"
+            ) {
+                throw new Error(
+                    "exportDiskToEnvelope requires envelopeMeta " +
+                    "{ version, aadVersion, ephemeralPublicKey, " +
+                    "wrappedContentKeyCiphertext, wrappedContentKeyNonce, " +
+                    "credentialIdHint }");
+            }
+            return await withVfsKeyHeader(
+                new Uint8Array(binaryPayload),
+                async (kWrap) => {
+                    const names = poolUtil!.listDatabases();
+                    // [name, bytes] tuples — MessagePack-CSharp [Key(0)] / [Key(1)]
+                    // on EncryptedDiskFile serializes as a 2-element msgpack array
+                    // in the same positional order; msgpackr `pack` of a JS array
+                    // emits the matching wire shape so the existing
+                    // MessagePackSerializer.Deserialize<EncryptedDiskEnvelope>
+                    // on the C# import path keeps decoding.
+                    const files: [string, Uint8Array][] = [];
+                    try {
+                        for (const name of names) {
+                            const rekeyed = await exportDatabase(name, "rekey", kWrap);
+                            if (
+                                !rekeyed ||
+                                typeof rekeyed !== "object" ||
+                                !("rawBinary" in rekeyed) ||
+                                !rekeyed.rawBinary ||
+                                !(rekeyed.data instanceof Uint8Array)
+                            ) {
+                                throw new Error(
+                                    `exportDatabase returned unexpected shape for ${name}`);
+                            }
+                            files.push([name, rekeyed.data]);
+                        }
+                        // EncryptedDiskEnvelope wire shape (MessagePack-CSharp
+                        // [Key(N)] positional record):
+                        //   [0] Version (int)
+                        //   [1] AadVersion (string)
+                        //   [2] Files (List<EncryptedDiskFile>)
+                        //   [3] EphemeralPublicKey (string, Base64)
+                        //   [4] WrappedContentKeyCiphertext (string, Base64)
+                        //   [5] WrappedContentKeyNonce (string, Base64)
+                        //   [6] CredentialIdHint (string, Base64)
+                        const envelope = pack([
+                            meta.version,
+                            meta.aadVersion,
+                            files,
+                            meta.ephemeralPublicKey,
+                            meta.wrappedContentKeyCiphertext,
+                            meta.wrappedContentKeyNonce,
+                            meta.credentialIdHint,
+                        ]);
+                        return { rawBinary: true, data: envelope };
+                    } finally {
+                        // Per-DB rekeyed bytes are ciphertext under K_wrap so
+                        // not secret-bearing, but they're no longer needed
+                        // after pack — drop refs so V8 GCs them as soon as
+                        // the worker yields.
+                        for (let i = 0; i < files.length; i++) {
+                            files[i][1] = new Uint8Array(0);
+                        }
+                    }
+                });
+        }
+
         case 'encryptDb':
             // In-place plain → encrypted: reads OPFS plain pages, re-wraps
             // under the caller-supplied 32-byte K, writes back as encrypted

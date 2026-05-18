@@ -263,4 +263,71 @@ internal sealed partial class EncryptedSqliteWasmWorkerBridge
             header.Clear();
         }
     }
+
+    /// <summary>
+    /// Single worker-side call that rekeys every DB under <paramref name="wrapKey"/>
+    /// and returns the fully MessagePack-assembled <see cref="EncryptedDiskEnvelope"/>
+    /// bytes. Skips the per-DB <see cref="byte"/>[] round-trip + the
+    /// <see cref="MessagePackSerializer.Serialize"/> step the legacy C#-side
+    /// loop incurred, so the managed heap holds at most one copy of the
+    /// envelope (vs. ~2× under the legacy path). Mobile Safari OOMs the
+    /// legacy path on ~150 MB DBs — see <c>project_ios_export_memory_profile.md</c>.
+    /// </summary>
+    internal async Task<byte[]> ExportDiskToEnvelopeAsync(
+        int version,
+        string aadVersion,
+        string ephemeralPublicKey,
+        string wrappedContentKeyCiphertext,
+        string wrappedContentKeyNonce,
+        string credentialIdHint,
+        ReadOnlyMemory<byte> wrapKey,
+        CancellationToken cancellationToken)
+    {
+        if (wrapKey.Length != 32)
+        {
+            throw new ArgumentException(
+                $"wrapKey must be exactly 32 bytes, got {wrapKey.Length}",
+                nameof(wrapKey));
+        }
+
+        var header = new VfsKeyHeader
+        {
+            Version = 1,
+            Key = wrapKey.ToArray(),
+            AadVersion = "v1",
+        };
+        var envelope = MessagePackSerializer.Serialize(header);
+        try
+        {
+            try
+            {
+                return await _bridge.PostBinaryForBytesAsync(
+                    new
+                    {
+                        type = "exportDiskToEnvelope",
+                        envelopeMeta = new
+                        {
+                            version,
+                            aadVersion,
+                            ephemeralPublicKey,
+                            wrappedContentKeyCiphertext,
+                            wrappedContentKeyNonce,
+                            credentialIdHint,
+                        },
+                    },
+                    envelope,
+                    cancellationToken,
+                    TimeSpan.FromMinutes(5));
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                throw new TimeoutException("Disk envelope export timed out after 5 minutes.");
+            }
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(envelope);
+            header.Clear();
+        }
+    }
 }

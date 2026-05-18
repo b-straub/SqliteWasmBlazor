@@ -624,34 +624,22 @@ internal sealed class EncryptedSqliteWasmDatabaseService
             }
             var wrapped = wrappedResult.Value;
 
-            // Loop every DB, calling the existing REKEY mode with K_wrap
-            // as the target. Same primitive as the legacy symmetric path,
-            // just sourcing the target key from ECDH instead of pasted bytes.
-            var names = await _bridge.ListDatabasesAsync(cancellationToken);
-            var envelope = new EncryptedDiskEnvelope
-            {
-                Version = 2,
-                AadVersion = "v1",
-                Files = new List<EncryptedDiskFile>(names.Count),
-                EphemeralPublicKey = wrapped.EphemeralPublicKey,
-                WrappedContentKeyCiphertext = wrapped.Ciphertext,
-                WrappedContentKeyNonce = wrapped.Nonce,
-                CredentialIdHint = recipientCredentialId,
-            };
-            try
-            {
-                foreach (var name in names)
-                {
-                    var bytes = await _encryptedBridge.ExportDatabaseAsync(
-                        name, VfsExportMode.REKEY, wrapKey, cancellationToken);
-                    envelope.Files.Add(new EncryptedDiskFile { Name = name, Bytes = bytes });
-                }
-                return MessagePackSerializer.Serialize(envelope);
-            }
-            finally
-            {
-                envelope.Clear();
-            }
+            // Single worker round-trip: the worker rekeys every DB under
+            // K_wrap and MessagePack-assembles the envelope internally,
+            // returning one transferable buffer. Avoids the C#-side
+            // per-DB byte[] accumulation + MessagePackSerializer.Serialize
+            // that doubled the managed peak and OOM'd Mobile Safari on
+            // ~150 MB DBs. Same wire format as the legacy path — the
+            // ImportDiskAsync deserializer below still decodes it.
+            return await _encryptedBridge.ExportDiskToEnvelopeAsync(
+                version: 2,
+                aadVersion: "v1",
+                ephemeralPublicKey: wrapped.EphemeralPublicKey,
+                wrappedContentKeyCiphertext: wrapped.Ciphertext,
+                wrappedContentKeyNonce: wrapped.Nonce,
+                credentialIdHint: recipientCredentialId,
+                wrapKey: wrapKey,
+                cancellationToken: cancellationToken);
         }
         finally
         {
