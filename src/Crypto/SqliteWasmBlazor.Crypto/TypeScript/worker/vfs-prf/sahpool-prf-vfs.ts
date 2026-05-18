@@ -73,6 +73,39 @@ export interface PrfPoolUtil {
     getFileNames(): string[];
     reserveMinimumCapacity(min: number): Promise<number>;
     exportFile(name: string): Uint8Array;
+    /**
+     * Read a byte range of <paramref name="name"/>'s data region into a
+     * fresh Uint8Array. <c>offset</c> is relative to the data start
+     * (slot 0); <c>length</c> may extend up to the file size. Used by
+     * the chunked export path so the worker never has to materialise
+     * an entire encrypted DB in JS heap — read N slots, rekey, transfer,
+     * release; repeat. Throws if the range exceeds the file size.
+     */
+    exportFileSlice(name: string, offset: number, length: number): Uint8Array;
+    /**
+     * File size minus the SAH header offset — i.e. the number of bytes
+     * in the data region (the same length <c>exportFile(name)</c>
+     * returns). Lets callers compute slot/chunk counts without
+     * materialising the file.
+     */
+    getFileSize(name: string): number;
+    /**
+     * Write <paramref name="bytes"/> at <paramref name="offset"/> within
+     * <paramref name="name"/>'s data region. Auto-claims an available
+     * SAH slot on the first call for an unknown name. Skips header /
+     * WAL / manifest checks — caller is responsible for writing the
+     * full well-formed file across chunks before promoting it via
+     * <see cref="atomicReplaceFile"/>.
+     */
+    writeFileSlice(name: string, offset: number, bytes: Uint8Array): void;
+    /**
+     * Backup-and-rollback rename: if <paramref name="dstName"/> exists
+     * it's moved aside as a backup, then <paramref name="srcName"/> is
+     * renamed to <paramref name="dstName"/>. On any failure the backup
+     * is restored to <paramref name="dstName"/>. Used by chunked
+     * encrypt/decrypt/import flows to atomically promote a temp file.
+     */
+    atomicReplaceFile(srcName: string, dstName: string): void;
     importDb(name: string, bytes: Uint8Array | ArrayBuffer, opaque?: boolean): number | Promise<number>;
     wipeFiles(): Promise<void>;
     unlink(filename: string): boolean;
@@ -709,6 +742,104 @@ class OpfsSAHPool {
             if (nRead !== n) toss('Expected to read ' + n + ' bytes but read ' + nRead + '.');
         }
         return b;
+    }
+
+    getFileSize(name: string): number {
+        const sah = this.mapFilenameToSAH.get(name);
+        if (!sah) toss('File not found:', name);
+        const n = sah!.getSize() - HEADER_OFFSET_DATA;
+        return n > 0 ? n : 0;
+    }
+
+    exportFileSlice(name: string, offset: number, length: number): Uint8Array {
+        const sah = this.mapFilenameToSAH.get(name);
+        if (!sah) toss('File not found:', name);
+        const total = sah!.getSize() - HEADER_OFFSET_DATA;
+        if (offset < 0 || length < 0 || offset + length > total) {
+            toss(
+                `exportFileSlice(${name}): range [${offset}..${offset + length}) ` +
+                `exceeds data size ${total}`);
+        }
+        const b = new Uint8Array(length);
+        if (length > 0) {
+            const nRead = sah!.read(b, { at: HEADER_OFFSET_DATA + offset });
+            if (nRead !== length) {
+                toss(
+                    `exportFileSlice(${name}): expected ${length} bytes but read ${nRead} ` +
+                    `at offset ${offset}.`);
+            }
+        }
+        return b;
+    }
+
+    /**
+     * Write <paramref name="bytes"/> at <paramref name="offset"/> within
+     * <paramref name="name"/>'s data region. Auto-creates the file (claims
+     * an available SAH slot) on the first call. Skips SQLite header / WAL /
+     * manifest checks — caller is responsible for writing the full,
+     * well-formed file before promoting it via <see cref="atomicReplaceFile"/>.
+     *
+     * Use this for chunked encrypt/decrypt/rekey writes: each chunk is
+     * sized to one slot batch (~1 MB) so JS heap stays at chunk-size,
+     * regardless of DB size. After all chunks are written, the caller
+     * atomically renames the temp file into the live DB path.
+     */
+    writeFileSlice(name: string, offset: number, bytes: Uint8Array): void {
+        if (offset < 0) {
+            toss(`writeFileSlice(${name}): negative offset ${offset}`);
+        }
+        let sah = this.mapFilenameToSAH.get(name);
+        if (!sah) {
+            sah = this.nextAvailableSAH()
+                || toss('No available handles to write to.');
+            // Associate immediately so subsequent slice writes find the
+            // same SAH. Use MAIN_DB flag — same as importDb's final state.
+            this.setAssociatedPath(sah, name, this.capi.SQLITE_OPEN_MAIN_DB);
+        }
+        if (bytes.length === 0) return;
+        const nWrote = sah.write(bytes, { at: HEADER_OFFSET_DATA + offset });
+        if (nWrote !== bytes.length) {
+            toss(
+                `writeFileSlice(${name}): wrote ${nWrote}B of ${bytes.length}B ` +
+                `at offset ${offset}.`);
+        }
+    }
+
+    /**
+     * Backup-and-rollback rename of <paramref name="srcName"/> to
+     * <paramref name="dstName"/>. If <paramref name="dstName"/> exists,
+     * moves it aside as a backup; on success deletes the backup; on
+     * failure restores the backup to <paramref name="dstName"/>. Atomic
+     * from the caller's POV — either <paramref name="dstName"/> ends up
+     * pointing at <paramref name="srcName"/>'s contents, or it stays
+     * unchanged.
+     *
+     * Used by the chunked encrypt/decrypt/import flows: write all chunks
+     * to a temp slot first, then call this to promote the temp into the
+     * real DB path.
+     */
+    atomicReplaceFile(srcName: string, dstName: string): void {
+        const backupName = `${dstName}.atomic-bak`;
+        const files = this.getFileNames();
+        if (files.includes(backupName)) {
+            try { this.deletePath(backupName); } catch { /* best-effort */ }
+        }
+        let originalRenamed = false;
+        try {
+            if (files.includes(dstName)) {
+                this.renameFile(dstName, backupName);
+                originalRenamed = true;
+            }
+            this.renameFile(srcName, dstName);
+            if (originalRenamed) {
+                try { this.deletePath(backupName); } catch { /* best-effort */ }
+            }
+        } catch (error) {
+            if (originalRenamed) {
+                try { this.renameFile(backupName, dstName); } catch { /* best-effort */ }
+            }
+            throw error;
+        }
     }
 
     async importDbChunked(name: string, callback: () => any) {
@@ -1368,6 +1499,18 @@ class OpfsSAHPoolUtil {
     }
     exportFile(name: string) {
         return this.p.exportFile(name);
+    }
+    getFileSize(name: string): number {
+        return this.p.getFileSize(name);
+    }
+    exportFileSlice(name: string, offset: number, length: number): Uint8Array {
+        return this.p.exportFileSlice(name, offset, length);
+    }
+    writeFileSlice(name: string, offset: number, bytes: Uint8Array): void {
+        this.p.writeFileSlice(name, offset, bytes);
+    }
+    atomicReplaceFile(srcName: string, dstName: string): void {
+        this.p.atomicReplaceFile(srcName, dstName);
     }
     importDb(
         name: string,
