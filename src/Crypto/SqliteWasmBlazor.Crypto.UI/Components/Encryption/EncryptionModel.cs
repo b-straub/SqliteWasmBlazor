@@ -278,7 +278,13 @@ public partial class EncryptionModel : ObservableModel
         var vfsKey = await DeriveVfsKeyAsync();
         try
         {
-            var result = await Session.ImportDiskGuidedAsync(
+            // Streaming variant: envelope's Files array is never copied
+            // into managed memory — service peeks just the header, then
+            // hands the on-wire bytes to the worker via the JS bridge.
+            // Lifts the WASM linear-memory ceiling from the ~250 MB
+            // single-DB envelope the legacy full-deserialize path OOM'd
+            // on. See project_mobile_export_memory_profile.md.
+            var result = await Session.ImportDiskGuidedStreamedAsync(
                 envelopeBytes, vfsKey, hint, cancellationToken);
             if (result == DiskImportResult.WRONG_KEY)
             {

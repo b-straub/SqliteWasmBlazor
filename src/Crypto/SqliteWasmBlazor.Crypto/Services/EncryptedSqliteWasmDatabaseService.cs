@@ -1025,6 +1025,193 @@ internal sealed class EncryptedSqliteWasmDatabaseService
         }
     }
 
+    public async Task<DiskImportResult> ImportDiskGuidedStreamedAsync(
+        byte[] envelope,
+        ReadOnlyMemory<byte> vfsKey,
+        string credentialId,
+        CancellationToken cancellationToken = default)
+    {
+        if (envelope.Length == 0)
+        {
+            throw new ArgumentException("envelope must be non-empty.", nameof(envelope));
+        }
+        if (string.IsNullOrWhiteSpace(credentialId))
+        {
+            throw new ArgumentException(
+                "credentialId must be a non-empty Base64 WebAuthn credentialId.",
+                nameof(credentialId));
+        }
+        if (vfsKey.Length != 32)
+        {
+            throw new ArgumentException(
+                $"vfsKey must be exactly 32 bytes; got {vfsKey.Length}.",
+                nameof(vfsKey));
+        }
+
+        var current = await GetStateAsync(cancellationToken);
+        if (current.Encrypted && current.Unlocked)
+        {
+            throw new InvalidOperationException(
+                "ImportDiskGuidedStreamedAsync rejected: disk is Encrypted+Unlocked. " +
+                "Lock or Reset first; the guided import rebinds the disk to the " +
+                "import's credential and is only allowed from Plain or Locked.");
+        }
+
+        // Peek the envelope header WITHOUT a full MessagePackSerializer.Deserialize
+        // — the legacy byte[] path copied every Files[i].Bytes into a fresh
+        // managed array which is exactly the 2× managed-heap doubling that
+        // OOM'd the desktop WASM heap on ~250 MB envelopes. Streaming
+        // peek reads just Version through CredentialIdHint and stops; the
+        // Files array tail is consumed by the worker via the streaming
+        // pipeline. See project_mobile_export_memory_profile.md.
+        EnvelopeHeader header = PeekEnvelopeHeader(envelope);
+        if (header.Version != 3)
+        {
+            throw new InvalidOperationException(
+                $"ImportDiskGuidedStreamedAsync: unsupported envelope Version={header.Version} (expected 3).");
+        }
+        if (string.IsNullOrEmpty(header.CredentialIdHint))
+        {
+            throw new InvalidOperationException(
+                "ImportDiskGuidedStreamedAsync: envelope is missing CredentialIdHint — " +
+                "cannot verify it matches the supplied credentialId.");
+        }
+        if (!string.Equals(header.CredentialIdHint, credentialId, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                "ImportDiskGuidedStreamedAsync: envelope's CredentialIdHint does not match " +
+                "the supplied credentialId. The caller must derive vfsKey from the " +
+                "passkey identified by the envelope's hint.");
+        }
+
+        // ECIES-unwrap K_wrap using the recipient's cached priv key (set up
+        // by PrfService.DeriveKeysAsync before this call). K_wrap arrives as
+        // raw 32 bytes — never crosses System.String.
+        var wrapped = new AsymmetricEncryptedData(
+            header.EphemeralPublicKey,
+            header.WrappedContentKeyCiphertext,
+            header.WrappedContentKeyNonce);
+        var unwrapResult = await _prfService.DecryptAsymmetricToBytesAsync(wrapped);
+        if (!unwrapResult.Success || unwrapResult.Value is null)
+        {
+            throw new InvalidOperationException(
+                $"ImportDiskGuidedStreamedAsync: ECIES unwrap of K_wrap failed " +
+                $"({unwrapResult.ErrorCode}). The envelope may be sealed for a different " +
+                $"recipient pubkey than the one this passkey derives.");
+        }
+        var wrapKey = unwrapResult.Value;
+        if (wrapKey.Length != 32)
+        {
+            CryptographicOperations.ZeroMemory(wrapKey);
+            throw new InvalidOperationException(
+                $"ImportDiskGuidedStreamedAsync: unwrapped K_wrap must be 32 bytes; got {wrapKey.Length}.");
+        }
+        try
+        {
+            // Streaming preflight: worker AEAD-verifies slot 0 of every
+            // file under K_wrap. Read-only — pool is untouched if any
+            // file's tag fails.
+            var preflight = await SqliteWasmWorkerBridge.ImportDiskStreamPreflightAsync(
+                new ArraySegment<byte>(envelope),
+                new ArraySegment<byte>(wrapKey));
+            if (preflight != (int)DiskImportResult.OK)
+            {
+                return (DiskImportResult)preflight;
+            }
+
+            // Wipe + EnterEncrypted: matches the legacy flow's atomicity
+            // (drop the old pool, install vfsKey, write manifest) before
+            // the streaming commit re-imports under the new globalKey.
+            await WipePoolAsync(cancellationToken);
+            await EnterEncryptedAsync(vfsKey, credentialId, cancellationToken);
+
+            // Streaming commit: worker re-streams the envelope's Files,
+            // decrypts each slot under K_wrap, re-encrypts under the
+            // freshly-installed globalKey, and writes via importDb.
+            // Per-file rekey buffer is dropped between iterations so JS
+            // heap peak stays at one file's size, not sum-of-files.
+            var commitResult = await SqliteWasmWorkerBridge.ImportDiskStreamCommitAsync(
+                new ArraySegment<byte>(envelope),
+                new ArraySegment<byte>(wrapKey));
+            if (commitResult != (int)DiskImportResult.OK)
+            {
+                return (DiskImportResult)commitResult;
+            }
+
+            ReportDbState(DbInitState.READY);
+            return DiskImportResult.OK;
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(wrapKey);
+        }
+    }
+
+    /// <summary>
+    /// Envelope-header peek result — every field the import flow needs
+    /// before it can decide to wipe + re-encrypt. <c>Files</c> is
+    /// intentionally absent: the streaming worker reads it directly off
+    /// the on-wire bytes.
+    /// </summary>
+    private readonly struct EnvelopeHeader
+    {
+        public int Version { get; init; }
+        public string AadVersion { get; init; }
+        public string EphemeralPublicKey { get; init; }
+        public string WrappedContentKeyCiphertext { get; init; }
+        public string WrappedContentKeyNonce { get; init; }
+        public string CredentialIdHint { get; init; }
+    }
+
+    /// <summary>
+    /// Forward-parse just the envelope's positional header without copying
+    /// the <c>Files</c> bulk into managed memory. Uses MessagePackReader's
+    /// streaming primitives so the entries are read in-place from
+    /// <paramref name="envelope"/> and only the small string fields are
+    /// allocated (the 32-byte PrfSalt is consumed and discarded — the
+    /// receiver currently uses the local PrfService config; envelope salt
+    /// is forward-compat for cross-app import).
+    /// </summary>
+    private static EnvelopeHeader PeekEnvelopeHeader(byte[] envelope)
+    {
+        var reader = new MessagePackReader(envelope);
+        var arrLen = reader.ReadArrayHeader();
+        if (arrLen != 8)
+        {
+            throw new InvalidOperationException(
+                $"PeekEnvelopeHeader: expected envelope array(8), got array({arrLen}).");
+        }
+        var version = reader.ReadInt32();
+        var aadVersion = reader.ReadString()
+            ?? throw new InvalidOperationException("PeekEnvelopeHeader: AadVersion is null.");
+        var prfSaltSeq = reader.ReadBytes()
+            ?? throw new InvalidOperationException("PeekEnvelopeHeader: PrfSalt is missing.");
+        if (prfSaltSeq.Length != 32)
+        {
+            throw new InvalidOperationException(
+                $"PeekEnvelopeHeader: PrfSalt must be 32 bytes, got {prfSaltSeq.Length}.");
+        }
+        var ephPub = reader.ReadString()
+            ?? throw new InvalidOperationException("PeekEnvelopeHeader: EphemeralPublicKey is null.");
+        var wrapCt = reader.ReadString()
+            ?? throw new InvalidOperationException("PeekEnvelopeHeader: WrappedContentKeyCiphertext is null.");
+        var wrapNonce = reader.ReadString()
+            ?? throw new InvalidOperationException("PeekEnvelopeHeader: WrappedContentKeyNonce is null.");
+        var credIdHint = reader.ReadString()
+            ?? throw new InvalidOperationException("PeekEnvelopeHeader: CredentialIdHint is null.");
+        // Files array tail is intentionally not consumed — streaming
+        // import reads it directly off the on-wire envelope bytes.
+        return new EnvelopeHeader
+        {
+            Version = version,
+            AadVersion = aadVersion,
+            EphemeralPublicKey = ephPub,
+            WrappedContentKeyCiphertext = wrapCt,
+            WrappedContentKeyNonce = wrapNonce,
+            CredentialIdHint = credIdHint,
+        };
+    }
+
     /// <summary>
     /// Recipient side of the asymmetric (v3) disk-import flow.
     /// <list type="number">

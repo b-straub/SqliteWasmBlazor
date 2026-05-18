@@ -338,6 +338,33 @@ public interface IEncryptedSqliteWasmDatabaseService
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Streaming variant of <see cref="ImportDiskGuidedAsync"/> — same
+    /// preflight-then-wipe-then-rekey sequence, but the envelope's
+    /// <c>Files</c> array is never materialised as managed
+    /// <see cref="byte"/>[]s. Worker pumps the envelope <see cref="byte"/>[]
+    /// through a streaming MessagePack decoder, AEAD-rekeys slot-by-slot,
+    /// and writes each file via <c>poolUtil.importDb</c>. C# heap stays at
+    /// envelope-size (one <see cref="byte"/>[]) instead of the legacy ~3×
+    /// peak (full deserialize + per-DB <c>VfsImportRekeyEnvelope</c> wrap).
+    /// Lifts the ceiling from ~250 MB single-DB envelopes on the legacy
+    /// path to multi-GB envelopes on the streaming path (subject to
+    /// browser JS-heap caps).
+    ///
+    /// <para>
+    /// Caller-side contract identical to <see cref="ImportDiskGuidedAsync"/>:
+    /// state must be Plain or Encrypted+Locked, the envelope's
+    /// <c>CredentialIdHint</c> must match <paramref name="credentialId"/>,
+    /// and <paramref name="vfsKey"/> must come from the WebAuthn ceremony
+    /// pinned to that credential.
+    /// </para>
+    /// </summary>
+    Task<DiskImportResult> ImportDiskGuidedStreamedAsync(
+        byte[] envelope,
+        ReadOnlyMemory<byte> vfsKey,
+        string credentialId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Scorched-earth disk reset. Closes every open DB, drops
     /// <c>globalKey</c>, deletes every DB file from the pool, and clears
     /// the PRF cache so the auth UI flips to NotAuthorized in lockstep.

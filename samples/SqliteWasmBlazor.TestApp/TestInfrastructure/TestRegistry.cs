@@ -111,6 +111,7 @@ public static class TestRegistry
         "Encrypted_ToPlain_ViaLeaveAndExportAll_RoundTrip",
         "Disk_ExportToPubkey_AsymmetricRoundTrip",
         "Disk_ImportGuided_CrossKeyRoundTrip",
+        "Disk_ImportGuidedStreamed_CrossKeyRoundTrip",
         "Disk_ImportGuided_RejectDoesNotWipePlainDisk",
         "Plain_BatchExportImport_RoundTrip",
         "ImportPlainZip_From_EncryptedLocked_EndsPlain",

@@ -33,7 +33,7 @@ let worker: Worker | null = null;
  */
 interface StreamHandler {
     onChunk(name: string, data: Uint8Array): void;
-    onDone(): void;
+    onDone(result?: number): void;
     onError(message: string): void;
 }
 const streamHandlers = new Map<number, StreamHandler>();
@@ -91,7 +91,8 @@ export async function initializeBridge(baseHref: string, assetRoot: string): Pro
             if (event.data.streamChunk === true) {
                 handler.onChunk(event.data.name as string, event.data.data as Uint8Array);
             } else if (event.data.streamDone === true) {
-                handler.onDone();
+                handler.onDone(
+                    typeof event.data.result === 'number' ? event.data.result : undefined);
             } else if (event.data.streamError === true) {
                 handler.onError(
                     typeof event.data.error === 'string' ? event.data.error : 'unknown stream error');
@@ -246,10 +247,98 @@ export function exportDiskToDownload(
         // Transfer K_wrap into the worker — the buffer detaches from the
         // main side immediately, matching the existing sendBinaryToWorker
         // ownership semantics. Worker wipes the unpacked key in finally.
+        // `data: { type }` matches the legacy WorkerRequest shape the
+        // worker's onmessage destructures.
         worker!.postMessage(
             {
                 streamId,
-                type: 'exportDiskStream',
+                data: { type: 'exportDiskStream' },
+                binaryPayload: kWrap.buffer,
+            },
+            [kWrap.buffer],
+        );
+    });
+}
+
+/**
+ * Streaming asymmetric disk import — preflight phase. Builds a Blob from
+ * <paramref name="envelopeView"/> (the .eds bytes the C# side reads off
+ * disk), posts the Blob + K_wrap to the worker, awaits a streamDone
+ * with the <c>DiskImportResult</c> int. No pool mutation happens during
+ * preflight — C# service follows up with wipe + EnterEncryptedAsync only
+ * if this returns OK (0).
+ */
+export function importDiskStreamPreflight(
+    envelopeView: IMemoryView,
+    kWrapView: IMemoryView,
+): Promise<number> {
+    return _sendImportDiskStream('importDiskStreamPreflight', envelopeView, kWrapView);
+}
+
+/**
+ * Streaming asymmetric disk import — commit phase. C# caller must have
+ * wiped the pool and registered the new globalKey via EnterEncryptedAsync
+ * before invoking this. Worker reads the envelope's Files section
+ * slot-by-slot, decrypts under K_wrap, re-encrypts under globalKey, and
+ * hands each rekeyed file to <c>poolUtil.importDb</c>. Resolves with 0
+ * on success; throws on AEAD failure mid-commit (caller's pool is now
+ * partially-imported but already-wiped — same window the legacy import
+ * had).
+ */
+export function importDiskStreamCommit(
+    envelopeView: IMemoryView,
+    kWrapView: IMemoryView,
+): Promise<number> {
+    return _sendImportDiskStream('importDiskStreamCommit', envelopeView, kWrapView);
+}
+
+/**
+ * Internal helper shared by preflight + commit: build a Blob from
+ * envelope bytes, transfer K_wrap to the worker, await the streamDone
+ * result. The envelope `Uint8Array` is dropped from JS scope once the
+ * Blob retains a reference, so the browser can disk-back it on memory
+ * pressure — that's what keeps the import workable below the WASM
+ * linear-memory ceiling.
+ */
+function _sendImportDiskStream(
+    type: 'importDiskStreamPreflight' | 'importDiskStreamCommit',
+    envelopeView: IMemoryView,
+    kWrapView: IMemoryView,
+): Promise<number> {
+    if (!worker) {
+        return Promise.reject(new Error('Worker not initialized'));
+    }
+    const envelopeBytes = envelopeView.slice();
+    const blob = new Blob([envelopeBytes]);
+    const kWrap = kWrapView.slice();
+    const streamId = nextStreamId--;
+    return new Promise((resolve, reject) => {
+        streamHandlers.set(streamId, {
+            onChunk() {
+                streamHandlers.delete(streamId);
+                reject(new Error(`Unexpected streamChunk during ${type}`));
+            },
+            onDone(result) {
+                streamHandlers.delete(streamId);
+                if (typeof result !== 'number') {
+                    reject(new Error(`${type} streamDone missing result`));
+                    return;
+                }
+                resolve(result);
+            },
+            onError(message) {
+                streamHandlers.delete(streamId);
+                reject(new Error(message));
+            },
+        });
+        // Worker's onmessage destructures `data: {type}` (legacy
+        // sendBinaryToWorker shape) — keep the type nested so the
+        // existing switch dispatch works without a special-case.
+        worker!.postMessage(
+            {
+                streamId,
+                data: { type },
+                blob,
                 binaryPayload: kWrap.buffer,
             },
             [kWrap.buffer],
@@ -344,6 +433,8 @@ export const logger = {
     sendToWorker,
     sendBinaryToWorker,
     exportDiskToDownload,
+    importDiskStreamPreflight,
+    importDiskStreamCommit,
 };
 
 (globalThis as any).__sqliteWasmLogger = logger;

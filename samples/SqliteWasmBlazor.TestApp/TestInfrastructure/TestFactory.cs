@@ -127,6 +127,17 @@ internal class TestFactory
                             prfFactory, databaseService, session, provider, keyCache, prfService);
                         _entries.Add(new TestEntry(
                             "VFS Encryption", diskImportGuidedReject.Name, () => diskImportGuidedReject.RunAsync()));
+
+                        // Same A→B share as the byte[] cross-key round-trip,
+                        // but recipient drives the streaming guided import
+                        // path (no full envelope deserialize, worker streams
+                        // Files slot-by-slot). Verifies the v3 + streaming
+                        // pipeline produces byte-identical results to the
+                        // legacy byte[] path.
+                        var diskImportGuidedStreamed = new DiskImportGuidedStreamedCrossKeyTest(
+                            prfFactory, databaseService, session, provider, keyCache, prfService);
+                        _entries.Add(new TestEntry(
+                            "VFS Encryption", diskImportGuidedStreamed.Name, () => diskImportGuidedStreamed.RunAsync()));
                     }
 
                     // Pure-plain ZIP round-trip — exercises the new

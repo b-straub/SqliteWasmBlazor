@@ -21,6 +21,7 @@ import {
     clearGlobalKey,
 } from './vfs-prf/key-registry';
 import { rekeySlots } from './vfs-prf/rekey';
+import { importDiskStreamPreflight, importDiskStreamCommit } from './vfs-prf/import-streamed';
 import { base64ToBytes, clearBytes } from '@sqlitewasmblazor/crypto-core';
 import {
     readDiskManifestOp,
@@ -211,15 +212,18 @@ self.onmessage = async (event: MessageEvent<WorkerRequest | { type: 'setLogLevel
 
     // Handle regular requests
     const { id, data, binaryPayload, binaryHeader } = event.data as WorkerRequest;
-    // Streaming requests (currently only encrypted-disk export) carry a
-    // separate `streamId` instead of (or in addition to) `id`. The handler
-    // posts back streamChunk/streamDone messages keyed by streamId and
-    // returns a `{ streamed: true }` sentinel so the wrapper below skips
-    // its normal single-response dispatch.
+    // Streaming requests (currently encrypted-disk export + streaming
+    // import) carry a separate `streamId` instead of (or in addition to)
+    // `id`. The handler posts back streamChunk/streamDone messages keyed
+    // by streamId and returns a `{ streamed: true }` sentinel so the
+    // wrapper below skips its normal single-response dispatch.
+    // Streaming import also carries a `blob` field (the .eds envelope,
+    // structured-cloned across postMessage).
     const streamId = (event.data as { streamId?: number }).streamId;
+    const blob = (event.data as { blob?: Blob }).blob;
 
     try {
-        const result = await handleRequest(data, binaryPayload, binaryHeader, streamId);
+        const result = await handleRequest(data, binaryPayload, binaryHeader, streamId, blob);
 
         // Streaming handler has already posted its terminator via streamDone;
         // suppress the standard single-response dispatch.
@@ -279,6 +283,7 @@ async function handleRequest(
     binaryPayload?: ArrayBuffer,
     binaryHeader?: ArrayBuffer,
     streamId?: number,
+    blob?: Blob,
 ) {
     const { type, database, sql, parameters } = data;
 
@@ -516,6 +521,76 @@ async function handleRequest(
                         }
                     }
                 });
+        }
+
+        case 'importDiskStreamPreflight': {
+            // Pass 1 of the streaming disk import — AEAD-verify slot 0
+            // of every file in the envelope under K_wrap. Returns OK or
+            // WRONG_KEY. No state mutation; caller (C# service) uses this
+            // gate before WipePoolAsync + EnterEncryptedAsync. See
+            // project_mobile_export_memory_profile.md.
+            if (streamId === undefined) {
+                throw new Error('importDiskStreamPreflight requires streamId on the request');
+            }
+            if (!binaryPayload) {
+                throw new Error('importDiskStreamPreflight requires binaryPayload (raw K_wrap)');
+            }
+            if (!(blob instanceof Blob)) {
+                throw new Error('importDiskStreamPreflight requires a Blob attached to the request');
+            }
+            // Bridge sends K_wrap as the raw 32-byte transferable — no
+            // VfsKeyHeader wrap on the streaming-import path (the wrap is
+            // unnecessary overhead for an internal worker call).
+            const kWrap = new Uint8Array(binaryPayload);
+            if (kWrap.length !== 32) {
+                throw new Error(
+                    `importDiskStreamPreflight: K_wrap must be 32 bytes, got ${kWrap.length}`);
+            }
+            let preflightResult: number;
+            try {
+                preflightResult = await importDiskStreamPreflight(blob, kWrap);
+            } finally {
+                clearBytes(kWrap);
+            }
+            self.postMessage({ streamId, streamDone: true, result: preflightResult });
+            return { streamed: true };
+        }
+
+        case 'importDiskStreamCommit': {
+            // Pass 2 of the streaming disk import — caller has wiped the
+            // pool and registered the new globalKey (EnterEncryptedAsync).
+            // We rekey every file's slots from K_wrap → globalKey and
+            // hand them to poolUtil.importDb. Single sweep, per-file
+            // buffer dropped between iterations so JS heap peak stays at
+            // one file's size.
+            if (streamId === undefined) {
+                throw new Error('importDiskStreamCommit requires streamId on the request');
+            }
+            if (!binaryPayload) {
+                throw new Error('importDiskStreamCommit requires binaryPayload (raw K_wrap)');
+            }
+            if (!(blob instanceof Blob)) {
+                throw new Error('importDiskStreamCommit requires a Blob attached to the request');
+            }
+            if (!hasGlobalKey()) {
+                throw new Error(
+                    'importDiskStreamCommit rejected: no globalKey registered. ' +
+                    'C# caller must have run EnterEncryptedAsync between preflight and commit.');
+            }
+            const kWrap = new Uint8Array(binaryPayload);
+            if (kWrap.length !== 32) {
+                throw new Error(
+                    `importDiskStreamCommit: K_wrap must be 32 bytes, got ${kWrap.length}`);
+            }
+            const globalKey = snapshotGlobalKey();
+            try {
+                await importDiskStreamCommit(blob, kWrap, globalKey, poolUtil!);
+            } finally {
+                clearBytes(kWrap);
+                clearBytes(globalKey);
+            }
+            self.postMessage({ streamId, streamDone: true, result: 0 });
+            return { streamed: true };
         }
 
         case 'exportDiskStream': {

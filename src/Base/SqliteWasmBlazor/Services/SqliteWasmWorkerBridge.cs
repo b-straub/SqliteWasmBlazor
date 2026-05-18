@@ -943,6 +943,31 @@ internal sealed partial class SqliteWasmWorkerBridge : ISqliteWasmDatabaseServic
         string filename,
         string metadataJson,
         [JSMarshalAs<JSType.MemoryView>] ArraySegment<byte> kWrap);
+
+    /// <summary>
+    /// Streaming disk-import — preflight phase. Builds a Blob from the
+    /// envelope bytes on the JS side, posts to the worker which AEAD-
+    /// verifies slot 0 of each file under <paramref name="kWrap"/>.
+    /// Returns <c>DiskImportResult</c> code (0 = OK, 1 = WRONG_KEY).
+    /// No pool mutation either way.
+    /// </summary>
+    [JSImport("importDiskStreamPreflight", "sqliteWasmWorker")]
+    internal static partial Task<int> ImportDiskStreamPreflightAsync(
+        [JSMarshalAs<JSType.MemoryView>] ArraySegment<byte> envelopeBytes,
+        [JSMarshalAs<JSType.MemoryView>] ArraySegment<byte> kWrap);
+
+    /// <summary>
+    /// Streaming disk-import — commit phase. Worker re-streams the
+    /// envelope's <c>Files</c> array slot-by-slot, decrypts under
+    /// <paramref name="kWrap"/>, re-encrypts under the worker's currently-
+    /// registered globalKey, and hands each rekeyed file to
+    /// <c>poolUtil.importDb</c>. Caller MUST have run <c>WipePoolAsync</c>
+    /// + <c>EnterEncryptedAsync</c> first.
+    /// </summary>
+    [JSImport("importDiskStreamCommit", "sqliteWasmWorker")]
+    internal static partial Task<int> ImportDiskStreamCommitAsync(
+        [JSMarshalAs<JSType.MemoryView>] ArraySegment<byte> envelopeBytes,
+        [JSMarshalAs<JSType.MemoryView>] ArraySegment<byte> kWrap);
 }
 
 /// <summary>
