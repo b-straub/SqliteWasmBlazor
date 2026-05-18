@@ -36,6 +36,76 @@ function keyFingerprint(key: Uint8Array | undefined): string {
 }
 
 /**
+ * Per-chunk variant of <see cref="rekeySlotsInPlace"/>. Used by the
+ * chunked encrypted export path: each chunk is a slot-aligned slice of
+ * an SAH file (typically 256 slots = ~1 MB). <paramref name="slotIndexBase"/>
+ * is the absolute slot index of this chunk's slot 0 within the source
+ * file — the AAD construction <c>prf-vfs-v1|{dbPath}|{slotIdx}</c>
+ * needs the absolute index so chunked output is byte-identical to a
+ * whole-file rekey.
+ *
+ * Mutates <paramref name="chunk"/> in place; returns nothing. Caller
+ * transfers the buffer immediately afterwards so worker heap returns
+ * to baseline.
+ */
+export function rekeyChunkInPlace(
+    chunk: Uint8Array,
+    dbPath: string,
+    slotIndexBase: number,
+    sourceKey: Uint8Array,
+    targetKey: Uint8Array,
+): void {
+    if (chunk.length === 0) {
+        return;
+    }
+    if (chunk.length % PHYSICAL_SLOT_SIZE !== 0) {
+        throw new Error(
+            `rekeyChunkInPlace: chunk length ${chunk.length} is not a multiple of slot size ${PHYSICAL_SLOT_SIZE}`,
+        );
+    }
+    if (slotIndexBase < 0 || !Number.isInteger(slotIndexBase)) {
+        throw new Error(`rekeyChunkInPlace: slotIndexBase must be a non-negative integer (got ${slotIndexBase})`);
+    }
+
+    const slotCount = chunk.length / PHYSICAL_SLOT_SIZE;
+    for (let i = 0; i < slotCount; i++) {
+        const slotStart = i * PHYSICAL_SLOT_SIZE;
+        const aad = buildPageAad(dbPath, slotIndexBase + i);
+        const cipherPlusTag = new Uint8Array(PAGE_PLAINTEXT_LEN + PAGE_TAG_LEN);
+        cipherPlusTag.set(chunk.subarray(slotStart, slotStart + PAGE_PLAINTEXT_LEN), 0);
+        cipherPlusTag.set(
+            chunk.subarray(
+                slotStart + PAGE_PLAINTEXT_LEN + PAGE_NONCE_LEN,
+                slotStart + PHYSICAL_SLOT_SIZE,
+            ),
+            PAGE_PLAINTEXT_LEN,
+        );
+        const nonce = new Uint8Array(
+            chunk.subarray(
+                slotStart + PAGE_PLAINTEXT_LEN,
+                slotStart + PAGE_PLAINTEXT_LEN + PAGE_NONCE_LEN,
+            ),
+        );
+        const plaintext = decryptChaCha20Poly1305(
+            { ciphertext: cipherPlusTag, nonce },
+            sourceKey,
+            aad,
+        );
+        try {
+            const enc = encryptChaCha20Poly1305(plaintext, targetKey, aad);
+            chunk.set(enc.ciphertext.subarray(0, PAGE_PLAINTEXT_LEN), slotStart);
+            chunk.set(enc.nonce, slotStart + PAGE_PLAINTEXT_LEN);
+            chunk.set(
+                enc.ciphertext.subarray(PAGE_PLAINTEXT_LEN),
+                slotStart + PAGE_PLAINTEXT_LEN + PAGE_NONCE_LEN,
+            );
+        } finally {
+            clearBytes(plaintext);
+        }
+    }
+}
+
+/**
  * In-place variant of <see cref="rekeySlots"/> for the
  * <c>encrypted → encrypted</c> case (both keys defined, slot sizes
  * equal). Mutates <paramref name="bytes"/> slot-by-slot — decrypts each

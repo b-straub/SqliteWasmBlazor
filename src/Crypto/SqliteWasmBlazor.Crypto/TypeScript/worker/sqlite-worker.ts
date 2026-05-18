@@ -20,7 +20,13 @@ import {
     setGlobalKey,
     clearGlobalKey,
 } from './vfs-prf/key-registry';
-import { rekeySlots, rekeySlotsInPlace, decryptSlotsInPlace, encryptSlotsInPlace } from './vfs-prf/rekey';
+import {
+    rekeySlots,
+    rekeySlotsInPlace,
+    decryptSlotsInPlace,
+    encryptSlotsInPlace,
+    rekeyChunkInPlace,
+} from './vfs-prf/rekey';
 import { importDiskStreamPreflight, importDiskStreamCommit } from './vfs-prf/import-streamed';
 import { base64ToBytes, clearBytes } from '@sqlitewasmblazor/crypto-core';
 import {
@@ -594,56 +600,77 @@ async function handleRequest(
         }
 
         case 'exportDiskStream': {
-            // Streaming variant of the whole-disk envelope export. Caller
-            // (bridge `exportDiskToDownload`) is awaiting a sequence of
-            // streamChunk messages keyed by streamId — one per DB — then a
-            // terminating streamDone. The bridge assembles the MessagePack
-            // envelope as a composed Blob on the main thread; no buffer the
-            // size of the full envelope ever exists in JS heap, which is
-            // what makes 200+ MB encrypted-disk exports fit mobile-browser
-            // renderer caps (Mobile Safari ~380 MB; Android Chrome similar
-            // tier). See project_mobile_export_memory_profile.md.
+            // Chunked encrypted-disk export. The worker reads each DB
+            // from the SAH in slot-aligned chunks (~1 MB / 256 slots),
+            // rekeys each chunk in place under K_wrap, transfers the
+            // chunk to main, drops the worker-side reference. Bridge
+            // aggregates per-DB chunks into a Blob-of-Blobs and composes
+            // the MessagePack envelope downstream. JS heap peak per op
+            // is one chunk (~1 MB) regardless of DB size — fits mobile-
+            // browser renderer caps (Mobile Safari ~380 MB; Android
+            // Chrome similar tier) without retries. See
+            // ~/.claude/plans/let-each-slot-fit-the-pocket.md (G2).
             if (streamId === undefined) {
                 throw new Error('exportDiskStream requires streamId on the request');
             }
             if (!binaryPayload) {
                 throw new Error('exportDiskStream requires binaryPayload (raw K_wrap)');
             }
-            // Bridge sends K_wrap as the raw 32-byte transferable — no
-            // VfsKeyHeader wrap on the streaming path (wrap is unnecessary
-            // overhead for an internal worker call).
             const exportKWrap = new Uint8Array(binaryPayload);
             if (exportKWrap.length !== 32) {
                 throw new Error(
                     `exportDiskStream: K_wrap must be 32 bytes, got ${exportKWrap.length}`);
             }
+            // Slot size 4124B × 256 slots = ~1 MB chunk. Small enough
+            // to fit comfortably under iOS Safari's renderer cap while
+            // amortising postMessage overhead across the chunk.
+            const EXPORT_CHUNK_SLOTS = 256;
             try {
-                const names = poolUtil!.listDatabases();
-                for (const name of names) {
-                    const rekeyed = await exportDatabase(name, 'rekey', exportKWrap);
-                    if (
-                        !rekeyed ||
-                        typeof rekeyed !== 'object' ||
-                        !('rawBinary' in rekeyed) ||
-                        !rekeyed.rawBinary ||
-                        !(rekeyed.data instanceof Uint8Array)
-                    ) {
-                        throw new Error(
-                            `exportDatabase returned unexpected shape for ${name}`);
+                if (!hasGlobalKey()) {
+                    throw new Error(
+                        'exportDiskStream rejected: no globalKey registered.');
+                }
+                const sourceKey = snapshotGlobalKey()!;
+                try {
+                    const names = poolUtil!.listDatabases();
+                    for (const name of names) {
+                        const dbPath = `/databases/${name}`;
+                        await closeDatabase(name);
+                        // SAH primitives key on full `/databases/...` paths
+                        // (the SAH's associated-path metadata); listDatabases
+                        // returns bare names. Use dbPath for poolUtil lookups.
+                        const fileSize = poolUtil!.getFileSize(dbPath);
+                        if (fileSize === 0 || fileSize % ENCRYPTED_SLOT_SIZE !== 0) {
+                            throw new Error(
+                                `exportDiskStream: ${name} length ${fileSize} is not a positive multiple of slot size ${ENCRYPTED_SLOT_SIZE}`);
+                        }
+                        const totalSlots = fileSize / ENCRYPTED_SLOT_SIZE;
+                        console.log(
+                            `[exportDiskStream] ${name}: ${totalSlots} slots, ` +
+                            `chunked at ${EXPORT_CHUNK_SLOTS} slots/chunk`);
+                        for (let slotBase = 0; slotBase < totalSlots; slotBase += EXPORT_CHUNK_SLOTS) {
+                            const slotCount = Math.min(EXPORT_CHUNK_SLOTS, totalSlots - slotBase);
+                            const byteOffset = slotBase * ENCRYPTED_SLOT_SIZE;
+                            const byteCount = slotCount * ENCRYPTED_SLOT_SIZE;
+                            const chunk = poolUtil!.exportFileSlice(dbPath, byteOffset, byteCount);
+                            rekeyChunkInPlace(chunk, dbPath, slotBase, sourceKey, exportKWrap);
+                            const isFirst = slotBase === 0;
+                            const isLast = slotBase + slotCount === totalSlots;
+                            self.postMessage(
+                                {
+                                    streamId,
+                                    streamChunk: true,
+                                    name,
+                                    isFirst,
+                                    isLast,
+                                    data: chunk,
+                                },
+                                [chunk.buffer],
+                            );
+                        }
                     }
-                    // Transfer the rekeyed buffer to main, drop it from
-                    // worker heap immediately. Worker peak per DB stays
-                    // at one input + one output (the same peak as the
-                    // existing encryptDb path) — no envelope accumulation.
-                    self.postMessage(
-                        {
-                            streamId,
-                            streamChunk: true,
-                            name,
-                            data: rekeyed.data,
-                        },
-                        [rekeyed.data.buffer],
-                    );
+                } finally {
+                    clearBytes(sourceKey);
                 }
             } finally {
                 clearBytes(exportKWrap);

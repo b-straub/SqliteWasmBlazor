@@ -32,7 +32,7 @@ let worker: Worker | null = null;
  * can be released from JS heap and disk-backed by Safari independently).
  */
 interface StreamHandler {
-    onChunk(name: string, data: Uint8Array): void;
+    onChunk(name: string, data: Uint8Array, isFirst: boolean, isLast: boolean): void;
     onDone(result?: number): void;
     onError(message: string): void;
 }
@@ -89,7 +89,18 @@ export async function initializeBridge(baseHref: string, assetRoot: string): Pro
                 return;
             }
             if (event.data.streamChunk === true) {
-                handler.onChunk(event.data.name as string, event.data.data as Uint8Array);
+                // isFirst/isLast carry the slot-batch boundaries for the
+                // chunked encrypted-export path. Bridge handlers that
+                // don't care about chunking treat both as true (single-
+                // chunk per name) — the legacy contract.
+                const isFirst = event.data.isFirst === undefined ? true : !!event.data.isFirst;
+                const isLast = event.data.isLast === undefined ? true : !!event.data.isLast;
+                handler.onChunk(
+                    event.data.name as string,
+                    event.data.data as Uint8Array,
+                    isFirst,
+                    isLast,
+                );
             } else if (event.data.streamDone === true) {
                 handler.onDone(
                     typeof event.data.result === 'number' ? event.data.result : undefined);
@@ -235,15 +246,45 @@ function _assembleEnvelopeStreamed(
     const streamId = nextStreamId--;
     const kWrap = kWrapView.slice();
     const fileParts: { name: string; size: number; blob: Blob }[] = [];
+    // Worker streams each DB as N slot-batch chunks. We aggregate by name
+    // until `isLast`, then compose a per-DB Blob from the chunk list.
+    // Map preserves insertion order so file order in the envelope matches
+    // worker's listDatabases() order.
+    const pendingFiles = new Map<string, { chunks: Blob[]; totalSize: number }>();
 
     return new Promise((resolve, reject) => {
         streamHandlers.set(streamId, {
-            onChunk(name, data) {
-                // Wrap each rekeyed Uint8Array as its own Blob. Dropping the
+            onChunk(name, data, isFirst, isLast) {
+                // Wrap each rekeyed chunk as its own Blob. Dropping the
                 // Uint8Array reference (returning from this callback) lets
                 // Safari hold the bytes in a disk-backed Blob instead of
                 // pinning them in JS heap — that's the central memory win.
-                fileParts.push({ name, size: data.length, blob: new Blob([data]) });
+                let pending = pendingFiles.get(name);
+                if (isFirst) {
+                    if (pending !== undefined) {
+                        reject(new Error(
+                            `exportDiskToDownload: chunk(isFirst=true) for ${name} ` +
+                            `but ${pending.chunks.length} chunks already accumulated`));
+                        return;
+                    }
+                    pending = { chunks: [], totalSize: 0 };
+                    pendingFiles.set(name, pending);
+                }
+                if (pending === undefined) {
+                    reject(new Error(
+                        `exportDiskToDownload: chunk for ${name} without prior isFirst`));
+                    return;
+                }
+                pending.chunks.push(new Blob([data]));
+                pending.totalSize += data.length;
+                if (isLast) {
+                    fileParts.push({
+                        name,
+                        size: pending.totalSize,
+                        blob: new Blob(pending.chunks),
+                    });
+                    pendingFiles.delete(name);
+                }
             },
             onDone() {
                 streamHandlers.delete(streamId);
