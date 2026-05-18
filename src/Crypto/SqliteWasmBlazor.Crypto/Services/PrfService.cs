@@ -36,6 +36,8 @@ internal sealed partial class PrfService : IPrfService, IAsyncDisposable
 
        public string Salt => _options.Salt;
 
+       public byte[] HashedSaltBytes => SHA256.HashData(Encoding.UTF8.GetBytes(_options.Salt));
+
        public Observable<string> KeyExpired => _keyCache.KeyExpired;
 
     public PrfService(

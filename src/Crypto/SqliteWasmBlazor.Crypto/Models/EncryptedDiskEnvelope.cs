@@ -36,15 +36,21 @@ namespace SqliteWasmBlazor;
 public sealed class EncryptedDiskEnvelope
 {
     /// <summary>
-    /// Wire format version. <c>2</c> is the asymmetric format: <see cref="Files"/>
-    /// are slot ciphertext under <c>HKDF(ECDH(ephemeralPriv, recipientPub), …)</c>,
-    /// and the matching ephemeral pubkey + ECIES-wrapped content key are
-    /// carried in <see cref="EphemeralPublicKey"/> /
-    /// <see cref="WrappedContentKeyCiphertext"/> / <see cref="WrappedContentKeyNonce"/>.
-    /// Recipient unwraps with their PRF-derived X25519 private key.
+    /// Wire format version.
+    /// <list type="bullet">
+    ///   <item><c>2</c>: legacy asymmetric format (no <see cref="PrfSalt"/>,
+    ///     <see cref="Files"/> ordered ahead of the wrap-key fields). Removed
+    ///     in 2026-05.</item>
+    ///   <item><c>3</c>: streaming-friendly positional layout.
+    ///     <see cref="PrfSalt"/>, ephemeral pubkey, and wrapped content key
+    ///     come first so a streaming reader can fold the recipient PRF + ECIES
+    ///     unwrap before encountering any <see cref="Files"/> bytes.
+    ///     <see cref="Files"/> moved to the end of the record (last positional
+    ///     slot).</item>
+    /// </list>
     /// </summary>
     [Key(0)]
-    public int Version { get; set; } = 2;
+    public int Version { get; set; } = 3;
 
     /// <summary>
     /// AAD prefix version expected for any per-page AEAD inside the bundled
@@ -54,9 +60,20 @@ public sealed class EncryptedDiskEnvelope
     [Key(1)]
     public string AadVersion { get; set; } = "v1";
 
-    /// <summary>Every DB file in the source pool, ordered by name.</summary>
+    /// <summary>
+    /// 32-byte salt fed to the recipient authenticator's HMAC-Secret
+    /// (WebAuthn PRF) extension to reproduce the seed that derives the
+    /// X25519 keypair the wrap key was sealed to. Equal to
+    /// <c>SHA256(UTF-8(sender's PrfOptions.Salt))</c> — the post-hash
+    /// bytes the authenticator accepts directly, matching the
+    /// libfido2 <c>fido_assert_set_hmac_salt()</c> input shape so
+    /// non-browser decryptors can recover the seed without knowing
+    /// the original config string. Carrying the salt in the envelope
+    /// makes cross-app share and emergency-recovery decrypt work
+    /// without out-of-band salt agreement.
+    /// </summary>
     [Key(2)]
-    public List<EncryptedDiskFile> Files { get; set; } = new();
+    public byte[] PrfSalt { get; set; } = [];
 
     /// <summary>
     /// Sender-generated ephemeral X25519 public key (Base64) used during
@@ -91,6 +108,10 @@ public sealed class EncryptedDiskEnvelope
     /// </summary>
     [Key(6)]
     public string CredentialIdHint { get; set; } = string.Empty;
+
+    /// <summary>Every DB file in the source pool, ordered by name.</summary>
+    [Key(7)]
+    public List<EncryptedDiskFile> Files { get; set; } = new();
 
     /// <summary>
     /// No-op on v2 envelopes. Per-file <see cref="EncryptedDiskFile.Bytes"/>

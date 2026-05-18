@@ -573,8 +573,9 @@ internal sealed class EncryptedSqliteWasmDatabaseService
             // ExportDiskToPubkeyAndDownloadAsync for the streaming variant
             // memory-constrained UIs should call.
             return await _encryptedBridge.ExportDiskToEnvelopeAsync(
-                version: 2,
+                version: 3,
                 aadVersion: "v1",
+                prfSalt: _prfService.HashedSaltBytes,
                 ephemeralPublicKey: wrapped.EphemeralPublicKey,
                 wrappedContentKeyCiphertext: wrapped.Ciphertext,
                 wrappedContentKeyNonce: wrapped.Nonce,
@@ -616,8 +617,9 @@ internal sealed class EncryptedSqliteWasmDatabaseService
             // renderer caps (project_mobile_export_memory_profile.md).
             var metadata = new
             {
-                version = 2,
+                version = 3,
                 aadVersion = "v1",
+                prfSaltBase64 = Convert.ToBase64String(_prfService.HashedSaltBytes),
                 ephemeralPublicKey = wrapped.EphemeralPublicKey,
                 wrappedContentKeyCiphertext = wrapped.Ciphertext,
                 wrappedContentKeyNonce = wrapped.Nonce,
@@ -743,10 +745,10 @@ internal sealed class EncryptedSqliteWasmDatabaseService
         }
         try
         {
-            if (decoded.Version != 2)
+            if (decoded.Version != 3)
             {
                 throw new InvalidOperationException(
-                    $"ImportDiskAsync: unsupported envelope Version={decoded.Version} (expected 2). " +
+                    $"ImportDiskAsync: unsupported envelope Version={decoded.Version} (expected 3). " +
                     $"Asymmetric envelopes are the only supported format on this branch.");
             }
             return await ImportDiskAsync(decoded, current, cancellationToken);
@@ -893,7 +895,7 @@ internal sealed class EncryptedSqliteWasmDatabaseService
         }
         try
         {
-            if (decoded.Version != 2 || string.IsNullOrEmpty(decoded.CredentialIdHint))
+            if (decoded.Version != 3 || string.IsNullOrEmpty(decoded.CredentialIdHint))
             {
                 return ValueTask.FromResult<string?>(null);
             }
@@ -947,10 +949,10 @@ internal sealed class EncryptedSqliteWasmDatabaseService
 
         try
         {
-            if (decoded.Version != 2)
+            if (decoded.Version != 3)
             {
                 throw new InvalidOperationException(
-                    $"ImportDiskGuidedAsync: unsupported envelope Version={decoded.Version} (expected 2).");
+                    $"ImportDiskGuidedAsync: unsupported envelope Version={decoded.Version} (expected 3).");
             }
             if (string.IsNullOrEmpty(decoded.CredentialIdHint))
             {
@@ -1024,7 +1026,7 @@ internal sealed class EncryptedSqliteWasmDatabaseService
     }
 
     /// <summary>
-    /// Recipient side of the asymmetric (v2) disk-import flow.
+    /// Recipient side of the asymmetric (v3) disk-import flow.
     /// <list type="number">
     ///   <item>ECIES-unwrap the envelope's <see cref="EncryptedDiskEnvelope.WrappedContentKeyCiphertext"/>
     ///         through the caller's PRF-derived cached keyId to recover the
@@ -1046,7 +1048,7 @@ internal sealed class EncryptedSqliteWasmDatabaseService
         if (!current.Encrypted || !current.Unlocked)
         {
             throw new InvalidOperationException(
-                "ImportDiskAsync (v2): asymmetric envelope import requires the recipient " +
+                "ImportDiskAsync (v3): asymmetric envelope import requires the recipient " +
                 "disk to be Encrypted+Unlocked under their own VFS key. Sign in and Encrypt " +
                 "the VFS first.");
         }
@@ -1058,7 +1060,7 @@ internal sealed class EncryptedSqliteWasmDatabaseService
         }
         var wrapKey = prepare.WrapKey
             ?? throw new InvalidOperationException(
-                "ImportDiskAsync (v2): preflight succeeded without a wrap key.");
+                "ImportDiskAsync (v3): preflight succeeded without a wrap key.");
 
         try
         {
@@ -1079,7 +1081,7 @@ internal sealed class EncryptedSqliteWasmDatabaseService
         if (!current.Encrypted || !current.Unlocked)
         {
             throw new InvalidOperationException(
-                "ImportDiskAsync (v2): asymmetric envelope import requires the recipient " +
+                "ImportDiskAsync (v3): asymmetric envelope import requires the recipient " +
                 "disk to be Encrypted+Unlocked under their own VFS key. Sign in and Encrypt " +
                 "the VFS first.");
         }
@@ -1129,7 +1131,7 @@ internal sealed class EncryptedSqliteWasmDatabaseService
         if (!unwrapResult.Success || unwrapResult.Value is null)
         {
             throw new InvalidOperationException(
-                $"ImportDiskAsync (v2): ECIES unwrap of K_wrap failed " +
+                $"ImportDiskAsync (v3): ECIES unwrap of K_wrap failed " +
                 $"({unwrapResult.ErrorCode}). The envelope may be sealed for a different " +
                 $"recipient pubkey than the one this passkey derives.");
         }
@@ -1140,7 +1142,7 @@ internal sealed class EncryptedSqliteWasmDatabaseService
         {
             CryptographicOperations.ZeroMemory(wrapKey);
             throw new InvalidOperationException(
-                $"ImportDiskAsync (v2): unwrapped K_wrap must be 32 bytes; got {wrapKey.Length}.");
+                $"ImportDiskAsync (v3): unwrapped K_wrap must be 32 bytes; got {wrapKey.Length}.");
         }
 
         try
@@ -1176,13 +1178,13 @@ internal sealed class EncryptedSqliteWasmDatabaseService
             || decoded.WrappedContentKeyNonce.Length == 0)
         {
             throw new InvalidOperationException(
-                "ImportDiskAsync (v2): envelope is missing the ECIES-wrap fields " +
+                "ImportDiskAsync (v3): envelope is missing the ECIES-wrap fields " +
                 "(EphemeralPublicKey / WrappedContentKeyCiphertext / WrappedContentKeyNonce).");
         }
         if (decoded.Files.Count == 0)
         {
             throw new InvalidOperationException(
-                "ImportDiskAsync (v2): envelope contains no database files.");
+                "ImportDiskAsync (v3): envelope contains no database files.");
         }
 
         var seenNames = new HashSet<string>(StringComparer.Ordinal);
@@ -1191,12 +1193,12 @@ internal sealed class EncryptedSqliteWasmDatabaseService
             if (!IsBareDatabaseName(file.Name))
             {
                 throw new InvalidOperationException(
-                    $"ImportDiskAsync (v2): envelope database name '{file.Name}' must be a bare file name.");
+                    $"ImportDiskAsync (v3): envelope database name '{file.Name}' must be a bare file name.");
             }
             if (!seenNames.Add(file.Name))
             {
                 throw new InvalidOperationException(
-                    $"ImportDiskAsync (v2): envelope contains duplicate database name '{file.Name}'.");
+                    $"ImportDiskAsync (v3): envelope contains duplicate database name '{file.Name}'.");
             }
         }
     }

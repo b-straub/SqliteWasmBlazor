@@ -23,6 +23,19 @@ public interface IPrfService
     string Salt { get; }
 
     /// <summary>
+    /// The 32-byte HMAC-Secret input derived from <see cref="Salt"/> as
+    /// <c>SHA256(UTF-8(Salt))</c>. Equal to what the JS PRF layer passes to
+    /// the authenticator's <c>prf.eval.first</c> field (and to
+    /// <c>fido_assert_set_hmac_salt()</c> for libfido2 consumers). Carrying
+    /// these bytes inside an <see cref="EncryptedDiskEnvelope.PrfSalt"/> makes
+    /// the envelope self-describing for cross-app share + emergency-recovery
+    /// decrypt: the receiver can invoke the authenticator's HMAC-Secret
+    /// extension without knowing the sender's <see cref="PrfOptions.Salt"/>
+    /// string.
+    /// </summary>
+    byte[] HashedSaltBytes { get; }
+
+    /// <summary>
     /// Observable that emits the cache key when C#-side cached entries expire due to TTL.
     /// Internal slots use the reserved <c>prf-seed:{salt}</c> prefix for the PRF seed and
     /// <c>prf-domain:{domainId}</c> for HKDF-derived domain keys. The JS-side derived

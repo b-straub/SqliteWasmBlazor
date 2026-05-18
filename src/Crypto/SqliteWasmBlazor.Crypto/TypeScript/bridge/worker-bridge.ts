@@ -3,6 +3,8 @@
 // Exposes a single async initializeBridge(baseHref, assetRoot) entry point;
 // C# awaits its returned Promise so worker creation errors surface on the .NET side.
 
+import { base64ToBytes } from '@sqlitewasmblazor/crypto-core';
+
 import {
     packArrayHeader,
     packBinHeader,
@@ -206,6 +208,7 @@ export function exportDiskToDownload(
     const meta = JSON.parse(metadataJson) as {
         version: number;
         aadVersion: string;
+        prfSaltBase64: string;
         ephemeralPublicKey: string;
         wrappedContentKeyCiphertext: string;
         wrappedContentKeyNonce: string;
@@ -266,6 +269,7 @@ function triggerEnvelopeDownload(
     meta: {
         version: number;
         aadVersion: string;
+        prfSaltBase64: string;
         ephemeralPublicKey: string;
         wrappedContentKeyCiphertext: string;
         wrappedContentKeyNonce: string;
@@ -273,20 +277,32 @@ function triggerEnvelopeDownload(
     },
     fileParts: { name: string; size: number; blob: Blob }[],
 ): void {
-    // EncryptedDiskEnvelope wire shape — positional MessagePack-CSharp
+    // EncryptedDiskEnvelope v3 wire shape — positional MessagePack-CSharp
     // [Key(N)] record, decoded by ImportDiskAsync via
     // MessagePackSerializer.Deserialize<EncryptedDiskEnvelope>.
-    //   [0] Version (int)
+    //   [0] Version (int) = 3
     //   [1] AadVersion (string)
-    //   [2] Files (List<EncryptedDiskFile>) — each [Name(str), Bytes(bin)]
+    //   [2] PrfSalt (bin, 32 bytes)
     //   [3] EphemeralPublicKey (string, Base64)
     //   [4] WrappedContentKeyCiphertext (string, Base64)
     //   [5] WrappedContentKeyNonce (string, Base64)
     //   [6] CredentialIdHint (string, Base64)
+    //   [7] Files (List<EncryptedDiskFile>) — each [Name(str), Bytes(bin)]
+    const prfSaltBytes = base64ToBytes(meta.prfSaltBase64);
+    if (prfSaltBytes.length !== 32) {
+        throw new Error(
+            `triggerEnvelopeDownload: prfSalt must decode to 32 bytes (got ${prfSaltBytes.length})`);
+    }
     const parts: BlobPart[] = [];
-    parts.push(packArrayHeader(7));
+    parts.push(packArrayHeader(8));
     parts.push(packUint(meta.version));
     parts.push(...packStr(meta.aadVersion));
+    parts.push(packBinHeader(prfSaltBytes.length));
+    parts.push(prfSaltBytes);
+    parts.push(...packStr(meta.ephemeralPublicKey));
+    parts.push(...packStr(meta.wrappedContentKeyCiphertext));
+    parts.push(...packStr(meta.wrappedContentKeyNonce));
+    parts.push(...packStr(meta.credentialIdHint));
     parts.push(packArrayHeader(fileParts.length));
     for (const f of fileParts) {
         parts.push(packArrayHeader(2));
@@ -294,10 +310,6 @@ function triggerEnvelopeDownload(
         parts.push(packBinHeader(f.size));
         parts.push(f.blob);
     }
-    parts.push(...packStr(meta.ephemeralPublicKey));
-    parts.push(...packStr(meta.wrappedContentKeyCiphertext));
-    parts.push(...packStr(meta.wrappedContentKeyNonce));
-    parts.push(...packStr(meta.credentialIdHint));
 
     const envelope = new Blob(parts, { type: 'application/x-msgpack' });
     const url = URL.createObjectURL(envelope);

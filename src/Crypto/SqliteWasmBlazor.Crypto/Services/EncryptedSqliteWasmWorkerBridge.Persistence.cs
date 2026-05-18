@@ -277,6 +277,7 @@ internal sealed partial class EncryptedSqliteWasmWorkerBridge
     internal async Task<byte[]> ExportDiskToEnvelopeAsync(
         int version,
         string aadVersion,
+        byte[] prfSalt,
         string ephemeralPublicKey,
         string wrappedContentKeyCiphertext,
         string wrappedContentKeyNonce,
@@ -289,6 +290,12 @@ internal sealed partial class EncryptedSqliteWasmWorkerBridge
             throw new ArgumentException(
                 $"wrapKey must be exactly 32 bytes, got {wrapKey.Length}",
                 nameof(wrapKey));
+        }
+        if (prfSalt.Length != 32)
+        {
+            throw new ArgumentException(
+                $"prfSalt must be exactly 32 bytes, got {prfSalt.Length}",
+                nameof(prfSalt));
         }
 
         var header = new VfsKeyHeader
@@ -310,6 +317,7 @@ internal sealed partial class EncryptedSqliteWasmWorkerBridge
                         {
                             version,
                             aadVersion,
+                            prfSaltBase64 = Convert.ToBase64String(prfSalt),
                             ephemeralPublicKey,
                             wrappedContentKeyCiphertext,
                             wrappedContentKeyNonce,

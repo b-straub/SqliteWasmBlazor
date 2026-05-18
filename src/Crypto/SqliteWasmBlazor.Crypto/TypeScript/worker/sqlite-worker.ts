@@ -21,7 +21,7 @@ import {
     clearGlobalKey,
 } from './vfs-prf/key-registry';
 import { rekeySlots } from './vfs-prf/rekey';
-import { clearBytes } from '@sqlitewasmblazor/crypto-core';
+import { base64ToBytes, clearBytes } from '@sqlitewasmblazor/crypto-core';
 import {
     readDiskManifestOp,
     writeDiskManifestOp,
@@ -442,6 +442,7 @@ async function handleRequest(
             const meta = (data as any).envelopeMeta as {
                 version: number;
                 aadVersion: string;
+                prfSaltBase64: string;
                 ephemeralPublicKey: string;
                 wrappedContentKeyCiphertext: string;
                 wrappedContentKeyNonce: string;
@@ -451,6 +452,7 @@ async function handleRequest(
                 !meta ||
                 typeof meta.version !== "number" ||
                 typeof meta.aadVersion !== "string" ||
+                typeof meta.prfSaltBase64 !== "string" ||
                 typeof meta.ephemeralPublicKey !== "string" ||
                 typeof meta.wrappedContentKeyCiphertext !== "string" ||
                 typeof meta.wrappedContentKeyNonce !== "string" ||
@@ -458,23 +460,29 @@ async function handleRequest(
             ) {
                 throw new Error(
                     "exportDiskToEnvelope requires envelopeMeta " +
-                    "{ version, aadVersion, ephemeralPublicKey, " +
+                    "{ version, aadVersion, prfSaltBase64, ephemeralPublicKey, " +
                     "wrappedContentKeyCiphertext, wrappedContentKeyNonce, " +
                     "credentialIdHint }");
+            }
+            const prfSaltBytes = base64ToBytes(meta.prfSaltBase64);
+            if (prfSaltBytes.length !== 32) {
+                throw new Error(
+                    `exportDiskToEnvelope: prfSalt must decode to 32 bytes (got ${prfSaltBytes.length})`);
             }
             return await withVfsKeyHeader(
                 new Uint8Array(binaryPayload),
                 async (kWrap) => {
                     const names = poolUtil!.listDatabases();
-                    // EncryptedDiskEnvelope wire shape (MessagePack-CSharp
+                    // EncryptedDiskEnvelope v3 wire shape (MessagePack-CSharp
                     // [Key(N)] positional record):
-                    //   [0] Version (int)
+                    //   [0] Version (int) = 3
                     //   [1] AadVersion (string)
-                    //   [2] Files (List<EncryptedDiskFile>) — [Name(str), Bytes(bin)]
+                    //   [2] PrfSalt (bin, 32 bytes)
                     //   [3] EphemeralPublicKey (string, Base64)
                     //   [4] WrappedContentKeyCiphertext (string, Base64)
                     //   [5] WrappedContentKeyNonce (string, Base64)
                     //   [6] CredentialIdHint (string, Base64)
+                    //   [7] Files (List<EncryptedDiskFile>) — [Name(str), Bytes(bin)]
                     const files: [string, Uint8Array][] = [];
                     try {
                         for (const name of names) {
@@ -494,11 +502,12 @@ async function handleRequest(
                         const envelope = pack([
                             meta.version,
                             meta.aadVersion,
-                            files,
+                            prfSaltBytes,
                             meta.ephemeralPublicKey,
                             meta.wrappedContentKeyCiphertext,
                             meta.wrappedContentKeyNonce,
                             meta.credentialIdHint,
+                            files,
                         ]);
                         return { rawBinary: true, data: envelope };
                     } finally {
