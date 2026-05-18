@@ -607,39 +607,47 @@ async function handleRequest(
                 throw new Error('exportDiskStream requires streamId on the request');
             }
             if (!binaryPayload) {
-                throw new Error('exportDiskStream requires binaryPayload (VfsKeyHeader for K_wrap)');
+                throw new Error('exportDiskStream requires binaryPayload (raw K_wrap)');
             }
-            await withVfsKeyHeader(
-                new Uint8Array(binaryPayload),
-                async (kWrap) => {
-                    const names = poolUtil!.listDatabases();
-                    for (const name of names) {
-                        const rekeyed = await exportDatabase(name, 'rekey', kWrap);
-                        if (
-                            !rekeyed ||
-                            typeof rekeyed !== 'object' ||
-                            !('rawBinary' in rekeyed) ||
-                            !rekeyed.rawBinary ||
-                            !(rekeyed.data instanceof Uint8Array)
-                        ) {
-                            throw new Error(
-                                `exportDatabase returned unexpected shape for ${name}`);
-                        }
-                        // Transfer the rekeyed buffer to main, drop it from
-                        // worker heap immediately. Worker peak per DB stays
-                        // at one input + one output (the same peak as the
-                        // existing encryptDb path) — no envelope accumulation.
-                        self.postMessage(
-                            {
-                                streamId,
-                                streamChunk: true,
-                                name,
-                                data: rekeyed.data,
-                            },
-                            [rekeyed.data.buffer],
-                        );
+            // Bridge sends K_wrap as the raw 32-byte transferable — no
+            // VfsKeyHeader wrap on the streaming path (wrap is unnecessary
+            // overhead for an internal worker call).
+            const exportKWrap = new Uint8Array(binaryPayload);
+            if (exportKWrap.length !== 32) {
+                throw new Error(
+                    `exportDiskStream: K_wrap must be 32 bytes, got ${exportKWrap.length}`);
+            }
+            try {
+                const names = poolUtil!.listDatabases();
+                for (const name of names) {
+                    const rekeyed = await exportDatabase(name, 'rekey', exportKWrap);
+                    if (
+                        !rekeyed ||
+                        typeof rekeyed !== 'object' ||
+                        !('rawBinary' in rekeyed) ||
+                        !rekeyed.rawBinary ||
+                        !(rekeyed.data instanceof Uint8Array)
+                    ) {
+                        throw new Error(
+                            `exportDatabase returned unexpected shape for ${name}`);
                     }
-                });
+                    // Transfer the rekeyed buffer to main, drop it from
+                    // worker heap immediately. Worker peak per DB stays
+                    // at one input + one output (the same peak as the
+                    // existing encryptDb path) — no envelope accumulation.
+                    self.postMessage(
+                        {
+                            streamId,
+                            streamChunk: true,
+                            name,
+                            data: rekeyed.data,
+                        },
+                        [rekeyed.data.buffer],
+                    );
+                }
+            } finally {
+                clearBytes(exportKWrap);
+            }
             self.postMessage({ streamId, streamDone: true });
             return { streamed: true };
         }

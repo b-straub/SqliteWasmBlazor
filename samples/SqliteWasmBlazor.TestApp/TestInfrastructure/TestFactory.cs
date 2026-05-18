@@ -138,6 +138,20 @@ internal class TestFactory
                             prfFactory, databaseService, session, provider, keyCache, prfService);
                         _entries.Add(new TestEntry(
                             "VFS Encryption", diskImportGuidedStreamed.Name, () => diskImportGuidedStreamed.RunAsync()));
+
+                        // Streaming EXPORT wire-format coverage — drives the
+                        // worker exportDiskStream handler + bridge positional
+                        // msgpack encoder end-to-end, then verifies the
+                        // produced envelope decodes correctly via the legacy
+                        // byte[] import. Catches regressions in the bridge
+                        // dispatch shape (was bitten by an "withVfsKeyHeader
+                        // on raw 32B" bug that shipped to demo undetected
+                        // because no Playwright test covered the streaming
+                        // export path before this one).
+                        var diskExportStreaming = new DiskExportStreamingRoundTripTest(
+                            prfFactory, databaseService, session, provider, keyCache, prfService);
+                        _entries.Add(new TestEntry(
+                            "VFS Encryption", diskExportStreaming.Name, () => diskExportStreaming.RunAsync()));
                     }
 
                     // Pure-plain ZIP round-trip — exercises the new

@@ -203,6 +203,22 @@ export function exportDiskToDownload(
     metadataJson: string,
     kWrapView: IMemoryView,
 ): Promise<boolean> {
+    return _assembleEnvelopeStreamed(metadataJson, kWrapView).then((blob) => {
+        triggerEnvelopeDownload(filename, blob);
+        return true;
+    });
+}
+
+/**
+ * Shared assembly path: drives the worker streaming export, accumulates
+ * each rekeyed DB as a standalone Blob on the main thread, composes the
+ * MessagePack <c>EncryptedDiskEnvelope</c> Blob via the positional
+ * encoder.
+ */
+function _assembleEnvelopeStreamed(
+    metadataJson: string,
+    kWrapView: IMemoryView,
+): Promise<Blob> {
     if (!worker) {
         return Promise.reject(new Error('Worker not initialized'));
     }
@@ -232,8 +248,7 @@ export function exportDiskToDownload(
             onDone() {
                 streamHandlers.delete(streamId);
                 try {
-                    triggerEnvelopeDownload(filename, meta, fileParts);
-                    resolve(true);
+                    resolve(composeEnvelopeBlob(meta, fileParts));
                 } catch (e) {
                     reject(e instanceof Error ? e : new Error(String(e)));
                 }
@@ -246,9 +261,8 @@ export function exportDiskToDownload(
 
         // Transfer K_wrap into the worker — the buffer detaches from the
         // main side immediately, matching the existing sendBinaryToWorker
-        // ownership semantics. Worker wipes the unpacked key in finally.
-        // `data: { type }` matches the legacy WorkerRequest shape the
-        // worker's onmessage destructures.
+        // ownership semantics. `data: { type }` matches the legacy
+        // WorkerRequest shape the worker's onmessage destructures.
         worker!.postMessage(
             {
                 streamId,
@@ -353,8 +367,23 @@ function _sendImportDiskStream(
  * disk-backing the per-DB segments so the full envelope never lives in
  * JS heap as one buffer.
  */
-function triggerEnvelopeDownload(
-    filename: string,
+/**
+ * Compose the EncryptedDiskEnvelope v3 wire shape as a Blob — positional
+ * MessagePack-CSharp <c>[Key(N)]</c> record, decoded by ImportDiskAsync
+ * via <c>MessagePackSerializer.Deserialize&lt;EncryptedDiskEnvelope&gt;</c>.
+ * Returns a virtual-concatenation Blob; the per-DB segments stay
+ * referenced as standalone Blob parts so the browser can disk-back them.
+ * Wire layout:
+ *   [0] Version (int) = 3
+ *   [1] AadVersion (string)
+ *   [2] PrfSalt (bin, 32 bytes)
+ *   [3] EphemeralPublicKey (string, Base64)
+ *   [4] WrappedContentKeyCiphertext (string, Base64)
+ *   [5] WrappedContentKeyNonce (string, Base64)
+ *   [6] CredentialIdHint (string, Base64)
+ *   [7] Files (List&lt;EncryptedDiskFile&gt;) — each [Name(str), Bytes(bin)]
+ */
+function composeEnvelopeBlob(
     meta: {
         version: number;
         aadVersion: string;
@@ -365,22 +394,11 @@ function triggerEnvelopeDownload(
         credentialIdHint: string;
     },
     fileParts: { name: string; size: number; blob: Blob }[],
-): void {
-    // EncryptedDiskEnvelope v3 wire shape — positional MessagePack-CSharp
-    // [Key(N)] record, decoded by ImportDiskAsync via
-    // MessagePackSerializer.Deserialize<EncryptedDiskEnvelope>.
-    //   [0] Version (int) = 3
-    //   [1] AadVersion (string)
-    //   [2] PrfSalt (bin, 32 bytes)
-    //   [3] EphemeralPublicKey (string, Base64)
-    //   [4] WrappedContentKeyCiphertext (string, Base64)
-    //   [5] WrappedContentKeyNonce (string, Base64)
-    //   [6] CredentialIdHint (string, Base64)
-    //   [7] Files (List<EncryptedDiskFile>) — each [Name(str), Bytes(bin)]
+): Blob {
     const prfSaltBytes = base64ToBytes(meta.prfSaltBase64);
     if (prfSaltBytes.length !== 32) {
         throw new Error(
-            `triggerEnvelopeDownload: prfSalt must decode to 32 bytes (got ${prfSaltBytes.length})`);
+            `composeEnvelopeBlob: prfSalt must decode to 32 bytes (got ${prfSaltBytes.length})`);
     }
     const parts: BlobPart[] = [];
     parts.push(packArrayHeader(8));
@@ -399,8 +417,10 @@ function triggerEnvelopeDownload(
         parts.push(packBinHeader(f.size));
         parts.push(f.blob);
     }
+    return new Blob(parts, { type: 'application/x-msgpack' });
+}
 
-    const envelope = new Blob(parts, { type: 'application/x-msgpack' });
+function triggerEnvelopeDownload(filename: string, envelope: Blob): void {
     const url = URL.createObjectURL(envelope);
     try {
         const link = document.createElement('a');
