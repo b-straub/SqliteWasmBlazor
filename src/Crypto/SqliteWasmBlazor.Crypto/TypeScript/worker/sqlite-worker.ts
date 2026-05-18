@@ -20,7 +20,7 @@ import {
     setGlobalKey,
     clearGlobalKey,
 } from './vfs-prf/key-registry';
-import { rekeySlots } from './vfs-prf/rekey';
+import { rekeySlots, rekeySlotsInPlace } from './vfs-prf/rekey';
 import { importDiskStreamPreflight, importDiskStreamCommit } from './vfs-prf/import-streamed';
 import { base64ToBytes, clearBytes } from '@sqlitewasmblazor/crypto-core';
 import {
@@ -1703,11 +1703,24 @@ async function exportDatabase(
         }
 
         const targetKey = (mode === 'rekey' || mode === 'encrypt') ? newKey : undefined;
-        const out = rekeySlots(raw!, dbPath, sourceKey, targetKey);
+        let out: Uint8Array;
+        if (mode === 'rekey' && sourceKey !== undefined && targetKey !== undefined) {
+            // Encrypted → encrypted: mutate the SAH-exported buffer in
+            // place. Halves the worker heap peak (1× DB size instead of
+            // 2×) — the doubling crossed mobile-browser renderer caps
+            // on ~250 MB DBs and triggered silent tab discard during
+            // cold-boot. See project_mobile_export_memory_profile.md.
+            out = rekeySlotsInPlace(raw!, dbPath, sourceKey, targetKey);
+            // Ownership transferred to `out` — finally must not clear
+            // (would zero the return value).
+            raw = null;
+        } else {
+            out = rekeySlots(raw!, dbPath, sourceKey, targetKey);
+        }
 
         logger.info(
             MODULE_NAME,
-            `✓ Exported ${mode} ${dbName}: ${raw!.length}B → ${out.length}B`,
+            `✓ Exported ${mode} ${dbName}: ${out.length}B`,
         );
 
         return { rawBinary: true, data: out };

@@ -35,6 +35,90 @@ function keyFingerprint(key: Uint8Array | undefined): string {
     return `<redacted:${key.length}B>`;
 }
 
+/**
+ * In-place variant of <see cref="rekeySlots"/> for the
+ * <c>encrypted → encrypted</c> case (both keys defined, slot sizes
+ * equal). Mutates <paramref name="bytes"/> slot-by-slot — decrypts each
+ * slot under <paramref name="sourceKey"/>, re-encrypts under
+ * <paramref name="targetKey"/>, writes the new ciphertext back to the
+ * same offset. Returns the same <c>bytes</c> reference.
+ *
+ * Why: <c>rekeySlots</c> allocates a fresh <c>out</c> buffer the same
+ * size as the input, so worker heap peaks at 2× the DB size during
+ * rekey. For ~250 MB DBs that crosses mobile-browser renderer caps
+ * (Mobile Safari ~380 MB; Android Chrome similar tier) and triggers
+ * silent tab discard + reload on cold-boot when WASM + JIT + assets
+ * are also competing for the same heap budget. Mutating in-place
+ * halves the rekey peak.
+ *
+ * Caller MUST NOT <c>clearBytes(bytes)</c> after this call — the
+ * returned reference is the rekeyed output. Per-slot plaintext is
+ * fresh-allocated by <c>decryptChaCha20Poly1305</c> and wiped in the
+ * inner <c>finally</c>.
+ */
+export function rekeySlotsInPlace(
+    bytes: Uint8Array,
+    dbPath: string,
+    sourceKey: Uint8Array,
+    targetKey: Uint8Array,
+): Uint8Array {
+    if (bytes.length === 0) {
+        return bytes;
+    }
+    if (bytes.length % PHYSICAL_SLOT_SIZE !== 0) {
+        throw new Error(
+            `rekeySlotsInPlace: input length ${bytes.length} is not a multiple of slot size ${PHYSICAL_SLOT_SIZE}`,
+        );
+    }
+
+    const slotCount = bytes.length / PHYSICAL_SLOT_SIZE;
+    console.log(
+        `[rekeySlotsInPlace] dbPath=${dbPath} ` +
+        `sourceKey=${keyFingerprint(sourceKey)} ` +
+        `targetKey=${keyFingerprint(targetKey)} ` +
+        `slots=${slotCount} (in-place; peak = 1× DB size)`);
+
+    for (let i = 0; i < slotCount; i++) {
+        const slotStart = i * PHYSICAL_SLOT_SIZE;
+        const aad = buildPageAad(dbPath, i);
+
+        // Lift slot's ct + tag into a fresh combined buffer for the
+        // AEAD decrypt — `decryptChaCha20Poly1305` returns a fresh
+        // plaintext that doesn't alias `bytes`, so it's safe to
+        // overwrite the source slot once the decrypt+encrypt is done.
+        const cipherPlusTag = new Uint8Array(PAGE_PLAINTEXT_LEN + PAGE_TAG_LEN);
+        cipherPlusTag.set(bytes.subarray(slotStart, slotStart + PAGE_PLAINTEXT_LEN), 0);
+        cipherPlusTag.set(
+            bytes.subarray(
+                slotStart + PAGE_PLAINTEXT_LEN + PAGE_NONCE_LEN,
+                slotStart + PHYSICAL_SLOT_SIZE,
+            ),
+            PAGE_PLAINTEXT_LEN,
+        );
+        const nonce = bytes.subarray(
+            slotStart + PAGE_PLAINTEXT_LEN,
+            slotStart + PAGE_PLAINTEXT_LEN + PAGE_NONCE_LEN,
+        );
+        const plaintext = decryptChaCha20Poly1305(
+            { ciphertext: cipherPlusTag, nonce: new Uint8Array(nonce) },
+            sourceKey,
+            aad,
+        );
+        try {
+            const enc = encryptChaCha20Poly1305(plaintext, targetKey, aad);
+            bytes.set(enc.ciphertext.subarray(0, PAGE_PLAINTEXT_LEN), slotStart);
+            bytes.set(enc.nonce, slotStart + PAGE_PLAINTEXT_LEN);
+            bytes.set(
+                enc.ciphertext.subarray(PAGE_PLAINTEXT_LEN),
+                slotStart + PAGE_PLAINTEXT_LEN + PAGE_NONCE_LEN,
+            );
+        } finally {
+            clearBytes(plaintext);
+        }
+    }
+    return bytes;
+}
+
 export function rekeySlots(
     bytesIn: Uint8Array,
     dbPath: string,
