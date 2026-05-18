@@ -54,7 +54,11 @@ export type DiskImportResultCode = typeof DiskImportResult[keyof typeof DiskImpo
 
 interface PoolUtilLike {
     listDatabases(): string[];
+    getFileNames(): string[];
     importDb(path: string, data: Uint8Array, opaque?: boolean): unknown;
+    writeFileSlice(name: string, offset: number, bytes: Uint8Array): void;
+    atomicReplaceFile(srcName: string, dstName: string): void;
+    unlink(filename: string): boolean;
 }
 
 /**
@@ -206,7 +210,13 @@ export async function importDiskStreamCommit(
     globalKey: Uint8Array,
     poolUtil: PoolUtilLike,
 ): Promise<void> {
+    // Chunked write: instead of a per-file Uint8Array(binLen) accumulator
+    // that holds the whole rekeyed file before importDb, slot-batches go
+    // to writeFileSlice on a temp SAH directly. JS heap peak per file
+    // becomes ~1 MB (chunk size), regardless of DB size.
+    const COMMIT_CHUNK_SLOTS = 256;
     const reader = new BufferedStreamReader(blob.stream().getReader());
+    const tempPaths: string[] = [];
     try {
         await consumeEnvelopeMetadata(reader, false);
         const fileCount = await readArrayHeader(reader);
@@ -218,29 +228,53 @@ export async function importDiskStreamCommit(
             }
             const name = await readStr(reader);
             const binLen = await readBinHeader(reader);
-            const dbPath = `/databases/${name}`;
-            const slotCount = binLen / PHYSICAL_SLOT_SIZE;
-            let rekeyed: Uint8Array | null = new Uint8Array(binLen);
-            try {
-                for (let s = 0; s < slotCount; s++) {
-                    const slot = await reader.read(PHYSICAL_SLOT_SIZE);
-                    const aad = buildPageAad(dbPath, s);
-                    const plaintext = decryptSlot(slot, kWrap, aad);
-                    try {
-                        writeEncryptedSlot(plaintext, globalKey, aad, rekeyed, s * PHYSICAL_SLOT_SIZE);
-                    } finally {
-                        clearBytes(plaintext);
-                        clearBytes(slot);
-                    }
-                }
-                poolUtil.importDb(dbPath, rekeyed, true);
-            } finally {
-                // Drop the per-file buffer ref so V8 can reclaim it
-                // before allocating the next file's buffer. Bytes are
-                // already ciphertext under globalKey so not secret-bearing.
-                rekeyed = null;
+            if (binLen === 0 || binLen % PHYSICAL_SLOT_SIZE !== 0) {
+                throw new Error(
+                    `importDiskStreamed[commit]: file '${name}' length ${binLen} is not a positive multiple of slot size ${PHYSICAL_SLOT_SIZE}`);
             }
+            const dbPath = `/databases/${name}`;
+            const tempPath = `${dbPath}.import-tmp`;
+            if (poolUtil.getFileNames().includes(tempPath)) {
+                try { poolUtil.unlink(tempPath); } catch { /* best-effort */ }
+            }
+            tempPaths.push(tempPath);
+            const totalSlots = binLen / PHYSICAL_SLOT_SIZE;
+            let chunkBuf: Uint8Array | null = null;
+            for (let slotBase = 0; slotBase < totalSlots; slotBase += COMMIT_CHUNK_SLOTS) {
+                const slotCount = Math.min(COMMIT_CHUNK_SLOTS, totalSlots - slotBase);
+                chunkBuf = new Uint8Array(slotCount * PHYSICAL_SLOT_SIZE);
+                try {
+                    for (let s = 0; s < slotCount; s++) {
+                        const slot = await reader.read(PHYSICAL_SLOT_SIZE);
+                        const slotIdx = slotBase + s;
+                        const aad = buildPageAad(dbPath, slotIdx);
+                        const plaintext = decryptSlot(slot, kWrap, aad);
+                        try {
+                            writeEncryptedSlot(plaintext, globalKey, aad, chunkBuf, s * PHYSICAL_SLOT_SIZE);
+                        } finally {
+                            clearBytes(plaintext);
+                            clearBytes(slot);
+                        }
+                    }
+                    poolUtil.writeFileSlice(tempPath, slotBase * PHYSICAL_SLOT_SIZE, chunkBuf);
+                } finally {
+                    clearBytes(chunkBuf);
+                    chunkBuf = null;
+                }
+            }
+            // Atomic-promote temp → dbPath. From this point on, dbPath
+            // points at the freshly-imported encrypted DB; any later
+            // file's failure leaves earlier files committed (same window
+            // the legacy multi-file import had).
+            poolUtil.atomicReplaceFile(tempPath, dbPath);
         }
+    } catch (error) {
+        // Unlink any temp files we created but didn't promote. Already-
+        // promoted dbPaths are committed and stay.
+        for (const tempPath of tempPaths) {
+            try { poolUtil.unlink(tempPath); } catch { /* best-effort */ }
+        }
+        throw error;
     } finally {
         reader.releaseLock();
     }
