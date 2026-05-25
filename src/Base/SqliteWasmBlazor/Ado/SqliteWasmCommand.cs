@@ -77,9 +77,10 @@ public sealed class SqliteWasmCommand : DbCommand
         LogCommandSql(sql);
 
         var (parameterDict, packedBlobs) = _parameters.GetParameterValuesWithBlobs();
+        var timeout = GetCommandTimeout();
         var result = packedBlobs is null
-            ? await bridge.ExecuteSqlAsync(Connection.Database, sql, parameterDict, cancellationToken)
-            : await bridge.ExecuteSqlWithBlobsAsync(Connection.Database, sql, parameterDict, packedBlobs, cancellationToken);
+            ? await bridge.ExecuteSqlAsync(Connection.Database, sql, parameterDict, cancellationToken, timeout)
+            : await bridge.ExecuteSqlWithBlobsAsync(Connection.Database, sql, parameterDict, packedBlobs, cancellationToken, timeout);
 
         if (EnableCommandSqlLogging)
         {
@@ -104,9 +105,16 @@ public sealed class SqliteWasmCommand : DbCommand
         var sql = PreprocessSql(_commandText);
         LogCommandSql(sql);
         var (parameterDict, packedBlobs) = _parameters.GetParameterValuesWithBlobs();
+        var timeout = GetCommandTimeout();
         var result = packedBlobs is null
-            ? await bridge.ExecuteSqlAsync(Connection.Database, sql, parameterDict, cancellationToken)
-            : await bridge.ExecuteSqlWithBlobsAsync(Connection.Database, sql, parameterDict, packedBlobs, cancellationToken);
+            ? await bridge.ExecuteSqlAsync(Connection.Database, sql, parameterDict, cancellationToken, timeout)
+            : await bridge.ExecuteSqlWithBlobsAsync(Connection.Database, sql, parameterDict, packedBlobs, cancellationToken, timeout);
+
+        if (EnableCommandSqlLogging)
+        {
+            Console.WriteLine(
+                $"[SqliteWasmCommand] Result: Rows={result.Rows.Length}, Columns={result.ColumnNames.Count}");
+        }
 
         if (result.Rows.Length > 0 && result.Rows[0].Length > 0)
         {
@@ -133,9 +141,16 @@ public sealed class SqliteWasmCommand : DbCommand
         var sql = PreprocessSql(_commandText);
         LogCommandSql(sql);
         var (parameterDict, packedBlobs) = _parameters.GetParameterValuesWithBlobs();
+        var timeout = GetCommandTimeout();
         var result = packedBlobs is null
-            ? await bridge.ExecuteSqlAsync(Connection.Database, sql, parameterDict, cancellationToken)
-            : await bridge.ExecuteSqlWithBlobsAsync(Connection.Database, sql, parameterDict, packedBlobs, cancellationToken);
+            ? await bridge.ExecuteSqlAsync(Connection.Database, sql, parameterDict, cancellationToken, timeout)
+            : await bridge.ExecuteSqlWithBlobsAsync(Connection.Database, sql, parameterDict, packedBlobs, cancellationToken, timeout);
+
+        if (EnableCommandSqlLogging)
+        {
+            Console.WriteLine(
+                $"[SqliteWasmCommand] Result: Rows={result.Rows.Length}, Columns={result.ColumnNames.Count}");
+        }
 
         return new SqliteWasmDataReader(
             result,
@@ -248,6 +263,11 @@ public sealed class SqliteWasmCommand : DbCommand
         Console.WriteLine($"[SqliteWasmCommand] Executing SQL: {sql}");
         Console.WriteLine(
             $"[SqliteWasmCommand] Parameters: {string.Join(", ", _parameters.GetParameterValues().Select((v, i) => $"${i}={v}"))}");
+    }
+
+    private TimeSpan? GetCommandTimeout()
+    {
+        return CommandTimeout > 0 ? TimeSpan.FromSeconds(CommandTimeout) : null;
     }
 
     private Task WaitForPendingTransactionCleanupAsync(CancellationToken cancellationToken)

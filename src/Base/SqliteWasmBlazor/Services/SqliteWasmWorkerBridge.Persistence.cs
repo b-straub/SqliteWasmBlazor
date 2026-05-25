@@ -39,7 +39,7 @@ internal sealed partial class SqliteWasmWorkerBridge
         var opaque = data.Length < 16 || !data.AsSpan(0, 16).SequenceEqual(SqliteHeaderMagic);
 
         var requestId = Interlocked.Increment(ref _nextRequestId);
-        var tcs = new TaskCompletionSource<SqlQueryResult>();
+        var tcs = new TaskCompletionSource<SqlQueryResult>(TaskCreationOptions.RunContinuationsAsynchronously);
 
         _pendingRequests[requestId] = tcs;
 
@@ -122,7 +122,7 @@ internal sealed partial class SqliteWasmWorkerBridge
         await EnsureInitializedAsync(cancellationToken);
 
         var requestId = Interlocked.Increment(ref _nextRequestId);
-        var tcs = new TaskCompletionSource<byte[]>();
+        var tcs = new TaskCompletionSource<byte[]>(TaskCreationOptions.RunContinuationsAsynchronously);
         _pendingBinaryRequests[requestId] = tcs;
 
         try
@@ -236,7 +236,7 @@ internal sealed partial class SqliteWasmWorkerBridge
         await EnsureInitializedAsync(cancellationToken);
 
         var requestId = Interlocked.Increment(ref _nextRequestId);
-        var tcs = new TaskCompletionSource<SqlQueryResult>();
+        var tcs = new TaskCompletionSource<SqlQueryResult>(TaskCreationOptions.RunContinuationsAsynchronously);
         _pendingRequests[requestId] = tcs;
 
         try

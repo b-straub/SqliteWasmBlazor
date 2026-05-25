@@ -152,7 +152,7 @@ internal sealed partial class SqliteWasmWorkerBridge : ISqliteWasmDatabaseServic
 
         await JSHost.ImportAsync("sqliteWasmWorker", bridgePath, cancellationToken);
 
-        _initializationTcs = new TaskCompletionSource<bool>();
+        _initializationTcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         var token = cancellationToken;
         await using var registration = token.Register(() => _initializationTcs.TrySetCanceled());
 
@@ -265,7 +265,8 @@ internal sealed partial class SqliteWasmWorkerBridge : ISqliteWasmDatabaseServic
         string database,
         string sql,
         Dictionary<string, object?> parameters,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        TimeSpan? timeout = null)
     {
         await EnsureInitializedAsync(cancellationToken);
         ThrowIfDiskLocked($"ExecuteSql on '{database}'");
@@ -279,7 +280,7 @@ internal sealed partial class SqliteWasmWorkerBridge : ISqliteWasmDatabaseServic
         };
 
         // SendRequestAsync now returns SqlQueryResult directly - no deserialization needed
-        return await SendRequestAsync(request, cancellationToken);
+        return await SendRequestAsync(request, cancellationToken, timeout);
     }
 
     /// <summary>
@@ -296,7 +297,8 @@ internal sealed partial class SqliteWasmWorkerBridge : ISqliteWasmDatabaseServic
         string sql,
         Dictionary<string, object?> parameters,
         byte[] packedBlobs,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        TimeSpan? timeout = null)
     {
         await EnsureInitializedAsync(cancellationToken);
         ThrowIfDiskLocked($"ExecuteSqlWithBlobs on '{database}'");
@@ -327,15 +329,16 @@ internal sealed partial class SqliteWasmWorkerBridge : ISqliteWasmDatabaseServic
 
             SendBinaryToWorker(packedBlobs.AsSpan(), metadataJson);
 
+            var effectiveTimeout = timeout ?? TimeSpan.FromSeconds(60);
             using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            timeoutCts.CancelAfter(60000);
+            timeoutCts.CancelAfter(effectiveTimeout);
             try
             {
                 return await tcs.Task.WaitAsync(timeoutCts.Token).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
             {
-                throw new TimeoutException($"ExecuteSqlWithBlobsAsync on '{database}' timed out");
+                throw new TimeoutException($"ExecuteSqlWithBlobsAsync on '{database}' timed out after {effectiveTimeout.TotalSeconds:0} seconds.");
             }
         }
         finally
@@ -417,10 +420,16 @@ internal sealed partial class SqliteWasmWorkerBridge : ISqliteWasmDatabaseServic
     // request/response round-trips through the same TaskCompletionSource map.
     // No behavior change: same-assembly partials (.Encryption.cs / .Delta.cs)
     // continue to see this method exactly as before.
-    internal async Task<SqlQueryResult> SendRequestAsync(object request, CancellationToken cancellationToken)
+    internal Task<SqlQueryResult> SendRequestAsync(object request, CancellationToken cancellationToken)
+        => SendRequestAsync(request, cancellationToken, null);
+
+    internal async Task<SqlQueryResult> SendRequestAsync(
+        object request,
+        CancellationToken cancellationToken,
+        TimeSpan? timeout = null)
     {
         var requestId = Interlocked.Increment(ref _nextRequestId);
-        var tcs = new TaskCompletionSource<SqlQueryResult>();
+        var tcs = new TaskCompletionSource<SqlQueryResult>(TaskCreationOptions.RunContinuationsAsynchronously);
 
         _pendingRequests[requestId] = tcs;
 
@@ -440,24 +449,21 @@ internal sealed partial class SqliteWasmWorkerBridge : ISqliteWasmDatabaseServic
 
             SendToWorker(requestJson);
 
-            // Timeout for general SQL operations.
-            // Must be long enough for heavy operations like FTS5 rebuild on large databases.
-#if DEBUG
-            const int defaultTimeoutMs = 300_000; // 5 minutes in debug
-#else
-            const int defaultTimeoutMs = 300_000; // 5 minutes in release
-#endif
+            // Timeout for general SQL operations. Callers can pass a shorter
+            // DbCommand timeout for foreground EF work while bulk operations
+            // keep the longer bridge default.
+            var effectiveTimeout = timeout ?? TimeSpan.FromMinutes(5);
             using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            timeoutCts.CancelAfter(defaultTimeoutMs);
+            timeoutCts.CancelAfter(effectiveTimeout);
 
             try
             {
-                return await tcs.Task.WaitAsync(timeoutCts.Token);
+                return await tcs.Task.WaitAsync(timeoutCts.Token).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
             {
                 // Timeout occurred (not user cancellation)
-                throw new TimeoutException($"Database operation timed out after {defaultTimeoutMs / 1000} seconds.");
+                throw new TimeoutException($"Database operation timed out after {effectiveTimeout.TotalSeconds:0} seconds.");
             }
         }
         catch
@@ -497,7 +503,7 @@ internal sealed partial class SqliteWasmWorkerBridge : ISqliteWasmDatabaseServic
     {
         await EnsureInitializedAsync(cancellationToken);
         var requestId = Interlocked.Increment(ref _nextRequestId);
-        var tcs = new TaskCompletionSource<SqlQueryResult>();
+        var tcs = new TaskCompletionSource<SqlQueryResult>(TaskCreationOptions.RunContinuationsAsynchronously);
         _pendingRequests[requestId] = tcs;
 
         try
@@ -532,7 +538,7 @@ internal sealed partial class SqliteWasmWorkerBridge : ISqliteWasmDatabaseServic
     {
         await EnsureInitializedAsync(cancellationToken);
         var requestId = Interlocked.Increment(ref _nextRequestId);
-        var tcs = new TaskCompletionSource<SqlQueryResult>();
+        var tcs = new TaskCompletionSource<SqlQueryResult>(TaskCreationOptions.RunContinuationsAsynchronously);
         _pendingRequests[requestId] = tcs;
 
         try
@@ -572,7 +578,7 @@ internal sealed partial class SqliteWasmWorkerBridge : ISqliteWasmDatabaseServic
     {
         await EnsureInitializedAsync(cancellationToken);
         var requestId = Interlocked.Increment(ref _nextRequestId);
-        var tcs = new TaskCompletionSource<byte[]>();
+        var tcs = new TaskCompletionSource<byte[]>(TaskCreationOptions.RunContinuationsAsynchronously);
         _pendingBinaryRequests[requestId] = tcs;
 
         try
@@ -613,7 +619,7 @@ internal sealed partial class SqliteWasmWorkerBridge : ISqliteWasmDatabaseServic
     {
         await EnsureInitializedAsync(cancellationToken);
         var requestId = Interlocked.Increment(ref _nextRequestId);
-        var tcs = new TaskCompletionSource<byte[]>();
+        var tcs = new TaskCompletionSource<byte[]>(TaskCreationOptions.RunContinuationsAsynchronously);
         _pendingBinaryRequests[requestId] = tcs;
 
         try
