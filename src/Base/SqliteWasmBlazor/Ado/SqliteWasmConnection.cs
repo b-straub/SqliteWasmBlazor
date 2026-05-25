@@ -13,6 +13,11 @@ namespace SqliteWasmBlazor;
 /// </summary>
 public sealed class SqliteWasmConnection : DbConnection
 {
+    private static readonly object PendingTransactionCleanupGate = new();
+    private static readonly Dictionary<string, Task> PendingTransactionCleanupByDatabase = new(StringComparer.Ordinal);
+    private static readonly object DatabaseTransactionGateLock = new();
+    private static readonly Dictionary<string, SemaphoreSlim> DatabaseTransactionGates = new(StringComparer.Ordinal);
+
     private string _connectionString = string.Empty;
     private ConnectionState _state = ConnectionState.Closed;
     private readonly SqliteWasmWorkerBridge _bridge;
@@ -57,24 +62,82 @@ public sealed class SqliteWasmConnection : DbConnection
 
     private string GetDatabaseName()
     {
-        // Parse "Data Source=mydb.db" from connection string
-        if (string.IsNullOrEmpty(_connectionString))
+        return GetDatabaseName(_connectionString);
+    }
+
+    internal static string GetDatabaseName(string? connectionString)
+    {
+        if (string.IsNullOrEmpty(connectionString))
         {
             return ":memory:";
         }
 
-        var parts = _connectionString.Split(';');
-        foreach (var part in parts)
+        // Parse common SQLite connection string keys:
+        // "Data Source=my.db", "DataSource=my.db", or "Filename=my.db".
+        foreach (var part in SplitConnectionString(connectionString))
         {
             var kv = part.Split('=', 2);
             if (kv.Length == 2 &&
-                kv[0].Trim().Equals("Data Source", StringComparison.OrdinalIgnoreCase))
+                IsDataSourceKey(kv[0].Trim()))
             {
-                return kv[1].Trim();
+                return UnquoteConnectionStringValue(kv[1].Trim());
             }
         }
 
         return ":memory:";
+    }
+
+    private static IEnumerable<string> SplitConnectionString(string connectionString)
+    {
+        var start = 0;
+        var quote = '\0';
+
+        for (var i = 0; i < connectionString.Length; i++)
+        {
+            var ch = connectionString[i];
+            if (quote != '\0')
+            {
+                if (ch == quote)
+                {
+                    quote = '\0';
+                }
+
+                continue;
+            }
+
+            if (ch is '\'' or '"')
+            {
+                quote = ch;
+                continue;
+            }
+
+            if (ch == ';')
+            {
+                yield return connectionString[start..i];
+                start = i + 1;
+            }
+        }
+
+        yield return connectionString[start..];
+    }
+
+    private static bool IsDataSourceKey(string key)
+    {
+        return key.Equals("Data Source", StringComparison.OrdinalIgnoreCase) ||
+               key.Equals("DataSource", StringComparison.OrdinalIgnoreCase) ||
+               key.Equals("Filename", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string UnquoteConnectionStringValue(string value)
+    {
+        if (value.Length >= 2 &&
+            ((value[0] == '"' && value[^1] == '"') ||
+             (value[0] == '\'' && value[^1] == '\'')))
+        {
+            return value[1..^1];
+        }
+
+        return value;
     }
 
     public override void Open()
@@ -167,14 +230,25 @@ public sealed class SqliteWasmConnection : DbConnection
         IsolationLevel isolationLevel,
         CancellationToken cancellationToken)
     {
+        await WaitForPendingTransactionCleanupAsync(cancellationToken).ConfigureAwait(false);
+
         if (_currentTransaction is not null)
         {
             throw new InvalidOperationException("A transaction is already active on this connection.");
         }
 
-        var transaction = await SqliteWasmTransaction.CreateAsync(this, isolationLevel, cancellationToken);
-        _currentTransaction = transaction;
-        return transaction;
+        var transactionLease = await EnterDatabaseTransactionAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var transaction = await SqliteWasmTransaction.CreateAsync(this, isolationLevel, transactionLease, cancellationToken);
+            _currentTransaction = transaction;
+            return transaction;
+        }
+        catch
+        {
+            transactionLease.Dispose();
+            throw;
+        }
     }
 
     internal void ClearCurrentTransaction(SqliteWasmTransaction transaction)
@@ -182,6 +256,102 @@ public sealed class SqliteWasmConnection : DbConnection
         if (_currentTransaction == transaction)
         {
             _currentTransaction = null;
+        }
+    }
+
+    internal void TrackPendingTransactionCleanup(Task cleanupTask)
+    {
+        if (cleanupTask.IsCompletedSuccessfully)
+        {
+            return;
+        }
+
+        lock (PendingTransactionCleanupGate)
+        {
+            if (PendingTransactionCleanupByDatabase.TryGetValue(Database, out var pending) && !pending.IsCompleted)
+            {
+                PendingTransactionCleanupByDatabase[Database] = Task.WhenAll(pending, cleanupTask);
+            }
+            else
+            {
+                PendingTransactionCleanupByDatabase[Database] = cleanupTask;
+            }
+        }
+    }
+
+    internal async Task WaitForPendingTransactionCleanupAsync(CancellationToken cancellationToken = default)
+    {
+        Task? pending;
+        lock (PendingTransactionCleanupGate)
+        {
+            PendingTransactionCleanupByDatabase.TryGetValue(Database, out pending);
+        }
+
+        if (pending is null || pending.IsCompletedSuccessfully)
+        {
+            return;
+        }
+
+        await pending.WaitAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    internal Task WaitForDatabaseTransactionAccessAsync(CancellationToken cancellationToken = default)
+    {
+        if (_currentTransaction is not null)
+        {
+            return Task.CompletedTask;
+        }
+
+        return WaitForDatabaseTransactionAccessCoreAsync(cancellationToken);
+    }
+
+    private async Task<IDisposable> EnterDatabaseTransactionAsync(CancellationToken cancellationToken)
+    {
+        var gate = GetDatabaseTransactionGate(Database);
+        await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        return new DatabaseTransactionScope(gate);
+    }
+
+    private async Task WaitForDatabaseTransactionAccessCoreAsync(CancellationToken cancellationToken)
+    {
+        var gate = GetDatabaseTransactionGate(Database);
+        await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        gate.Release();
+    }
+
+    private static SemaphoreSlim GetDatabaseTransactionGate(string database)
+    {
+        lock (DatabaseTransactionGateLock)
+        {
+            if (!DatabaseTransactionGates.TryGetValue(database, out var gate))
+            {
+                gate = new SemaphoreSlim(1, 1);
+                DatabaseTransactionGates[database] = gate;
+            }
+
+            return gate;
+        }
+    }
+
+    private sealed class DatabaseTransactionScope : IDisposable
+    {
+        private readonly SemaphoreSlim _gate;
+        private bool _disposed;
+
+        public DatabaseTransactionScope(SemaphoreSlim gate)
+        {
+            _gate = gate;
+        }
+
+        public void Dispose()
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            _disposed = true;
+            _gate.Release();
         }
     }
 

@@ -23,7 +23,8 @@ internal class DecimalArithmeticTest(IDbContextFactory<TodoDbContext> factory)
             new TypeTestEntity { Id = 2, DecimalValue = 50.25m },
             new TypeTestEntity { Id = 3, DecimalValue = 75.00m },
             new TypeTestEntity { Id = 4, DecimalValue = 200.00m },
-            new TypeTestEntity { Id = 5, DecimalValue = 33.33m }
+            new TypeTestEntity { Id = 5, DecimalValue = 33.33m },
+            new TypeTestEntity { Id = 6, DecimalValue = 0.10m }
         };
 
         context.TypeTests.AddRange(entities);
@@ -72,6 +73,24 @@ internal class DecimalArithmeticTest(IDbContextFactory<TodoDbContext> factory)
         if (modResult != 1)
         {
             throw new InvalidOperationException($"Modulo test failed: expected 1, got {modResult}");
+        }
+
+        var preciseAdd = await context.TypeTests
+            .Where(e => e.Id == 6)
+            .Select(e => e.DecimalValue + 0.20m)
+            .SingleAsync();
+        if (preciseAdd != 0.30m)
+        {
+            throw new InvalidOperationException($"Precise addition failed: expected 0.30, got {preciseAdd}");
+        }
+
+        var preciseMultiply = await context.TypeTests
+            .Where(e => e.Id == 6)
+            .Select(e => e.DecimalValue * 3m)
+            .SingleAsync();
+        if (preciseMultiply != 0.30m)
+        {
+            throw new InvalidOperationException($"Precise multiplication failed: expected 0.30, got {preciseMultiply}");
         }
 
         return "OK";

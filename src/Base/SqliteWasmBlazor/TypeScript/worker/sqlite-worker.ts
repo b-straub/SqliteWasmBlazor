@@ -55,6 +55,13 @@ interface WorkerResponse {
     };
 }
 
+const requestQueue: MessageEvent<WorkerRequest | { type: 'setLogLevel'; level: number } | { type: 'init'; baseHref: string; assetRoot?: string }>[] = [];
+const requestQueueEnqueuedAt = new WeakMap<MessageEvent<WorkerRequest | { type: 'setLogLevel'; level: number } | { type: 'init'; baseHref: string; assetRoot?: string }>, number>();
+const activeTransactions = new Map<string, boolean>();
+let requestQueueProcessing = false;
+const transactionQueueTimeoutMs = 300_000;
+const deferredQueueRetryMs = 250;
+
 // Helper function to convert BigInt and Uint8Array for JSON serialization
 // BigInts within safe integer range (±2^53-1) are converted to number for efficiency
 // Larger BigInts are converted to string to preserve precision
@@ -144,12 +151,12 @@ async function initializeSQLite() {
         // Pool capacity: each DB occupies 1 slot for the main file; in
         // journal_mode=WAL it may also claim `.db-wal` and `.db-shm` slots
         // plus a transient `.db-journal` during the WAL mode transition
-        // (~4 slots per active WAL DB). For apps that open multiple DBs
-        // (Todo + Notes + per-feature benchmarks) 10 slots is tight — we
-        // default to 25 so a realistic workload doesn't trip "SAH pool is
-        // full" on journal creation. 25 × ~4 KiB preallocated = ~100 KiB.
+        // (~4 slots per active WAL DB). A POS-style offline workload can open
+        // enough logical databases that 25 slots still trips "SAH pool is
+        // full" during journal creation, so keep enough headroom for realistic
+        // app data, temp journals, imports, and backup/export probes.
         poolUtil = await (sqlite3 as any).installOpfsSAHPoolVfs({
-            initialCapacity: 25,
+            initialCapacity: 64,
             directory: '/databases',
             name: 'opfs-sahpool',
             clearOnInit: false
@@ -157,7 +164,7 @@ async function initializeSQLite() {
         setPoolUtil(poolUtil);
 
         // Grow pool if previously created with smaller capacity (initialCapacity only applies on first creation)
-        await poolUtil.reserveMinimumCapacity(25);
+        await poolUtil.reserveMinimumCapacity(64);
 
         logger.info(MODULE_NAME, 'OPFS SAHPool VFS installed successfully');
         logger.debug(MODULE_NAME, 'Available VFS:', sqlite3.capi.sqlite3_vfs_find(null));
@@ -175,7 +182,138 @@ async function initializeSQLite() {
 }
 
 // Handle messages from main thread
-self.onmessage = async (event: MessageEvent<WorkerRequest | { type: 'setLogLevel'; level: number } | { type: 'init'; baseHref: string; assetRoot?: string }>) => {
+self.onmessage = (event: MessageEvent<WorkerRequest | { type: 'setLogLevel'; level: number } | { type: 'init'; baseHref: string; assetRoot?: string }>) => {
+    requestQueueEnqueuedAt.set(event, Date.now());
+    requestQueue.push(event);
+    void processRequestQueue();
+};
+
+async function processRequestQueue() {
+    if (requestQueueProcessing) {
+        return;
+    }
+
+    requestQueueProcessing = true;
+    try {
+        for (;;) {
+            const event = takeNextRequest();
+            if (!event) {
+                break;
+            }
+
+            await handleWorkerMessage(event);
+        }
+    } finally {
+        requestQueueProcessing = false;
+    }
+
+    if (requestQueue.some((event, index) => !shouldDeferRequest(event, index))) {
+        setTimeout(() => void processRequestQueue(), 0);
+    } else if (requestQueue.length > 0) {
+        setTimeout(() => void processRequestQueue(), deferredQueueRetryMs);
+    }
+}
+
+function takeNextRequest() {
+    for (let i = 0; i < requestQueue.length; i++) {
+        const event = requestQueue[i];
+        if (!shouldDeferRequest(event, i)) {
+            return requestQueue.splice(i, 1)[0];
+        }
+
+        if (isTransactionQueueTimedOut(event)) {
+            requestQueue.splice(i, 1);
+            postDeferredTransactionTimeout(event);
+            i--;
+        }
+    }
+
+    return null;
+}
+
+function isTransactionQueueTimedOut(event: MessageEvent<WorkerRequest | { type: 'setLogLevel'; level: number } | { type: 'init'; baseHref: string; assetRoot?: string }>) {
+    const enqueuedAt = requestQueueEnqueuedAt.get(event);
+    return enqueuedAt !== undefined && Date.now() - enqueuedAt >= transactionQueueTimeoutMs;
+}
+
+function postDeferredTransactionTimeout(event: MessageEvent<WorkerRequest | { type: 'setLogLevel'; level: number } | { type: 'init'; baseHref: string; assetRoot?: string }>) {
+    if ('type' in event.data) {
+        return;
+    }
+
+    const request = event.data as WorkerRequest;
+    const database = request.data?.database ?? '(unknown)';
+    logger.error(MODULE_NAME, `Timed out waiting for active SQLite transaction to finish. Database=${database}`);
+    const response: WorkerResponse = {
+        id: request.id,
+        data: {
+            success: false,
+            error: `Timed out waiting for active SQLite transaction to finish on database '${database}'.`
+        }
+    };
+
+    self.postMessage(response);
+}
+
+function shouldDeferRequest(event: MessageEvent<WorkerRequest | { type: 'setLogLevel'; level: number } | { type: 'init'; baseHref: string; assetRoot?: string }>, index: number) {
+    const database = getRequestDatabase(event);
+    if (!database) {
+        return false;
+    }
+
+    const kind = transactionKind(event);
+    for (let i = 0; i < index; i++) {
+        if (kind !== 'commit' &&
+            kind !== 'rollback' &&
+            getRequestDatabase(requestQueue[i]) === database &&
+            shouldDeferRequest(requestQueue[i], i)) {
+            return true;
+        }
+    }
+
+    return kind === 'begin' && activeTransactions.get(database) === true;
+}
+
+function getRequestDatabase(event: MessageEvent<WorkerRequest | { type: 'setLogLevel'; level: number } | { type: 'init'; baseHref: string; assetRoot?: string }>) {
+    if ('type' in event.data) {
+        return null;
+    }
+
+    return (event.data as WorkerRequest).data?.database ?? null;
+}
+
+function transactionKind(event: MessageEvent<WorkerRequest | { type: 'setLogLevel'; level: number } | { type: 'init'; baseHref: string; assetRoot?: string }>) {
+    if ('type' in event.data) {
+        return null;
+    }
+
+    const request = event.data as WorkerRequest;
+    if (request.data?.type !== 'execute') {
+        return null;
+    }
+
+    const normalized = String(request.data.sql || '')
+        .trim()
+        .replace(/;$/, '')
+        .replace(/\s+/g, ' ')
+        .toUpperCase();
+
+    if (/^BEGIN(?: TRANSACTION)?(?: DEFERRED| IMMEDIATE| EXCLUSIVE)?$/.test(normalized)) {
+        return 'begin';
+    }
+
+    if (normalized === 'COMMIT' || normalized === 'END') {
+        return 'commit';
+    }
+
+    if (normalized === 'ROLLBACK') {
+        return 'rollback';
+    }
+
+    return null;
+}
+
+async function handleWorkerMessage(event: MessageEvent<WorkerRequest | { type: 'setLogLevel'; level: number } | { type: 'init'; baseHref: string; assetRoot?: string }>) {
     // Handle initialization with base href and asset root
     if ('type' in event.data && event.data.type === 'init' && 'baseHref' in event.data) {
         baseHref = event.data.baseHref;
@@ -196,9 +334,16 @@ self.onmessage = async (event: MessageEvent<WorkerRequest | { type: 'setLogLevel
 
     // Handle regular requests
     const { id, data, binaryPayload, binaryHeader } = event.data as WorkerRequest;
+    const dbName = data?.database;
+    const txKind = transactionKind(event);
 
     try {
         const result = await handleRequest(data, binaryPayload, binaryHeader);
+        if (txKind === 'begin' && dbName) {
+            activeTransactions.set(dbName, true);
+        } else if ((txKind === 'commit' || txKind === 'rollback') && dbName) {
+            activeTransactions.set(dbName, false);
+        }
 
         // Check if result contains raw binary data (export operations)
         if (result && typeof result === 'object' && 'rawBinary' in result && result.rawBinary) {
@@ -237,8 +382,12 @@ self.onmessage = async (event: MessageEvent<WorkerRequest | { type: 'setLogLevel
         };
 
         self.postMessage(response);
+    } finally {
+        if ((txKind === 'commit' || txKind === 'rollback') && dbName) {
+            activeTransactions.set(dbName, false);
+        }
     }
-};
+}
 
 async function handleRequest(data: WorkerRequest['data'], binaryPayload?: ArrayBuffer, binaryHeader?: ArrayBuffer) {
     const { type, database, sql, parameters } = data;
@@ -387,18 +536,20 @@ async function openDatabase(dbName: string) {
             db.exec("PRAGMA locking_mode = exclusive;");
             db.exec("PRAGMA journal_mode = WAL;");
             db.exec("PRAGMA synchronous = FULL;");
+            db.exec("PRAGMA foreign_keys = ON;");
             logger.debug(
                 MODULE_NAME,
-                `Set PRAGMAs for ${dbName} (encrypted: page_size=4096, journal_mode=WAL)`
+                `Set PRAGMAs for ${dbName} (encrypted: page_size=4096, journal_mode=WAL, foreign_keys=ON)`
             );
         } else {
             // Plain DBs: existing behavior unchanged.
             db.exec("PRAGMA locking_mode = exclusive;");
             db.exec("PRAGMA journal_mode = WAL;");
             db.exec("PRAGMA synchronous = FULL;");
+            db.exec("PRAGMA foreign_keys = ON;");
             logger.debug(
                 MODULE_NAME,
-                `Set PRAGMAs for ${dbName} (locking_mode=exclusive, journal_mode=WAL, synchronous=FULL)`
+                `Set PRAGMAs for ${dbName} (locking_mode=exclusive, journal_mode=WAL, synchronous=FULL, foreign_keys=ON)`
             );
         }
         pragmasSet.add(dbName);
@@ -446,8 +597,12 @@ function getTableSchema(db: any, dbName: string, tableName: string): Map<string,
 
 // Extract table name from SELECT statement (simple heuristic)
 function extractTableName(sql: string): string | null {
-    // Match: SELECT ... FROM "tableName" or FROM tableName
-    const match = sql.match(/FROM\s+["']?(\w+)["']?/i);
+    // Match the main table for common SELECT/INSERT/UPDATE/DELETE shapes.
+    // This is a heuristic for declared column type metadata, not SQL parsing.
+    const match = sql.match(/\bFROM\s+["']?(\w+)["']?/i)
+        ?? sql.match(/\bUPDATE\s+["']?(\w+)["']?/i)
+        ?? sql.match(/\bINSERT\s+(?:OR\s+\w+\s+)?INTO\s+["']?(\w+)["']?/i)
+        ?? sql.match(/\bDELETE\s+FROM\s+["']?(\w+)["']?/i);
     return match ? match[1] : null;
 }
 
@@ -514,6 +669,312 @@ function convertParametersForBinding(
     return converted;
 }
 
+function filterParametersForSql(sql: string, parameters: Record<string, any>): Record<string, any> {
+    if (Object.keys(parameters).length === 0) {
+        return parameters;
+    }
+
+    const filtered: Record<string, any> = {};
+    for (const [key, value] of Object.entries(parameters)) {
+        if (!key || sqlContainsParameter(sql, key)) {
+            filtered[key] = value;
+        }
+    }
+
+    return filtered;
+}
+
+function sqlContainsParameter(sql: string, parameterName: string): boolean {
+    if (!isParameterPrefix(parameterName[0])) {
+        return false;
+    }
+
+    let index = 0;
+    while (index < sql.length) {
+        const ch = sql[index];
+        const next = sql[index + 1];
+
+        if (ch === '\'' || ch === '"') {
+            index = skipQuoted(sql, index, ch);
+            continue;
+        }
+
+        if (ch === '-' && next === '-') {
+            index += 2;
+            while (index < sql.length && sql[index] !== '\n' && sql[index] !== '\r') {
+                index++;
+            }
+            continue;
+        }
+
+        if (ch === '/' && next === '*') {
+            index += 2;
+            while (index + 1 < sql.length && !(sql[index] === '*' && sql[index + 1] === '/')) {
+                index++;
+            }
+            index = Math.min(index + 2, sql.length);
+            continue;
+        }
+
+        if (sql.startsWith(parameterName, index) &&
+            !isParameterNamePart(sql[index + parameterName.length])) {
+            return true;
+        }
+
+        index++;
+    }
+
+    return false;
+}
+
+function isParameterPrefix(ch: string | undefined): boolean {
+    return ch === '@' || ch === '$' || ch === ':';
+}
+
+function isParameterNamePart(ch: string | undefined): boolean {
+    return ch !== undefined && /[A-Za-z0-9_]/.test(ch);
+}
+
+function getPrimaryStatementKeyword(sql: string): string {
+    let index = skipSqlTrivia(sql, 0);
+    let token = readSqlKeyword(sql, index);
+    if (!token) {
+        return '';
+    }
+
+    if (token.keyword !== 'WITH') {
+        return token.keyword;
+    }
+
+    index = skipSqlTrivia(sql, token.nextIndex);
+    token = readSqlKeyword(sql, index);
+    if (token?.keyword === 'RECURSIVE') {
+        index = skipSqlTrivia(sql, token.nextIndex);
+    }
+
+    while (index < sql.length) {
+        const asIndex = findTopLevelKeyword(sql, index, 'AS');
+        if (asIndex < 0) {
+            return 'WITH';
+        }
+
+        index = skipSqlTrivia(sql, asIndex + 2);
+
+        const materialized = readSqlKeyword(sql, index);
+        if (materialized?.keyword === 'MATERIALIZED') {
+            index = skipSqlTrivia(sql, materialized.nextIndex);
+        } else if (materialized?.keyword === 'NOT') {
+            const maybeMaterialized = readSqlKeyword(sql, skipSqlTrivia(sql, materialized.nextIndex));
+            if (maybeMaterialized?.keyword === 'MATERIALIZED') {
+                index = skipSqlTrivia(sql, maybeMaterialized.nextIndex);
+            }
+        }
+
+        index = skipSqlTrivia(sql, index);
+        if (sql[index] !== '(') {
+            return 'WITH';
+        }
+
+        index = skipBalancedParentheses(sql, index);
+        index = skipSqlTrivia(sql, index);
+
+        if (sql[index] === ',') {
+            index = skipSqlTrivia(sql, index + 1);
+            continue;
+        }
+
+        return readSqlKeyword(sql, index)?.keyword ?? 'WITH';
+    }
+
+    return 'WITH';
+}
+
+function skipSqlTrivia(sql: string, startIndex: number): number {
+    let index = startIndex;
+    while (index < sql.length) {
+        const ch = sql[index];
+        const next = sql[index + 1];
+
+        if (/\s/.test(ch)) {
+            index++;
+            continue;
+        }
+
+        if (ch === '-' && next === '-') {
+            index += 2;
+            while (index < sql.length && sql[index] !== '\n' && sql[index] !== '\r') {
+                index++;
+            }
+            continue;
+        }
+
+        if (ch === '/' && next === '*') {
+            index += 2;
+            while (index + 1 < sql.length && !(sql[index] === '*' && sql[index + 1] === '/')) {
+                index++;
+            }
+            index = Math.min(index + 2, sql.length);
+            continue;
+        }
+
+        return index;
+    }
+
+    return index;
+}
+
+function readSqlKeyword(sql: string, startIndex: number): { keyword: string; nextIndex: number } | null {
+    let index = startIndex;
+    if (!isIdentifierStart(sql[index])) {
+        return null;
+    }
+
+    index++;
+    while (index < sql.length && isIdentifierPart(sql[index])) {
+        index++;
+    }
+
+    return {
+        keyword: sql.slice(startIndex, index).toUpperCase(),
+        nextIndex: index
+    };
+}
+
+function findTopLevelKeyword(sql: string, startIndex: number, keyword: string): number {
+    let index = startIndex;
+    let depth = 0;
+
+    while (index < sql.length) {
+        const ch = sql[index];
+        const next = sql[index + 1];
+
+        if (ch === '\'' || ch === '"') {
+            index = skipQuoted(sql, index, ch);
+            continue;
+        }
+
+        if (ch === '-' && next === '-') {
+            index = skipSqlTrivia(sql, index);
+            continue;
+        }
+
+        if (ch === '/' && next === '*') {
+            index = skipSqlTrivia(sql, index);
+            continue;
+        }
+
+        if (ch === '(') {
+            depth++;
+            index++;
+            continue;
+        }
+
+        if (ch === ')') {
+            depth = Math.max(0, depth - 1);
+            index++;
+            continue;
+        }
+
+        if (depth === 0 && isIdentifierStart(ch)) {
+            const token = readSqlKeyword(sql, index);
+            if (token?.keyword === keyword) {
+                return index;
+            }
+
+            index = token?.nextIndex ?? index + 1;
+            continue;
+        }
+
+        index++;
+    }
+
+    return -1;
+}
+
+function skipBalancedParentheses(sql: string, startIndex: number): number {
+    let index = startIndex;
+    let depth = 0;
+
+    while (index < sql.length) {
+        const ch = sql[index];
+        const next = sql[index + 1];
+
+        if (ch === '\'' || ch === '"') {
+            index = skipQuoted(sql, index, ch);
+            continue;
+        }
+
+        if (ch === '-' && next === '-') {
+            index = skipSqlTrivia(sql, index);
+            continue;
+        }
+
+        if (ch === '/' && next === '*') {
+            index = skipSqlTrivia(sql, index);
+            continue;
+        }
+
+        if (ch === '(') {
+            depth++;
+        } else if (ch === ')') {
+            depth--;
+            if (depth === 0) {
+                return index + 1;
+            }
+        }
+
+        index++;
+    }
+
+    return index;
+}
+
+function skipQuoted(sql: string, startIndex: number, quote: string): number {
+    let index = startIndex + 1;
+    while (index < sql.length) {
+        if (sql[index] === quote) {
+            if (sql[index + 1] === quote) {
+                index += 2;
+                continue;
+            }
+
+            return index + 1;
+        }
+
+        index++;
+    }
+
+    return index;
+}
+
+function isIdentifierStart(ch: string | undefined): boolean {
+    return ch !== undefined && /[A-Za-z_]/.test(ch);
+}
+
+function isIdentifierPart(ch: string | undefined): boolean {
+    return ch !== undefined && /[A-Za-z0-9_]/.test(ch);
+}
+
+function reportsRowsAffected(keyword: string): boolean {
+    return keyword === 'INSERT'
+        || keyword === 'UPDATE'
+        || keyword === 'DELETE'
+        || keyword === 'REPLACE'
+        || keyword === 'CREATE';
+}
+
+function shouldReadColumnMetadata(sql: string, keyword: string, result: any[] | undefined): boolean {
+    return (result?.length ?? 0) > 0
+        || keyword === 'SELECT'
+        || keyword === 'WITH'
+        || keyword === 'PRAGMA'
+        || /\bRETURNING\b/i.test(sql);
+}
+
+function isPragmaEncodingQuery(sql: string): boolean {
+    return /^\s*PRAGMA\s+encoding\s*;?\s*$/i.test(sql);
+}
+
 async function executeSql(
     dbName: string, sql: string,
     parameters: Record<string, any>,
@@ -531,34 +992,38 @@ async function executeSql(
         // binaryPayload (if present) carries blob param bytes — see
         // convertParametersForBinding for the __blobOffset/__blobLength
         // placeholder shape.
-        const convertedParams = convertParametersForBinding(parameters, binaryPayload);
+        const convertedParams = filterParametersForSql(
+            sql,
+            convertParametersForBinding(parameters, binaryPayload));
 
         // Execute SQL - use returnValue to get the result
-        const result = db.exec({
+        let result = db.exec({
             sql: sql,
             bind: Object.keys(convertedParams).length > 0 ? convertedParams : undefined,
             returnValue: 'resultRows',
             rowMode: 'array'
         });
+        if (result.length === 0 && isPragmaEncodingQuery(sql)) {
+            result = [['UTF-8']];
+        }
 
         logger.debug(MODULE_NAME, 'SQL executed successfully, rows:', result?.length || 0);
 
         // Extract column metadata if there are results
         let columnNames: string[] = [];
         let columnTypes: string[] = [];
+        const statementKeyword = getPrimaryStatementKeyword(sql);
 
-        if (result && result.length > 0) {
+        if (shouldReadColumnMetadata(sql, statementKeyword, result)) {
             const stmt = db.prepare(sql);
             try {
                 const colCount = stmt.columnCount;
 
-                // Try to get schema from table (for SELECT queries)
+                // Try to get declared types from the statement's main table.
                 let tableSchema: Map<string, string> | null = null;
-                if (sql.trim().toUpperCase().startsWith('SELECT')) {
-                    const tableName = extractTableName(sql);
-                    if (tableName) {
-                        tableSchema = getTableSchema(db, dbName, tableName);
-                    }
+                const tableName = extractTableName(sql);
+                if (tableName) {
+                    tableSchema = getTableSchema(db, dbName, tableName);
                 }
 
                 for (let i = 0; i < colCount; i++) {
@@ -606,10 +1071,7 @@ async function executeSql(
         let rowsAffected = 0;
         let lastInsertId = 0;
 
-        if (sql.trim().toUpperCase().startsWith('INSERT') ||
-            sql.trim().toUpperCase().startsWith('UPDATE') ||
-            sql.trim().toUpperCase().startsWith('DELETE') ||
-            sql.trim().toUpperCase().startsWith('CREATE')) {
+        if (reportsRowsAffected(statementKeyword)) {
 
             // Check if statement has RETURNING clause
             // When RETURNING is used, db.changes() doesn't work correctly because
@@ -649,6 +1111,7 @@ async function executeSql(
 
 async function closeDatabase(dbName: string) {
     const db = openDatabases.get(dbName);
+    activeTransactions.delete(dbName);
     if (db) {
         db.close();
         openDatabases.delete(dbName);

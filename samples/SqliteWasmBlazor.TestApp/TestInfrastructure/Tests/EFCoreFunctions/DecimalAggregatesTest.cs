@@ -57,6 +57,37 @@ internal class DecimalAggregatesTest(IDbContextFactory<TodoDbContext> factory)
             throw new InvalidOperationException($"Max test failed: expected 500.00, got {max}");
         }
 
+        context.TypeTests.AddRange(
+            new TypeTestEntity { Id = 6, DecimalValue = 0.10m },
+            new TypeTestEntity { Id = 7, DecimalValue = 0.20m },
+            new TypeTestEntity { Id = 8, DecimalValue = 9007199254740993.01m },
+            new TypeTestEntity { Id = 9, DecimalValue = 9007199254740993.02m });
+        await context.SaveChangesAsync();
+
+        var preciseSum = await context.TypeTests
+            .Where(e => e.Id == 6 || e.Id == 7)
+            .SumAsync(e => e.DecimalValue);
+        if (preciseSum != 0.30m)
+        {
+            throw new InvalidOperationException($"Precise sum failed: expected 0.30, got {preciseSum}");
+        }
+
+        var preciseAverage = await context.TypeTests
+            .Where(e => e.Id == 6 || e.Id == 7)
+            .AverageAsync(e => e.DecimalValue);
+        if (preciseAverage != 0.15m)
+        {
+            throw new InvalidOperationException($"Precise average failed: expected 0.15, got {preciseAverage}");
+        }
+
+        var largeSum = await context.TypeTests
+            .Where(e => e.Id == 8 || e.Id == 9)
+            .SumAsync(e => e.DecimalValue);
+        if (largeSum != 18014398509481986.03m)
+        {
+            throw new InvalidOperationException($"Large sum failed: expected 18014398509481986.03, got {largeSum}");
+        }
+
         return "OK";
     }
 }

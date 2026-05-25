@@ -51,9 +51,12 @@ internal class GuidHasDataSeedQueryTest(IDbContextFactory<TodoDbContext> factory
                     $"Wrong Title: '{found.Title}'");
             }
 
-            // Also test LINQ Where with Guid comparison
+            // Also test LINQ Where with a Guid parameter. Using the static
+            // field directly lets EF inline a provider literal instead of
+            // exercising the parameter path this regression covers.
+            var lookupId = TestId;
             var queried = await ctx.TodoLists
-                .Where(t => t.Id == TestId)
+                .Where(t => t.Id == lookupId)
                 .SingleOrDefaultAsync();
 
             if (queried is null)

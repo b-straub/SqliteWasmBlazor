@@ -1,6 +1,3 @@
-using Microsoft.AspNetCore.Hosting;
-using Microsoft.Extensions.Configuration;
-
 namespace SqliteWasmBlazor.Tests.Infrastructure;
 
 /// <summary>
@@ -21,14 +18,7 @@ public class SubPathFixture : WaFixtureBase, IWaFixture
 
     public SubPathFixture() : base(PortNumber) { }
 
-    protected override void ConfigureWebHost(IWebHostBuilder builder)
-    {
-        base.ConfigureWebHost(builder);
-        // Inject BLAZOR_BASE_PATH so the TestHost rewrites <base href> in index.html
-        // and applies UsePathBase, enabling a realistic sub-path deployment.
-        builder.ConfigureAppConfiguration(config =>
-            config.AddInMemoryCollection(new Dictionary<string, string?> { ["BLAZOR_BASE_PATH"] = SubPath }));
-    }
+    protected override string PathBase => SubPath;
 
     public async Task InitializeAsync()
     {
@@ -43,12 +33,31 @@ public class ChromiumFixture : WaFixtureBase, IWaFixture
     // OnePass: navigate to /Tests once, run all tests in a single Blazor
     // instance, and have each xUnit test assert its own per-test result
     // label — instead of paying full WASM boot per test (the dominant cost).
-    public bool OnePass => true;
+    public bool OnePass => !bool.TryParse(
+        Environment.GetEnvironmentVariable("SQLITEWASM_TEST_ONEPASS"),
+        out var onePass) || onePass;
     public bool Headless => true;
 
     private static int PortNumber => 7051;
 
     public ChromiumFixture() : base(PortNumber) { }
+
+    public async Task InitializeAsync()
+    {
+        await InitializeAsync(Type, OnePass, Headless);
+    }
+}
+
+public class ChromiumPerTestFixture : WaFixtureBase, IWaFixture
+{
+    public IWaFixture.BrowserType Type => IWaFixture.BrowserType.CHROMIUM;
+    public int Port => PortNumber;
+    public bool OnePass => false;
+    public bool Headless => true;
+
+    private static int PortNumber => 7055;
+
+    public ChromiumPerTestFixture() : base(PortNumber) { }
 
     public async Task InitializeAsync()
     {

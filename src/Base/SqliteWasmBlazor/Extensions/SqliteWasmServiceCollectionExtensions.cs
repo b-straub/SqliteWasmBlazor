@@ -308,10 +308,8 @@ Please close any other tabs running this application and refresh the page.
                 }
 
                 // PRAGMA table_info is the SQLite-canonical introspection
-                // path. SELECT * LIMIT 0 is unreliable here — some drivers
-                // (this one included) only populate column metadata when at
-                // least one row is materialized, leaving FieldCount=0 on
-                // empty results and miscounting every column as missing.
+                // path and avoids depending on provider-specific SELECT *
+                // metadata behavior.
                 cmd.CommandText = $"PRAGMA table_info(\"{tableName}\")";
                 cmd.Parameters.Clear();
 

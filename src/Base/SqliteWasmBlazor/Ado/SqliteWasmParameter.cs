@@ -4,6 +4,8 @@
 using System.Data;
 using System.Data.Common;
 using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
+using System.Text;
 
 namespace SqliteWasmBlazor;
 
@@ -123,12 +125,12 @@ public sealed class SqliteWasmParameterCollection : DbParameterCollection
 
     public override bool Contains(object value)
     {
-        return _parameters.Contains((SqliteWasmParameter)value);
+        return value is SqliteWasmParameter parameter && _parameters.Contains(parameter);
     }
 
     public override bool Contains(string value)
     {
-        return _parameters.Any(p => p.ParameterName == value);
+        return IndexOf(value) >= 0;
     }
 
     public override void CopyTo(Array array, int index)
@@ -143,12 +145,12 @@ public sealed class SqliteWasmParameterCollection : DbParameterCollection
 
     public override int IndexOf(object value)
     {
-        return _parameters.IndexOf((SqliteWasmParameter)value);
+        return value is SqliteWasmParameter parameter ? _parameters.IndexOf(parameter) : -1;
     }
 
     public override int IndexOf(string parameterName)
     {
-        return _parameters.FindIndex(p => p.ParameterName == parameterName);
+        return _parameters.FindIndex(p => ParameterNamesMatch(p.ParameterName, parameterName));
     }
 
     public override void Insert(int index, object value)
@@ -214,87 +216,20 @@ public sealed class SqliteWasmParameterCollection : DbParameterCollection
         var result = new Dictionary<string, object?>();
         foreach (var param in _parameters)
         {
-            // Convert parameter value to JSON-serializable primitive
-            var value = param.Value;
-            string sqliteType;
-
-            if (value is null or DBNull)
+            var converted = ConvertParameterValue(param);
+            var value = converted.Value;
+            if (converted.BlobBytes is not null)
             {
-                value = null;
-                sqliteType = "null";
-            }
-            else if (value is DateTime dt)
-            {
-                // Convert DateTime to ISO 8601 string for JSON serialization
-                value = dt.ToString("O");
-                sqliteType = "text";
-            }
-            else if (value is DateTimeOffset dto)
-            {
-                value = dto.ToString("O");
-                sqliteType = "text";
-            }
-            else if (value is Guid guid)
-            {
-                // Match the uppercase TEXT format that EF Core's EnsureCreated/HasData
-                // generates for Guid INSERT literals.
-                value = guid.ToString().ToUpperInvariant();
-                sqliteType = "text";
-            }
-            else if (value is byte[] bytes)
-            {
-                value = Convert.ToBase64String(bytes);
-                sqliteType = "blob";
-            }
-            else if (value is bool)
-            {
-                // SQLite stores booleans as integers
-                sqliteType = "integer";
-            }
-            else if (value is long l and (> MaxSafeInteger or < -MaxSafeInteger))
-            {
-                // JS Number can only represent integers up to 2^53-1 precisely.
-                // JSON serialization of larger values loses precision (e.g., long.MaxValue → wrong value).
-                // Send as text — SQLite INTEGER affinity coerces text→int64 correctly in C code.
-                value = l.ToString(System.Globalization.CultureInfo.InvariantCulture);
-                sqliteType = "text";
-            }
-            else if (value is ulong ul and > MaxSafeInteger)
-            {
-                value = ul.ToString(System.Globalization.CultureInfo.InvariantCulture);
-                sqliteType = "text";
-            }
-            else if (value is sbyte or byte or short or ushort or int or uint or long or ulong)
-            {
-                sqliteType = "integer";
-            }
-            else if (value is float or double or decimal)
-            {
-                sqliteType = "real";
-            }
-            else if (value is string)
-            {
-                sqliteType = "text";
-            }
-            else
-            {
-                // Fallback for unknown types
-                sqliteType = "text";
-            }
-
-            // Ensure parameter name has @ prefix for SQLite compatibility
-            var paramName = param.ParameterName;
-            if (!string.IsNullOrEmpty(paramName) && !paramName.StartsWith('@') && !paramName.StartsWith('$') && !paramName.StartsWith(':'))
-            {
-                paramName = "@" + paramName;
+                value = Convert.ToBase64String(converted.BlobBytes);
             }
 
             // Send parameter with type metadata
-            result[paramName] = new Dictionary<string, object?>
+            var typedValue = new Dictionary<string, object?>
             {
                 ["value"] = value,
-                ["type"] = sqliteType
+                ["type"] = converted.SqliteType
             };
+            AddParameterBindings(result, param.ParameterName, typedValue);
         }
         return result;
     }
@@ -327,7 +262,8 @@ public sealed class SqliteWasmParameterCollection : DbParameterCollection
         var totalBlobBytes = 0;
         foreach (var param in _parameters)
         {
-            if (param.Value is byte[] b)
+            var converted = ConvertParameterValue(param);
+            if (converted.BlobBytes is byte[] b)
             {
                 totalBlobBytes += b.Length;
             }
@@ -343,30 +279,10 @@ public sealed class SqliteWasmParameterCollection : DbParameterCollection
         var result = new Dictionary<string, object?>();
         foreach (var param in _parameters)
         {
-            var value = param.Value;
-            string sqliteType;
+            var converted = ConvertParameterValue(param);
+            var value = converted.Value;
 
-            if (value is null or DBNull)
-            {
-                value = null;
-                sqliteType = "null";
-            }
-            else if (value is DateTime dt)
-            {
-                value = dt.ToString("O");
-                sqliteType = "text";
-            }
-            else if (value is DateTimeOffset dto)
-            {
-                value = dto.ToString("O");
-                sqliteType = "text";
-            }
-            else if (value is Guid guid)
-            {
-                value = guid.ToString().ToUpperInvariant();
-                sqliteType = "text";
-            }
-            else if (value is byte[] bytes)
+            if (converted.BlobBytes is byte[] bytes)
             {
                 Buffer.BlockCopy(bytes, 0, packed, offset, bytes.Length);
                 value = new Dictionary<string, object?>
@@ -375,51 +291,222 @@ public sealed class SqliteWasmParameterCollection : DbParameterCollection
                     ["__blobLength"] = bytes.Length,
                 };
                 offset += bytes.Length;
-                sqliteType = "blob";
-            }
-            else if (value is bool)
-            {
-                sqliteType = "integer";
-            }
-            else if (value is long l and (> MaxSafeInteger or < -MaxSafeInteger))
-            {
-                value = l.ToString(System.Globalization.CultureInfo.InvariantCulture);
-                sqliteType = "text";
-            }
-            else if (value is ulong ul and > MaxSafeInteger)
-            {
-                value = ul.ToString(System.Globalization.CultureInfo.InvariantCulture);
-                sqliteType = "text";
-            }
-            else if (value is sbyte or byte or short or ushort or int or uint or long or ulong)
-            {
-                sqliteType = "integer";
-            }
-            else if (value is float or double or decimal)
-            {
-                sqliteType = "real";
-            }
-            else if (value is string)
-            {
-                sqliteType = "text";
-            }
-            else
-            {
-                sqliteType = "text";
             }
 
-            var paramName = param.ParameterName;
-            if (!string.IsNullOrEmpty(paramName) && !paramName.StartsWith('@') && !paramName.StartsWith('$') && !paramName.StartsWith(':'))
-            {
-                paramName = "@" + paramName;
-            }
-
-            result[paramName] = new Dictionary<string, object?>
+            var typedValue = new Dictionary<string, object?>
             {
                 ["value"] = value,
-                ["type"] = sqliteType,
+                ["type"] = converted.SqliteType,
             };
+            AddParameterBindings(result, param.ParameterName, typedValue);
         }
         return (result, packed);
+    }
+
+    private static (object? Value, string SqliteType, byte[]? BlobBytes) ConvertParameterValue(
+        SqliteWasmParameter parameter)
+    {
+        var value = parameter.Value;
+        if (value is null or DBNull)
+        {
+            return (null, "null", null);
+        }
+
+        if (parameter.DbType != DbType.Object)
+        {
+            return ConvertExplicitDbType(value, parameter.DbType);
+        }
+
+        return InferParameterValue(value);
+    }
+
+    private static (object? Value, string SqliteType, byte[]? BlobBytes) ConvertExplicitDbType(
+        object value,
+        DbType dbType)
+    {
+        switch (dbType)
+        {
+            case DbType.Binary:
+                return value is byte[] bytes
+                    ? (null, "blob", bytes)
+                    : (null, "blob", Encoding.UTF8.GetBytes(Convert.ToString(value, CultureInfo.InvariantCulture) ?? string.Empty));
+
+            case DbType.Boolean:
+                return (Convert.ToBoolean(value, CultureInfo.InvariantCulture) ? 1 : 0, "integer", null);
+
+            case DbType.Byte:
+            case DbType.SByte:
+            case DbType.Int16:
+            case DbType.UInt16:
+            case DbType.Int32:
+            case DbType.UInt32:
+            case DbType.Int64:
+            case DbType.UInt64:
+                return ConvertInteger(value, dbType);
+
+            case DbType.Single:
+            case DbType.Double:
+            case DbType.Currency:
+                return (Convert.ToDouble(value, CultureInfo.InvariantCulture), "real", null);
+
+            case DbType.Decimal:
+                return (Convert.ToDecimal(value, CultureInfo.InvariantCulture).ToString(CultureInfo.InvariantCulture), "text", null);
+
+            case DbType.Date:
+                return value switch
+                {
+                    DateOnly dateOnly => (dateOnly.ToString("O", CultureInfo.InvariantCulture), "text", null),
+                    DateTime dateTime => (dateTime.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture), "text", null),
+                    DateTimeOffset dtoDate => (dtoDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture), "text", null),
+                    _ => (Convert.ToDateTime(value, CultureInfo.InvariantCulture).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture), "text", null),
+                };
+
+            case DbType.DateTime:
+            case DbType.DateTime2:
+                return value switch
+                {
+                    DateOnly dateOnly => (dateOnly.ToDateTime(TimeOnly.MinValue).ToString("O", CultureInfo.InvariantCulture), "text", null),
+                    DateTime dateTime => (dateTime.ToString("O", CultureInfo.InvariantCulture), "text", null),
+                    DateTimeOffset dtoDateTime => (dtoDateTime.ToString("O", CultureInfo.InvariantCulture), "text", null),
+                    _ => (Convert.ToDateTime(value, CultureInfo.InvariantCulture).ToString("O", CultureInfo.InvariantCulture), "text", null),
+                };
+
+            case DbType.DateTimeOffset:
+                var dateTimeOffset = value is DateTimeOffset dto
+                    ? dto
+                    : new DateTimeOffset(Convert.ToDateTime(value, CultureInfo.InvariantCulture));
+                return (dateTimeOffset.ToString("O", CultureInfo.InvariantCulture), "text", null);
+
+            case DbType.Time:
+                return value switch
+                {
+                    TimeOnly timeOnly => (timeOnly.ToString("O", CultureInfo.InvariantCulture), "text", null),
+                    TimeSpan timeSpan => (timeSpan.ToString("c", CultureInfo.InvariantCulture), "text", null),
+                    _ => (Convert.ToString(value, CultureInfo.InvariantCulture), "text", null),
+                };
+
+            default:
+                return (Convert.ToString(value, CultureInfo.InvariantCulture), "text", null);
+        }
+    }
+
+    private static (object? Value, string SqliteType, byte[]? BlobBytes) InferParameterValue(object value)
+    {
+        if (value is DateTime dt)
+        {
+            return (dt.ToString("O", CultureInfo.InvariantCulture), "text", null);
+        }
+        if (value is DateTimeOffset dto)
+        {
+            return (dto.ToString("O", CultureInfo.InvariantCulture), "text", null);
+        }
+        if (value is DateOnly dateOnly)
+        {
+            return (dateOnly.ToString("O", CultureInfo.InvariantCulture), "text", null);
+        }
+        if (value is TimeOnly timeOnly)
+        {
+            return (timeOnly.ToString("O", CultureInfo.InvariantCulture), "text", null);
+        }
+        if (value is Guid guid)
+        {
+            return (guid.ToString().ToUpperInvariant(), "text", null);
+        }
+        if (value is byte[] bytes)
+        {
+            return (null, "blob", bytes);
+        }
+        if (value is bool boolean)
+        {
+            return (boolean ? 1 : 0, "integer", null);
+        }
+        if (value is long l and (> MaxSafeInteger or < -MaxSafeInteger))
+        {
+            return (l.ToString(CultureInfo.InvariantCulture), "text", null);
+        }
+        if (value is ulong ul and > MaxSafeInteger)
+        {
+            return (ul.ToString(CultureInfo.InvariantCulture), "text", null);
+        }
+        if (value is sbyte or byte or short or ushort or int or uint or long or ulong)
+        {
+            return (value, "integer", null);
+        }
+        if (value is decimal decimalValue)
+        {
+            return (decimalValue.ToString(CultureInfo.InvariantCulture), "text", null);
+        }
+        if (value is float or double)
+        {
+            return (value, "real", null);
+        }
+        if (value is string)
+        {
+            return (value, "text", null);
+        }
+
+        return (Convert.ToString(value, CultureInfo.InvariantCulture), "text", null);
+    }
+
+    private static (object? Value, string SqliteType, byte[]? BlobBytes) ConvertInteger(
+        object value,
+        DbType dbType)
+    {
+        var text = dbType == DbType.UInt64
+            ? Convert.ToUInt64(value, CultureInfo.InvariantCulture).ToString(CultureInfo.InvariantCulture)
+            : Convert.ToInt64(value, CultureInfo.InvariantCulture).ToString(CultureInfo.InvariantCulture);
+
+        if (long.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var signed) &&
+            signed is <= MaxSafeInteger and >= -MaxSafeInteger)
+        {
+            return (signed, "integer", null);
+        }
+
+        return (text, "text", null);
+    }
+
+    private static bool ParameterNamesMatch(string left, string right)
+    {
+        return string.Equals(left, right, StringComparison.Ordinal)
+            || string.Equals(TrimParameterPrefix(left), TrimParameterPrefix(right), StringComparison.Ordinal);
+    }
+
+    private static string TrimParameterPrefix(string parameterName)
+    {
+        return parameterName.Length > 0 && IsParameterPrefix(parameterName[0])
+            ? parameterName[1..]
+            : parameterName;
+    }
+
+    private static bool HasParameterPrefix(string parameterName)
+    {
+        return parameterName.Length > 0 && IsParameterPrefix(parameterName[0]);
+    }
+
+    private static bool IsParameterPrefix(char ch)
+    {
+        return ch is '@' or '$' or ':';
+    }
+
+    private static void AddParameterBindings(
+        Dictionary<string, object?> result,
+        string parameterName,
+        Dictionary<string, object?> typedValue)
+    {
+        if (string.IsNullOrEmpty(parameterName))
+        {
+            result[parameterName] = typedValue;
+            return;
+        }
+
+        if (HasParameterPrefix(parameterName))
+        {
+            result[parameterName] = typedValue;
+            return;
+        }
+
+        result["@" + parameterName] = typedValue;
+        result["$" + parameterName] = typedValue;
+        result[":" + parameterName] = typedValue;
     }
 }

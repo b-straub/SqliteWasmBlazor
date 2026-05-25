@@ -2,39 +2,165 @@
 // MIT License
 
 using System.Collections;
+using System.Collections.ObjectModel;
+using System.Data;
 using System.Data.Common;
+using System.Text;
 
 namespace SqliteWasmBlazor;
 
 /// <summary>
 /// DataReader that wraps results from sqlite-wasm worker.
 /// </summary>
-public sealed class SqliteWasmDataReader : DbDataReader
+public sealed class SqliteWasmDataReader : DbDataReader, IDbColumnSchemaGenerator
 {
+    private const string SchemaColumnIsReadOnly = "IsReadOnly";
+    private const string SchemaColumnIsRowVersion = "IsRowVersion";
+    private const string SchemaColumnIsAutoIncrement = "IsAutoIncrement";
+    private const string SchemaColumnBaseSchemaName = "BaseSchemaName";
+
     private readonly SqlQueryResult _result;
+    private readonly SqliteWasmConnection? _closeConnection;
+    private readonly int _recordsAffected;
+    private readonly bool _schemaOnly;
+    private readonly bool _singleRow;
     private int _currentRowIndex = -1;
     private bool _isClosed;
 
-    internal SqliteWasmDataReader(SqlQueryResult result)
+    internal SqliteWasmDataReader(
+        SqlQueryResult result,
+        SqliteWasmConnection? closeConnection = null,
+        int? recordsAffected = null,
+        bool schemaOnly = false,
+        bool singleRow = false)
     {
         _result = result;
+        _closeConnection = closeConnection;
+        _recordsAffected = recordsAffected ?? result.RowsAffected;
+        _schemaOnly = schemaOnly;
+        _singleRow = singleRow;
     }
 
     public override T GetFieldValue<T>(int ordinal)
     {
-        // Special handling for DateTimeOffset since there's no GetDateTimeOffset() in DbDataReader
+        if (typeof(T) == typeof(Stream))
+        {
+            return (T)(object)GetStream(ordinal);
+        }
+
+        if (typeof(T) == typeof(TextReader))
+        {
+            return (T)(object)GetTextReader(ordinal);
+        }
+
+        if (typeof(T) == typeof(bool))
+        {
+            return (T)(object)GetBoolean(ordinal);
+        }
+
+        if (typeof(T) == typeof(byte))
+        {
+            return (T)(object)GetByte(ordinal);
+        }
+
+        if (typeof(T) == typeof(char))
+        {
+            return (T)(object)GetChar(ordinal);
+        }
+
+        if (typeof(T) == typeof(DateTime))
+        {
+            return (T)(object)GetDateTime(ordinal);
+        }
+
         if (typeof(T) == typeof(DateTimeOffset))
         {
             return (T)(object)GetDateTimeOffset(ordinal);
         }
 
-        // Special handling for TimeSpan
-        if (typeof(T) == typeof(TimeSpan))
+        if (typeof(T) == typeof(DateOnly))
         {
-            return (T)(object)GetTimeSpan(ordinal);
+            return (T)(object)GetDateOnly(ordinal);
         }
 
-        // Default behavior for all other types
+        if (typeof(T) == typeof(TimeOnly))
+        {
+            return (T)(object)GetTimeOnly(ordinal);
+        }
+
+        if (typeof(T) == typeof(decimal))
+        {
+            return (T)(object)GetDecimal(ordinal);
+        }
+
+        if (typeof(T) == typeof(double))
+        {
+            return (T)(object)GetDouble(ordinal);
+        }
+
+        if (typeof(T) == typeof(float))
+        {
+            return (T)(object)GetFloat(ordinal);
+        }
+
+        if (typeof(T) == typeof(Guid))
+        {
+            return (T)(object)GetGuid(ordinal);
+        }
+
+        if (typeof(T) == typeof(int))
+        {
+            return (T)(object)GetInt32(ordinal);
+        }
+
+        if (typeof(T) == typeof(long))
+        {
+            return (T)(object)GetInt64(ordinal);
+        }
+
+        checked
+        {
+            if (typeof(T) == typeof(sbyte))
+            {
+                return (T)(object)(sbyte)GetInt64(ordinal);
+            }
+
+            if (typeof(T) == typeof(short))
+            {
+                return (T)(object)GetInt16(ordinal);
+            }
+
+            if (typeof(T) == typeof(TimeSpan))
+            {
+                return (T)(object)GetTimeSpan(ordinal);
+            }
+
+            if (typeof(T) == typeof(uint))
+            {
+                return (T)(object)(uint)GetInt64(ordinal);
+            }
+
+            if (typeof(T) == typeof(ulong))
+            {
+                return (T)(object)unchecked((ulong)GetInt64(ordinal));
+            }
+
+            if (typeof(T) == typeof(ushort))
+            {
+                return (T)(object)(ushort)GetInt64(ordinal);
+            }
+        }
+
+        if (IsDBNull(ordinal))
+        {
+            if (default(T) is not null)
+            {
+                throw new InvalidCastException($"Column {ordinal} is null and cannot be converted to {typeof(T).Name}.");
+            }
+
+            return default!;
+        }
+
         return base.GetFieldValue<T>(ordinal);
     }
 
@@ -42,11 +168,11 @@ public sealed class SqliteWasmDataReader : DbDataReader
 
     public override int FieldCount => _result.ColumnNames.Count;
 
-    public override bool HasRows => _result.Rows.Length > 0;
+    public override bool HasRows => !_schemaOnly && _result.Rows.Length > 0;
 
     public override bool IsClosed => _isClosed;
 
-    public override int RecordsAffected => _result.RowsAffected;
+    public override int RecordsAffected => _recordsAffected;
 
     public override object this[int ordinal] => GetValue(ordinal);
 
@@ -83,8 +209,18 @@ public sealed class SqliteWasmDataReader : DbDataReader
             return bytes.Length;
         }
 
+        if (dataOffset < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(dataOffset));
+        }
+
+        if (dataOffset >= bytes.Length)
+        {
+            return 0;
+        }
+
         var bytesToCopy = Math.Min(length, bytes.Length - (int)dataOffset);
-        Array.Copy(bytes, dataOffset, buffer, bufferOffset, bytesToCopy);
+        Array.Copy(bytes, (int)dataOffset, buffer, bufferOffset, bytesToCopy);
         return bytesToCopy;
     }
 
@@ -113,9 +249,59 @@ public sealed class SqliteWasmDataReader : DbDataReader
             return value.Length;
         }
 
+        if (dataOffset < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(dataOffset));
+        }
+
+        if (dataOffset > value.Length)
+        {
+            throw new ArgumentOutOfRangeException(nameof(dataOffset), dataOffset, null);
+        }
+
+        if (dataOffset == value.Length)
+        {
+            return 0;
+        }
+
         var charsToCopy = Math.Min(length, value.Length - (int)dataOffset);
-        value.CopyTo((int)dataOffset, buffer, bufferOffset, charsToCopy);
+        for (var i = 0; i < charsToCopy; i++)
+        {
+            buffer[bufferOffset + i] = value[(int)dataOffset + i];
+        }
         return charsToCopy;
+    }
+
+    public override Stream GetStream(int ordinal)
+    {
+        var value = GetValue(ordinal);
+
+        if (value is byte[] bytes)
+        {
+            return new MemoryStream(bytes, writable: false);
+        }
+
+        if (value is string str)
+        {
+            return new MemoryStream(Encoding.UTF8.GetBytes(str), writable: false);
+        }
+
+        if (value is DBNull)
+        {
+            return new MemoryStream([], writable: false);
+        }
+
+        throw new InvalidCastException($"Column {ordinal} is not a stream-compatible value.");
+    }
+
+    public override TextReader GetTextReader(int ordinal)
+    {
+        if (IsDBNull(ordinal))
+        {
+            return new StringReader(string.Empty);
+        }
+
+        return new StreamReader(GetStream(ordinal), Encoding.UTF8);
     }
 
     public override string GetDataTypeName(int ordinal)
@@ -130,9 +316,22 @@ public sealed class SqliteWasmDataReader : DbDataReader
         {
             return dt;
         }
+        if (value is double d)
+        {
+            return FromJulianDate(d);
+        }
+        if (value is long l)
+        {
+            return FromJulianDate(l);
+        }
+        if (value is int i)
+        {
+            return FromJulianDate(i);
+        }
         if (value is string str)
         {
-            return DateTime.Parse(str, null, System.Globalization.DateTimeStyles.RoundtripKind);
+            var dateTime = DateTime.Parse(str, System.Globalization.CultureInfo.InvariantCulture);
+            return dateTime.Kind == DateTimeKind.Local ? dateTime.ToUniversalTime() : dateTime;
         }
         throw new InvalidCastException($"Column {ordinal} is not a DateTime. Actual type: {value.GetType().Name}");
     }
@@ -148,6 +347,18 @@ public sealed class SqliteWasmDataReader : DbDataReader
         {
             return new DateTimeOffset(dt);
         }
+        if (value is double d)
+        {
+            return new DateTimeOffset(FromJulianDate(d), TimeSpan.Zero);
+        }
+        if (value is long l)
+        {
+            return new DateTimeOffset(FromJulianDate(l), TimeSpan.Zero);
+        }
+        if (value is int i)
+        {
+            return new DateTimeOffset(FromJulianDate(i), TimeSpan.Zero);
+        }
         if (value is string str)
         {
             // Handle TEXT storage (SQLite stores DateTimeOffset as TEXT)
@@ -155,6 +366,58 @@ public sealed class SqliteWasmDataReader : DbDataReader
             return DateTimeOffset.Parse(str, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.AssumeUniversal);
         }
         throw new InvalidCastException($"Column {ordinal} is not a DateTimeOffset or DateTime. Actual type: {value.GetType().Name}");
+    }
+
+    public DateOnly GetDateOnly(int ordinal)
+    {
+        var value = GetValue(ordinal);
+        if (value is DateOnly dateOnly)
+        {
+            return dateOnly;
+        }
+        if (value is DateTime dateTime)
+        {
+            return DateOnly.FromDateTime(dateTime);
+        }
+        if (value is double d)
+        {
+            return DateOnly.FromDateTime(FromJulianDate(d));
+        }
+        if (value is long l)
+        {
+            return DateOnly.FromDateTime(FromJulianDate(l));
+        }
+        if (value is int i)
+        {
+            return DateOnly.FromDateTime(FromJulianDate(i));
+        }
+        if (value is string str)
+        {
+            return DateOnly.Parse(str, System.Globalization.CultureInfo.InvariantCulture);
+        }
+        throw new InvalidCastException($"Column {ordinal} is not a DateOnly. Actual type: {value.GetType().Name}");
+    }
+
+    public TimeOnly GetTimeOnly(int ordinal)
+    {
+        var value = GetValue(ordinal);
+        if (value is TimeOnly timeOnly)
+        {
+            return timeOnly;
+        }
+        if (value is TimeSpan timeSpan)
+        {
+            return TimeOnly.FromTimeSpan(timeSpan);
+        }
+        if (value is DateTime dateTime)
+        {
+            return TimeOnly.FromDateTime(dateTime);
+        }
+        if (value is string str)
+        {
+            return TimeOnly.Parse(str, System.Globalization.CultureInfo.InvariantCulture);
+        }
+        throw new InvalidCastException($"Column {ordinal} is not a TimeOnly. Actual type: {value.GetType().Name}");
     }
 
     public TimeSpan GetTimeSpan(int ordinal)
@@ -202,14 +465,15 @@ public sealed class SqliteWasmDataReader : DbDataReader
 
     public override Type GetFieldType(int ordinal)
     {
+        ValidateOrdinal(ordinal);
+
         if (_currentRowIndex < 0 || _currentRowIndex >= _result.Rows.Length)
         {
-            // Return string as default if no data yet
-            return typeof(string);
+            return MapSqliteTypeToClrType(GetDataTypeName(ordinal));
         }
 
         var value = _result.Rows[_currentRowIndex][ordinal];
-        return value?.GetType() ?? typeof(object);
+        return value?.GetType() ?? MapSqliteTypeToClrType(GetDataTypeName(ordinal));
     }
 
     public override float GetFloat(int ordinal)
@@ -261,21 +525,41 @@ public sealed class SqliteWasmDataReader : DbDataReader
 
     public override string GetName(int ordinal)
     {
-        if (ordinal < 0 || ordinal >= _result.ColumnNames.Count)
-        {
-            throw new ArgumentOutOfRangeException(nameof(ordinal));
-        }
+        ValidateOrdinal(ordinal);
         return _result.ColumnNames[ordinal];
     }
 
     public override int GetOrdinal(string name)
     {
-        var index = _result.ColumnNames.IndexOf(name);
-        if (index < 0)
+        var exactIndex = _result.ColumnNames.IndexOf(name);
+        if (exactIndex >= 0)
         {
-            throw new ArgumentException($"Column '{name}' not found.", nameof(name));
+            return exactIndex;
         }
-        return index;
+
+        int? caseInsensitiveIndex = null;
+        string? caseInsensitiveName = null;
+
+        for (var i = 0; i < _result.ColumnNames.Count; i++)
+        {
+            var columnName = _result.ColumnNames[i];
+            if (!string.Equals(name, columnName, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            if (caseInsensitiveIndex.HasValue)
+            {
+                throw new InvalidOperationException(
+                    $"Ambiguous column name '{name}' matched both '{caseInsensitiveName}' and '{columnName}'.");
+            }
+
+            caseInsensitiveIndex = i;
+            caseInsensitiveName = columnName;
+        }
+
+        return caseInsensitiveIndex ??
+            throw new ArgumentOutOfRangeException(nameof(name), name, null);
     }
 
     public override string GetString(int ordinal)
@@ -321,6 +605,78 @@ public sealed class SqliteWasmDataReader : DbDataReader
         return count;
     }
 
+    public override DataTable GetSchemaTable()
+    {
+        var schemaTable = new DataTable("SchemaTable")
+        {
+            Locale = System.Globalization.CultureInfo.InvariantCulture
+        };
+
+        schemaTable.Columns.Add(SchemaTableColumn.ColumnName, typeof(string));
+        schemaTable.Columns.Add(SchemaTableColumn.ColumnOrdinal, typeof(int));
+        schemaTable.Columns.Add(SchemaTableColumn.ColumnSize, typeof(int));
+        schemaTable.Columns.Add(SchemaTableColumn.NumericPrecision, typeof(short));
+        schemaTable.Columns.Add(SchemaTableColumn.NumericScale, typeof(short));
+        schemaTable.Columns.Add(SchemaTableColumn.DataType, typeof(Type));
+        schemaTable.Columns.Add(SchemaTableColumn.ProviderType, typeof(int));
+        schemaTable.Columns.Add(SchemaTableColumn.IsLong, typeof(bool));
+        schemaTable.Columns.Add(SchemaTableColumn.AllowDBNull, typeof(bool));
+        schemaTable.Columns.Add(SchemaColumnIsReadOnly, typeof(bool));
+        schemaTable.Columns.Add(SchemaColumnIsRowVersion, typeof(bool));
+        schemaTable.Columns.Add(SchemaTableColumn.IsUnique, typeof(bool));
+        schemaTable.Columns.Add(SchemaTableColumn.IsKey, typeof(bool));
+        schemaTable.Columns.Add(SchemaColumnIsAutoIncrement, typeof(bool));
+        schemaTable.Columns.Add(SchemaColumnBaseSchemaName, typeof(string));
+        schemaTable.Columns.Add(SchemaTableOptionalColumn.BaseCatalogName, typeof(string));
+        schemaTable.Columns.Add(SchemaTableColumn.BaseTableName, typeof(string));
+        schemaTable.Columns.Add(SchemaTableColumn.BaseColumnName, typeof(string));
+
+        for (var ordinal = 0; ordinal < FieldCount; ordinal++)
+        {
+            var dataTypeName = GetDataTypeName(ordinal);
+            var row = schemaTable.NewRow();
+            row[SchemaTableColumn.ColumnName] = GetName(ordinal);
+            row[SchemaTableColumn.ColumnOrdinal] = ordinal;
+            row[SchemaTableColumn.ColumnSize] = -1;
+            row[SchemaTableColumn.NumericPrecision] = DBNull.Value;
+            row[SchemaTableColumn.NumericScale] = DBNull.Value;
+            row[SchemaTableColumn.DataType] = MapSqliteTypeToClrType(dataTypeName);
+            row[SchemaTableColumn.ProviderType] = MapSqliteTypeToProviderType(dataTypeName);
+            row[SchemaTableColumn.IsLong] = string.Equals(dataTypeName, "BLOB", StringComparison.OrdinalIgnoreCase);
+            row[SchemaTableColumn.AllowDBNull] = true;
+            row[SchemaColumnIsReadOnly] = false;
+            row[SchemaColumnIsRowVersion] = false;
+            row[SchemaTableColumn.IsUnique] = false;
+            row[SchemaTableColumn.IsKey] = false;
+            row[SchemaColumnIsAutoIncrement] = false;
+            row[SchemaColumnBaseSchemaName] = string.Empty;
+            row[SchemaTableOptionalColumn.BaseCatalogName] = string.Empty;
+            row[SchemaTableColumn.BaseTableName] = string.Empty;
+            row[SchemaTableColumn.BaseColumnName] = GetName(ordinal);
+            schemaTable.Rows.Add(row);
+        }
+
+        return schemaTable;
+    }
+
+    public ReadOnlyCollection<DbColumn> GetColumnSchema()
+    {
+        var columns = new List<DbColumn>(FieldCount);
+
+        for (var ordinal = 0; ordinal < FieldCount; ordinal++)
+        {
+            var dataTypeName = GetDataTypeName(ordinal);
+            columns.Add(new SqliteWasmDbColumn(
+                columnName: GetName(ordinal),
+                ordinal: ordinal,
+                dataTypeName: dataTypeName,
+                dataType: MapSqliteTypeToClrType(dataTypeName),
+                isLong: string.Equals(dataTypeName, "BLOB", StringComparison.OrdinalIgnoreCase)));
+        }
+
+        return columns.AsReadOnly();
+    }
+
     public override bool IsDBNull(int ordinal)
     {
         var value = GetValue(ordinal);
@@ -340,8 +696,14 @@ public sealed class SqliteWasmDataReader : DbDataReader
             throw new InvalidOperationException("DataReader is closed.");
         }
 
+        if (_schemaOnly)
+        {
+            return false;
+        }
+
         _currentRowIndex++;
-        return _currentRowIndex < _result.Rows.Length;
+        return _currentRowIndex < _result.Rows.Length &&
+            (!_singleRow || _currentRowIndex == 0);
     }
 
     public override IEnumerator GetEnumerator()
@@ -351,7 +713,13 @@ public sealed class SqliteWasmDataReader : DbDataReader
 
     public override void Close()
     {
+        if (_isClosed)
+        {
+            return;
+        }
+
         _isClosed = true;
+        _closeConnection?.Close();
     }
 
     protected override void Dispose(bool disposing)
@@ -361,5 +729,92 @@ public sealed class SqliteWasmDataReader : DbDataReader
             Close();
         }
         base.Dispose(disposing);
+    }
+
+    private void ValidateOrdinal(int ordinal)
+    {
+        if (ordinal < 0 || ordinal >= FieldCount)
+        {
+            throw new ArgumentOutOfRangeException(nameof(ordinal));
+        }
+    }
+
+    private static Type MapSqliteTypeToClrType(string sqliteType)
+    {
+        var normalized = sqliteType.ToUpperInvariant();
+        if (normalized.Contains("INT", StringComparison.Ordinal))
+        {
+            return typeof(long);
+        }
+
+        if (normalized.Contains("REAL", StringComparison.Ordinal) ||
+            normalized.Contains("FLOA", StringComparison.Ordinal) ||
+            normalized.Contains("DOUB", StringComparison.Ordinal))
+        {
+            return typeof(double);
+        }
+
+        if (normalized.Contains("BLOB", StringComparison.Ordinal))
+        {
+            return typeof(byte[]);
+        }
+
+        return typeof(string);
+    }
+
+    private static int MapSqliteTypeToProviderType(string sqliteType)
+    {
+        var normalized = sqliteType.ToUpperInvariant();
+        if (normalized.Contains("INT", StringComparison.Ordinal))
+        {
+            return (int)DbType.Int64;
+        }
+
+        if (normalized.Contains("REAL", StringComparison.Ordinal) ||
+            normalized.Contains("FLOA", StringComparison.Ordinal) ||
+            normalized.Contains("DOUB", StringComparison.Ordinal))
+        {
+            return (int)DbType.Double;
+        }
+
+        if (normalized.Contains("BLOB", StringComparison.Ordinal))
+        {
+            return (int)DbType.Binary;
+        }
+
+        return (int)DbType.String;
+    }
+
+    private static DateTime FromJulianDate(double julianDate)
+    {
+        var days = julianDate - 1721425.5;
+        return DateTime.MinValue.AddDays(days);
+    }
+
+    private sealed class SqliteWasmDbColumn : DbColumn
+    {
+        public SqliteWasmDbColumn(
+            string columnName,
+            int ordinal,
+            string dataTypeName,
+            Type dataType,
+            bool isLong)
+        {
+            AllowDBNull = true;
+            BaseCatalogName = string.Empty;
+            BaseColumnName = columnName;
+            BaseSchemaName = string.Empty;
+            BaseTableName = string.Empty;
+            ColumnName = columnName;
+            ColumnOrdinal = ordinal;
+            ColumnSize = -1;
+            DataType = dataType;
+            DataTypeName = dataTypeName;
+            IsAutoIncrement = false;
+            IsKey = false;
+            IsLong = isLong;
+            IsReadOnly = false;
+            IsUnique = false;
+        }
     }
 }

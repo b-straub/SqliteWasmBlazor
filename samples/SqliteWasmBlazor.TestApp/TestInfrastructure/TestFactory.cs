@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using SqliteWasmBlazor.Models;
 using SqliteWasmBlazor.TestApp.TestInfrastructure.Tests;
+using SqliteWasmBlazor.TestApp.TestInfrastructure.Tests.AdoNet;
 using SqliteWasmBlazor.TestApp.TestInfrastructure.Tests.Checkpoints;
 using SqliteWasmBlazor.TestApp.TestInfrastructure.Tests.CRUD;
 using SqliteWasmBlazor.TestApp.TestInfrastructure.Tests.EFCoreFunctions;
@@ -308,12 +309,49 @@ internal class TestFactory
         Add("CRUD", new UpdateModifyPropertyTest(factory));
         Add("CRUD", new DeleteSingleEntityTest(factory));
         Add("CRUD", new BulkInsert100EntitiesTest(factory));
+        Add("CRUD", new ExecuteUpdateDeleteTest(factory));
+        Add("CRUD", new RawSqlQueryCommandTest(factory));
         Add("CRUD", new FTS5SearchTest(factory));
         Add("CRUD", new FTS5SoftDeleteThenClearTest(factory));
+
+        // ADO.NET Tests
+        Add("ADO.NET", new AsyncCommandRoundTripTest(factory));
+        Add("ADO.NET", new CommandBehaviorCloseConnectionTest(factory));
+        Add("ADO.NET", new CommandBehaviorReaderOptionsTest(factory));
+        Add("ADO.NET", new CommandTypeValidationTest(factory));
+        Add("ADO.NET", new ConnectionStringParsingTest(factory));
+        Add("ADO.NET", new ConstraintConflictHandlingTest(factory));
+        Add("ADO.NET", new ParameterDbTypeBindingTest(factory));
+        Add("ADO.NET", new ParameterDateOnlyTimeOnlyTest(factory));
+        Add("ADO.NET", new ReaderDateOnlyTimeOnlyTest(factory));
+        Add("ADO.NET", new EmptyReaderMetadataTest(factory));
+        Add("ADO.NET", new NativeAggregateWindowFunctionsTest(factory));
+        Add("ADO.NET", new NativeDateTimeFunctionsTest(factory));
+        Add("ADO.NET", new NativeFts5FunctionsTest(factory));
+        Add("ADO.NET", new NativeJsonFunctionsTest(factory));
+        Add("ADO.NET", new NativePragmaIntrospectionTest(factory));
+        Add("ADO.NET", new NativePragmaSettingsTest(factory));
+        Add("ADO.NET", new NativeScalarFunctionsTest(factory));
+        Add("ADO.NET", new NativeStateFunctionsTest(factory));
+        Add("ADO.NET", new NativeVirtualTableModulesTest(factory));
+        Add("ADO.NET", new ParameterPrefixCompatibilityTest(factory));
+        Add("ADO.NET", new ReaderOrdinalCompatibilityTest(factory));
+        Add("ADO.NET", new ReaderRecordsAffectedTest(factory));
+        Add("ADO.NET", new ReaderSchemaTableTest(factory));
+        Add("ADO.NET", new ReaderStreamingAccessTest(factory));
+        Add("ADO.NET", new ReaderTypedFieldValuesTest(factory));
+        Add("ADO.NET", new ReturningClausesTest(factory));
+        Add("ADO.NET", new RowsAffectedStatementPrefixesTest(factory));
+        Add("ADO.NET", new SyncCommandApisThrowTest(factory));
 
         // Transaction Tests
         Add("Transactions", new TransactionCommitTest(factory));
         Add("Transactions", new TransactionRollbackTest(factory));
+        Add("Transactions", new TransactionDisposeRollsBackTest(factory));
+        Add("Transactions", new TransactionConcurrentBeginSerializesTest(factory));
+        Add("Transactions", new TransactionBlocksIndependentCommandTest(factory));
+        Add("Transactions", new TransactionIsolationLevelTest(factory));
+        Add("Transactions", new TransactionSavepointTest(factory));
 
         // Relationship Tests (binary(16) Guid keys + one-to-many)
         Add("Relationships", new TodoListCreateWithGuidKeyTest(factory));
@@ -322,6 +360,7 @@ internal class TestFactory
         Add("Relationships", new TodoListCascadeDeleteTest(factory));
         Add("Relationships", new TodoComplexQueryWithJoinTest(factory));
         Add("Relationships", new TodoNullableDateTimeTest(factory));
+        Add("Relationships", new ForeignKeyEnforcementTest(factory));
 
         // Migration Tests (EF Core migrations in WASM/OPFS)
         Add("Migrations", new FreshDatabaseMigrateTest(factory));
@@ -340,6 +379,16 @@ internal class TestFactory
         Add("EF Core Functions", new DecimalAggregatesTest(factory));
         Add("EF Core Functions", new DecimalComparisonTest(factory));
         Add("EF Core Functions", new DecimalComparisonSimpleTest(factory));
+        Add("EF Core Functions", new ConversionTranslationsTest(factory));
+        Add("EF Core Functions", new CommonQueryTranslationsTest(factory));
+        Add("EF Core Functions", new StringAdvancedTranslationsTest(factory));
+        Add("EF Core Functions", new CollectionPredicateTranslationsTest(factory));
+        Add("EF Core Functions", new TypedPredicateTranslationsTest(factory));
+        Add("EF Core Functions", new DateTimeTranslationsTest(factory));
+        Add("EF Core Functions", new DateOnlyTimeOnlyParameterTest(factory));
+        Add("EF Core Functions", new GroupedAggregateSetOperationsTest(factory));
+        Add("EF Core Functions", new MathTranslationsTest(factory));
+        Add("EF Core Functions", new SqliteSpecificDbFunctionsTest(factory));
         Add("EF Core Functions", new RegexPatternTest(factory));
         Add("EF Core Functions", new ComplexDecimalQueryTest(factory));
         Add("EF Core Functions", new AggregateBuiltInTest(factory));

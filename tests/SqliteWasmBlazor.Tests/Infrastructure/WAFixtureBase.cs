@@ -1,12 +1,9 @@
-using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.Mvc.Testing;
-using Microsoft.Extensions.Logging;
 using Microsoft.Playwright;
 using Xunit.Abstractions;
 
 namespace SqliteWasmBlazor.Tests.Infrastructure;
 
-public class WaFixtureBase : WebApplicationFactory<TestHost.Program>
+public class WaFixtureBase : IAsyncDisposable
 {
     public IPage? Page { get; private set; }
 
@@ -15,16 +12,16 @@ public class WaFixtureBase : WebApplicationFactory<TestHost.Program>
     private IPlaywright? _playwright;
     private IBrowser? _browser;
     private IBrowserContext? _browserContext;
+    private StaticWebAssetTestServer? _server;
     private bool _serverStarted;
 
     public WaFixtureBase(int port, ITestOutputHelper? output = null)
     {
         _port = port;
         _output = output;
-
-        // Use the new .NET 10 API - must be called in constructor before server initialization
-        UseKestrel(port);
     }
+
+    protected virtual string PathBase => string.Empty;
 
     protected async Task InitializeAsync(IWaFixture.BrowserType browserType, bool onePass, bool headless)
     {
@@ -33,7 +30,8 @@ public class WaFixtureBase : WebApplicationFactory<TestHost.Program>
         // Start the Kestrel server if not already started
         if (!_serverStarted)
         {
-            StartServer();
+            _server = new StaticWebAssetTestServer(_port, PathBase);
+            _server.Start();
             _serverStarted = true;
         }
 
@@ -126,13 +124,13 @@ public class WaFixtureBase : WebApplicationFactory<TestHost.Program>
                 Timeout = timeout
             };
 
-            await Page.GotoAsync($"http://localhost:{_port}/Tests");
+            await Page.GotoAsync($"http://localhost:{_port}{PathBase}/Tests");
 
             await Page.WaitForSelectorAsync("text=All Tests Completed", waitForSelectorOptions);
         }
     }
 
-    public override async ValueTask DisposeAsync()
+    public async ValueTask DisposeAsync()
     {
         await DisposeAsyncCoreAsync().ConfigureAwait(false);
         GC.SuppressFinalize(this);
@@ -157,20 +155,12 @@ public class WaFixtureBase : WebApplicationFactory<TestHost.Program>
             _playwright.Dispose();
             _playwright = null;
         }
-    }
 
-    protected override void ConfigureWebHost(IWebHostBuilder builder)
-    {
-        // Use HTTP for testing to avoid SSL certificate issues
-        builder.UseUrls($"http://localhost:{_port}");
-
-        // Suppress verbose logging during tests
-        builder.ConfigureLogging(logging =>
+        if (_server is not null)
         {
-            logging.ClearProviders();
-            logging.AddConsole();
-            logging.SetMinimumLevel(LogLevel.Warning);
-        });
+            await _server.DisposeAsync().ConfigureAwait(false);
+            _server = null;
+            _serverStarted = false;
+        }
     }
-
 }

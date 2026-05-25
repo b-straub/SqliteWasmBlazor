@@ -72,6 +72,32 @@ internal class DecimalComparisonTest(IDbContextFactory<TodoDbContext> factory)
             throw new InvalidOperationException($"Ordering test failed: expected [2,4,1,5,3], got [{string.Join(",", ordered)}]");
         }
 
+        context.TypeTests.AddRange(
+            new TypeTestEntity { Id = 6, DecimalValue = 9007199254740993.01m },
+            new TypeTestEntity { Id = 7, DecimalValue = 9007199254740992.99m });
+        await context.SaveChangesAsync();
+
+        var largeOrdered = await context.TypeTests
+            .Where(e => e.Id >= 6)
+            .OrderBy(e => e.DecimalValue)
+            .Select(e => e.Id)
+            .ToListAsync();
+        if (!largeOrdered.SequenceEqual(new[] { 7, 6 }))
+        {
+            throw new InvalidOperationException(
+                $"Large decimal ordering failed: expected [7,6], got [{string.Join(",", largeOrdered)}]");
+        }
+
+        var largeGreaterThan = await context.TypeTests
+            .Where(e => e.DecimalValue > 9007199254740993.00m)
+            .Select(e => e.Id)
+            .ToListAsync();
+        if (!largeGreaterThan.SequenceEqual(new[] { 6 }))
+        {
+            throw new InvalidOperationException(
+                $"Large decimal comparison failed: expected [6], got [{string.Join(",", largeGreaterThan)}]");
+        }
+
         return "OK";
     }
 }

@@ -51,6 +51,10 @@ public sealed class SqliteWasmCommand : DbCommand
 
     protected override DbTransaction? DbTransaction { get; set; }
 
+    internal bool SkipPendingTransactionCleanup { get; set; }
+
+    internal bool SkipDatabaseTransactionGate { get; set; }
+
     public override void Cancel()
     {
         // sqlite-wasm doesn't support cancellation in same way
@@ -58,15 +62,14 @@ public sealed class SqliteWasmCommand : DbCommand
 
     public override int ExecuteNonQuery()
     {
-        // Synchronous execution not supported in WebAssembly
-        // Return 0 as EF Core will use async methods for actual work
-        // This is primarily called during schema checks where return value isn't critical
-        return 0;
+        throw CreateSynchronousCommandNotSupportedException(nameof(ExecuteNonQueryAsync));
     }
     
     public override async Task<int> ExecuteNonQueryAsync(CancellationToken cancellationToken)
     {
         ValidateConnection();
+        await WaitForPendingTransactionCleanupAsync(cancellationToken).ConfigureAwait(false);
+        await WaitForDatabaseTransactionAccessAsync(cancellationToken).ConfigureAwait(false);
 
         var bridge = SqliteWasmWorkerBridge.Instance;
         var sql = PreprocessSql(_commandText);
@@ -88,14 +91,14 @@ public sealed class SqliteWasmCommand : DbCommand
 
     public override object? ExecuteScalar()
     {
-        // Synchronous execution not supported in WebAssembly
-        // Return null as EF Core will use async methods for actual work
-        return null;
+        throw CreateSynchronousCommandNotSupportedException(nameof(ExecuteScalarAsync));
     }
 
     public override async Task<object?> ExecuteScalarAsync(CancellationToken cancellationToken)
     {
         ValidateConnection();
+        await WaitForPendingTransactionCleanupAsync(cancellationToken).ConfigureAwait(false);
+        await WaitForDatabaseTransactionAccessAsync(cancellationToken).ConfigureAwait(false);
 
         var bridge = SqliteWasmWorkerBridge.Instance;
         var sql = PreprocessSql(_commandText);
@@ -115,10 +118,7 @@ public sealed class SqliteWasmCommand : DbCommand
 
     protected override DbDataReader ExecuteDbDataReader(CommandBehavior behavior)
     {
-        // Synchronous execution not supported in WebAssembly
-        // Return empty reader as EF Core will use async methods for actual work
-        var result = new SqlQueryResult();
-        return new SqliteWasmDataReader(result);
+        throw CreateSynchronousCommandNotSupportedException(nameof(ExecuteReaderAsync));
     }
 
     protected override async Task<DbDataReader> ExecuteDbDataReaderAsync(
@@ -126,6 +126,8 @@ public sealed class SqliteWasmCommand : DbCommand
         CancellationToken cancellationToken)
     {
         ValidateConnection();
+        await WaitForPendingTransactionCleanupAsync(cancellationToken).ConfigureAwait(false);
+        await WaitForDatabaseTransactionAccessAsync(cancellationToken).ConfigureAwait(false);
 
         var bridge = SqliteWasmWorkerBridge.Instance;
         var sql = PreprocessSql(_commandText);
@@ -135,7 +137,12 @@ public sealed class SqliteWasmCommand : DbCommand
             ? await bridge.ExecuteSqlAsync(Connection.Database, sql, parameterDict, cancellationToken)
             : await bridge.ExecuteSqlWithBlobsAsync(Connection.Database, sql, parameterDict, packedBlobs, cancellationToken);
 
-        return new SqliteWasmDataReader(result);
+        return new SqliteWasmDataReader(
+            result,
+            behavior.HasFlag(CommandBehavior.CloseConnection) ? Connection : null,
+            GetReaderRecordsAffected(sql, result),
+            behavior.HasFlag(CommandBehavior.SchemaOnly),
+            behavior.HasFlag(CommandBehavior.SingleRow));
     }
 
     public override void Prepare()
@@ -165,23 +172,70 @@ public sealed class SqliteWasmCommand : DbCommand
         {
             throw new InvalidOperationException("CommandText has not been set.");
         }
+
+        if (CommandType != CommandType.Text)
+        {
+            throw new NotSupportedException(
+                $"{nameof(SqliteWasmCommand)} only supports {nameof(CommandType)}.{nameof(CommandType.Text)}.");
+        }
     }
 
-    /// <summary>
-    /// Preprocesses SQL to replace EF Core aggregate function names with native SQLite equivalents.
-    /// This allows leveraging SQLite's native, optimized aggregate implementations.
-    /// Arithmetic functions (ef_add, ef_multiply, etc.) are kept and handled by TypeScript.
-    /// </summary>
-    private static string PreprocessSql(string sql)
-    {
-        // Replace EF Core aggregate functions with native SQLite equivalents
-        // Native SQLite aggregates are optimized and don't require custom state management
-        sql = sql.Replace("ef_sum(", "sum(", StringComparison.OrdinalIgnoreCase);
-        sql = sql.Replace("ef_avg(", "avg(", StringComparison.OrdinalIgnoreCase);
-        sql = sql.Replace("ef_max(", "max(", StringComparison.OrdinalIgnoreCase);
-        sql = sql.Replace("ef_min(", "min(", StringComparison.OrdinalIgnoreCase);
+    private static string PreprocessSql(string sql) => sql;
 
-        return sql;
+    private static int GetReaderRecordsAffected(string sql, SqlQueryResult result)
+    {
+        if (result.RowsAffected != 0 || result.ColumnNames.Count == 0)
+        {
+            return result.RowsAffected;
+        }
+
+        var keyword = GetPrimaryStatementKeyword(sql);
+        return keyword is "SELECT" or "PRAGMA" or "EXPLAIN"
+            ? -1
+            : result.RowsAffected;
+    }
+
+    private static string GetPrimaryStatementKeyword(string sql)
+    {
+        var index = 0;
+        while (index < sql.Length)
+        {
+            while (index < sql.Length && char.IsWhiteSpace(sql[index]))
+            {
+                index++;
+            }
+
+            if (index + 1 < sql.Length && sql[index] == '-' && sql[index + 1] == '-')
+            {
+                index += 2;
+                while (index < sql.Length && sql[index] is not '\r' and not '\n')
+                {
+                    index++;
+                }
+                continue;
+            }
+
+            if (index + 1 < sql.Length && sql[index] == '/' && sql[index + 1] == '*')
+            {
+                index += 2;
+                while (index + 1 < sql.Length && (sql[index] != '*' || sql[index + 1] != '/'))
+                {
+                    index++;
+                }
+                index = Math.Min(index + 2, sql.Length);
+                continue;
+            }
+
+            break;
+        }
+
+        var start = index;
+        while (index < sql.Length && (char.IsLetter(sql[index]) || sql[index] == '_'))
+        {
+            index++;
+        }
+
+        return sql[start..index].ToUpperInvariant();
     }
 
     private void LogCommandSql(string sql)
@@ -194,6 +248,32 @@ public sealed class SqliteWasmCommand : DbCommand
         Console.WriteLine($"[SqliteWasmCommand] Executing SQL: {sql}");
         Console.WriteLine(
             $"[SqliteWasmCommand] Parameters: {string.Join(", ", _parameters.GetParameterValues().Select((v, i) => $"${i}={v}"))}");
+    }
+
+    private Task WaitForPendingTransactionCleanupAsync(CancellationToken cancellationToken)
+    {
+        if (SkipPendingTransactionCleanup || Connection is null)
+        {
+            return Task.CompletedTask;
+        }
+
+        return Connection.WaitForPendingTransactionCleanupAsync(cancellationToken);
+    }
+
+    private Task WaitForDatabaseTransactionAccessAsync(CancellationToken cancellationToken)
+    {
+        if (SkipDatabaseTransactionGate || Connection is null)
+        {
+            return Task.CompletedTask;
+        }
+
+        return Connection.WaitForDatabaseTransactionAccessAsync(cancellationToken);
+    }
+
+    private static NotSupportedException CreateSynchronousCommandNotSupportedException(string asyncMethodName)
+    {
+        return new NotSupportedException(
+            $"Synchronous command execution is not supported in WebAssembly. Use {asyncMethodName} instead.");
     }
 
     protected override void Dispose(bool disposing)

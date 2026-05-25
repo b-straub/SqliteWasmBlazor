@@ -1,6 +1,6 @@
 # ADO.NET Usage
 
-SqliteWasmBlazor provides a **complete ADO.NET provider** that can be used standalone, without Entity Framework Core. This is perfect for scenarios where you:
+SqliteWasmBlazor provides an async ADO.NET provider that can be used standalone, without Entity Framework Core. This is perfect for scenarios where you:
 
 - Want lightweight database access without the EF Core overhead
 - Have existing ADO.NET code you want to port to Blazor WASM
@@ -150,26 +150,30 @@ All standard ADO.NET types are implemented:
 | Class | Base Type | Purpose |
 |-------|-----------|---------|
 | `SqliteWasmConnection` | `DbConnection` | Database connection |
-| `SqliteWasmCommand` | `DbCommand` | SQL command execution |
+| `SqliteWasmCommand` | `DbCommand` | Async SQL command execution |
 | `SqliteWasmDataReader` | `DbDataReader` | Forward-only result reading |
 | `SqliteWasmParameter` | `DbParameter` | Query parameters |
 | `SqliteWasmTransaction` | `DbTransaction` | Transaction support |
 
 ## Key Differences from Microsoft.Data.Sqlite
 
-1. **Use `SqliteWasmConnection` instead of `SqliteConnection`**
-   - Same interface, different implementation
-   - All operations are async (required for worker communication)
+1. **Use async command APIs**
+   - Browser worker communication is asynchronous.
+   - `ExecuteNonQuery()`, `ExecuteScalar()`, and sync readers throw `NotSupportedException`.
+   - Use `ExecuteNonQueryAsync()`, `ExecuteScalarAsync()`, and `ExecuteReaderAsync()`.
 
-2. **Initialization required**
+2. **Use `SqliteWasmConnection` instead of `SqliteConnection`**
+   - Same interface, different implementation
+
+3. **Initialization required**
    - Call `host.Services.InitializeSqliteWasmAsync()` once at startup
    - This initializes the Web Worker and OPFS
 
-3. **Persistence is automatic**
+4. **Persistence is automatic**
    - All changes are immediately written to OPFS
    - No manual save/load operations needed (unlike in-memory databases)
 
-4. **Database files stored in OPFS**
+5. **Database files stored in OPFS**
    - Persistent across browser restarts
    - Isolated per-origin storage
    - Typically several GB quota available

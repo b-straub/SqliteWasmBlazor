@@ -59,7 +59,35 @@ internal class DatabaseExistsCheckTest(IDbContextFactory<TodoDbContext> factory)
             throw new InvalidOperationException("Database should be connectable after EnsureCreatedAsync");
         }
 
+        await using var aliasContext = CreateContext("Filename='alias-lifecycle;check.db'");
+        await aliasContext.Database.EnsureDeletedAsync();
+        if (await aliasContext.Database.CanConnectAsync())
+        {
+            throw new InvalidOperationException("Filename alias database should not be connectable after delete.");
+        }
+
+        await aliasContext.Database.EnsureCreatedAsync();
+        if (!await aliasContext.Database.CanConnectAsync())
+        {
+            throw new InvalidOperationException("Filename alias database should be connectable after EnsureCreatedAsync.");
+        }
+
+        await aliasContext.Database.EnsureDeletedAsync();
+        if (await aliasContext.Database.CanConnectAsync())
+        {
+            throw new InvalidOperationException("Filename alias database should not be connectable after final delete.");
+        }
+
         return "OK";
+    }
+
+    private static TodoDbContext CreateContext(string connectionString)
+    {
+        var options = new DbContextOptionsBuilder<TodoDbContext>()
+            .UseSqliteWasm(connectionString)
+            .Options;
+
+        return new TodoDbContext(options);
     }
 
     private static async Task<bool> CanQueryDatabaseAsync(TodoDbContext context)

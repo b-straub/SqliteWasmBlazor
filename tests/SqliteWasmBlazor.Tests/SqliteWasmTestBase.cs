@@ -55,7 +55,8 @@ public abstract class SqliteWasmTestBase(IWaFixture fixture, ITestOutputHelper o
 
         if (!_fixture.OnePass)
         {
-            await _fixture.Page.GotoAsync($"http://localhost:{_fixture.Port}/Tests/{name}");
+            var pathBase = _fixture is SubPathFixture ? SubPathFixture.SubPath : string.Empty;
+            await _fixture.Page.GotoAsync($"http://localhost:{_fixture.Port}{pathBase}/Tests/{name}");
         }
 
         var options = new LocatorAssertionsToBeVisibleOptions()
@@ -63,17 +64,14 @@ public abstract class SqliteWasmTestBase(IWaFixture fixture, ITestOutputHelper o
             Timeout = timeout
         };
 
-        // Accept both OK and SKIPPED as passing results.
-        // Use a single locator with an OR clause so that ToBeVisibleAsync
-        // throws if NEITHER appears within the timeout. The earlier
-        // Task.WhenAny pattern silently swallowed failures: when both
-        // Expect(...) tasks faulted, WhenAny returned the first faulted task
-        // without us observing its exception, and xUnit counted the test as
-        // passed in ~500 ms even though the test page never reached OK.
-        var resultLocator = _fixture.Page
-            .Locator($"text=SqliteWasm -> {name}: OK")
-            .Or(_fixture.Page.Locator($"text=SqliteWasm -> {name}: SKIPPED"));
-
+        var resultLocator = _fixture.Page.Locator($"text=SqliteWasm -> {name}:");
         await Assertions.Expect(resultLocator).ToBeVisibleAsync(options);
+
+        var resultText = await resultLocator.InnerTextAsync();
+        Output.WriteLine(resultText);
+        Assert.True(
+            resultText.EndsWith(": OK", StringComparison.Ordinal) ||
+            resultText.EndsWith(": SKIPPED", StringComparison.Ordinal),
+            resultText);
     }
 }

@@ -28,25 +28,7 @@ internal sealed class SqliteWasmDatabaseCreator : RelationalDatabaseCreator
     /// </summary>
     private string GetDatabaseName()
     {
-        var connectionString = Dependencies.Connection.ConnectionString;
-
-        if (string.IsNullOrEmpty(connectionString))
-        {
-            return ":memory:";
-        }
-
-        var parts = connectionString.Split(';');
-        foreach (var part in parts)
-        {
-            var kv = part.Split('=', 2);
-            if (kv.Length == 2 &&
-                kv[0].Trim().Equals("Data Source", StringComparison.OrdinalIgnoreCase))
-            {
-                return kv[1].Trim();
-            }
-        }
-
-        return ":memory:";
+        return SqliteWasmConnection.GetDatabaseName(Dependencies.Connection.ConnectionString);
     }
 
     /// <summary>
