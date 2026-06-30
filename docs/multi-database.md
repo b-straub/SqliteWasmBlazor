@@ -61,7 +61,6 @@ builder.Services.AddDbContextFactory<NoteDbContext>(options =>
     options.UseSqliteWasm(connection);
 });
 
-builder.Services.AddSingleton<IDBInitializationService, DBInitializationService>();
 builder.Services.AddSqliteWasm();
 
 var host = builder.Build();

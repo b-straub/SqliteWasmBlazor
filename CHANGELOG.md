@@ -2,6 +2,13 @@
 
 All notable changes to SqliteWasmBlazor are documented in this file.
 
+## Development Update
+
+> **A quick update from the maintainer:** You might have noticed a lack of updates over the past few weeks. My development pipeline was hit hard recently when Anthropic made their services more or less unusable for my workflow. To get things moving again, I've switched my development pipeline to use **Google Antigravity (agy)**. The transition is complete, and development is fully back on track!
+
+### Documentation & Fixes
+- **Quick Start (#20):** Fixed a documentation error in the Quick Start guide that erroneously instructed users to register a non-existent `IDBInitializationService`.
+
 ## Version 0.9.0-pre
 
 ### CSP Hardening + Options-Driven Configuration

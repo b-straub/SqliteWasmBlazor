@@ -9,6 +9,10 @@
 
 **[Try the Live Demo](https://b-straub.github.io/SqliteWasmBlazor/)** - Experience persistent SQLite database in your browser! Can be installed as a Progressive Web App (PWA) for offline use.
 
+## Development Update
+
+> **A quick update from the maintainer:** You might have noticed a lack of updates over the past few weeks. My development pipeline was hit hard recently when Anthropic made their services more or less unusable for my workflow. To get things moving again, I've switched my development pipeline to use **Google Antigravity (agy)**. The transition is complete, and development is fully back on track!
+
 ## Related Projects
 
 SqliteWasmBlazor is part of a family of libraries for building offline-first Blazor applications:
@@ -217,7 +221,7 @@ public interface ISqliteWasmDatabaseService
 | `SqliteWasmDataReader` | ADO.NET `DbDataReader` for result iteration |
 | `SqliteWasmParameter` | ADO.NET `DbParameter` for query parameters |
 | `SqliteWasmTransaction` | ADO.NET `DbTransaction` for transaction support |
-| `IDBInitializationService` | Tracks database initialization state and errors |
+| `IDbInitializationStatus` | Tracks database initialization state and errors |
 
 All internal implementation details (worker bridge, serialization, etc.) are encapsulated and not part of the public API.
 
@@ -263,8 +267,6 @@ builder.Services.AddDbContextFactory<TodoDbContext>(options =>
     options.UseSqliteWasm(connection);
 });
 
-// Register initialization service
-builder.Services.AddSingleton<IDBInitializationService, DBInitializationService>();
 
 // Register SqliteWasm database management service (for ISqliteWasmDatabaseService)
 builder.Services.AddSqliteWasm();
@@ -281,7 +283,7 @@ The `InitializeSqliteWasmDatabaseAsync` extension method automatically:
 - Initializes the Web Worker bridge
 - Applies pending migrations (with automatic migration history recovery)
 - Handles multi-tab conflicts with helpful error messages
-- Tracks initialization status via `IDBInitializationService`
+- Tracks initialization status via `IDbInitializationStatus`
 
 ### 2. Define Your DbContext
 
