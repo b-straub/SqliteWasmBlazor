@@ -212,12 +212,14 @@ async function initializeSQLite() {
         // Pool capacity: each DB occupies 1 slot for the main file; in
         // journal_mode=WAL it may also claim `.db-wal` and `.db-shm` slots
         // plus a transient `.db-journal` during the WAL mode transition
-        // (~4 slots per active WAL DB). Encrypted DBs use journal_mode=MEMORY
-        // and only need the 1 main slot. For apps that open multiple DBs
-        // (TodoDb + CryptoTestDb + EncryptedTestDb + PasswordTestDb +
-        // per-feature benchmarks) 10 slots is tight — we default to 25 so
-        // a realistic workload doesn't trip "SAH pool is full" on journal
-        // creation. 25 × ~4 KiB preallocated = ~100 KiB, negligible.
+        // (~4 slots per active WAL DB). Encrypted DBs run WAL too — the
+        // offset-remap envelope covers WAL frames, so there is no reason to
+        // give up crash recovery — and so carry the same slot cost. For apps
+        // that open multiple DBs (TodoDb + CryptoTestDb + EncryptedTestDb +
+        // PasswordTestDb + per-feature benchmarks) 10 slots is tight — we
+        // default to 25 so a realistic workload doesn't trip "SAH pool is
+        // full" on journal creation. 25 × ~4 KiB preallocated = ~100 KiB,
+        // negligible.
         poolUtil = await installPrfVfs(sqlite3, {
             initialCapacity: 25,
             directory: '/databases',

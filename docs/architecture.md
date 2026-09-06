@@ -20,7 +20,7 @@ SqliteWasmBlazor uses a worker-based architecture to bridge EF Core with OPFS-ba
 │  └─────────────────────┬─────────────────────────────────┘  │
 │                        ▼                                    │
 │  ┌───────────────────────────────────────────────────────┐  │
-│  │         .NET SQLite Stub (8KB e_sqlite3.a)            │  │
+│  │        .NET SQLite Stub (10 KB e_sqlite3.a)           │  │
 │  │           Minimal shim - forwards to Worker           │  │
 │  └─────────────────────┬─────────────────────────────────┘  │
 │                        │                                    │
@@ -64,7 +64,7 @@ This architecture bridges EF Core with OPFS-backed SQLite:
 3. **Workers can't run .NET** - Web Workers cannot execute the main .NET runtime
 
 **Solution:** Minimal native stub + Worker-based SQLite:
-- **.NET Stub** (Main thread): Tiny 8KB shim implementing `DbConnection` interface, forwards to Worker
+- **.NET Stub** (Main thread): Tiny 10 KB shim implementing `DbConnection` interface, forwards to Worker
 - **SQLite Engine** (Web Worker): Full sqlite-wasm executes queries directly on OPFS SAHPool
 
 **Communication Protocol:**
@@ -106,11 +106,16 @@ This asymmetric approach optimizes for the common case: small requests, large re
 
 ### Package Size (Published/Release Build)
 
-- **SqliteWasmBlazor.wasm**: 88 KB (ADO.NET provider + EF Core integration)
-- **sqlite-wasm-worker.js**: 234 KB (minified, includes MessagePack)
-- **sqlite-wasm-bridge.js**: 1.7 KB (main thread bridge)
-- **sqlite3.wasm**: 836 KB (official SQLite WebAssembly build)
-- **Total overhead**: ~1.16 MB (compressed sizes are typically 40-50% smaller)
+| Asset | Release | Compressed |
+|-------|---------|------------|
+| `SqliteWasmBlazor.wasm` (ADO.NET provider + EF Core integration) | 222 KB | 66 KB br |
+| `sqlite-wasm-worker.js` (minified, includes MessagePack) | 302 KB | 89 KB gz |
+| `sqlite-wasm-bridge.js` (main thread bridge) | 33 KB | 12 KB gz |
+| `sqlite3.wasm` (official SQLite WebAssembly build) | 844 KB | 339 KB br |
+| **Total** | **~1.37 MB** | **~0.5 MB** |
+
+`SqliteWasmBlazor.Crypto` replaces the worker and bridge with larger bundles of
+its own and adds `crypto-bridge.js`; take it only if you need at-rest encryption.
 
 ### Performance Characteristics
 
@@ -121,7 +126,7 @@ This asymmetric approach optimizes for the common case: small requests, large re
 
 ### SQLite Configuration
 
-Automatically configured for OPFS environment (SQLite 3.47+):
+Automatically configured for OPFS environment (SQLite 3.53.0):
 
 ```sql
 PRAGMA locking_mode = exclusive;  -- Required for WAL mode with OPFS

@@ -2,6 +2,12 @@
 
 Worker-side bulk operations for fast, memory-safe database import and export.
 
+**V2 bulk or a raw `.db`?** V2 moves *rows* — between schemas, as a seed, as a
+delta — and is what you want when the two sides are not the same database. To
+move the database itself, use the raw file paths in
+[Moving Databases In and Out](advanced-features.md#moving-databases-in-and-out);
+neither is memory-bound, so size is not the deciding factor.
+
 ## Architecture
 
 ```
@@ -39,7 +45,7 @@ Each file consists of a V2 header followed by serialized items:
 
 Large databases are automatically split into parts:
 
-1. Part size is estimated from a sample (configurable via `exportPartSizeMb` in `appsettings.json`)
+1. Part size is estimated from a sample against a configurable MB limit (the demo reads its own `exportPartSizeMb` from `appsettings.json`)
 2. Each part is a standard V2 file — independently valid and importable
 3. A `.msgpack-meta` JSON file lists all parts
 4. Import: pick the meta file, then select all part files
@@ -96,4 +102,3 @@ the TestApp.
 
 - `sqlite3_column_int64` has boundary errors in Emscripten WASM builds — export reads Int64 columns as SQLITE_TEXT and parses to BigInt
 - `long` values > `Number.MAX_SAFE_INTEGER` (2^53-1) are sent as text in EF Core parameters to avoid JSON precision loss
-- Raw .db export/import is limited by WASM memory — use V2 bulk for large databases

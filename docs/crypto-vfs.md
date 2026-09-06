@@ -239,7 +239,7 @@ Worker 'open' handler
 
 Expiry: subscribe to `IPrfService.KeyExpired`, filter on
 `prf-seed:{salt}`, and call `IEncryptedSqliteWasmDatabaseService.LockAsync`
-to drop the worker global key. `EncryptedDiskLifecycle` wires this for
+to drop the worker global key. `EncryptedPoolLifecycle` wires this for
 Crypto.UI consumers. Re-derivation needs a fresh user gesture — gate the page
 UI behind `PrfService.HasCachedKeys()`.
 
@@ -398,20 +398,25 @@ Both are exercised by the TestApp's `VFS_ModeMismatch` integration test.
 
 Three layers:
 
-1. **Integration (envelope)** — `SqliteWasmBlazor/TypeScript/worker/vfs-prf/__tests__/envelope.test.ts`
+1. **Integration (envelope)** — `src/Crypto/SqliteWasmBlazor.Crypto/TypeScript/worker/vfs-prf/__tests__/envelope.test.ts`
    (vitest): page-level AEAD round-trip, wrong key, AAD swap detection,
    tamper detection, nonce uniqueness, physical slot layout.
-2. **Cross-library** — `SqliteWasmBlazor.CryptoSync.Tests/PrfVfsEnvelopeTests.cs`
-   (xUnit + BouncyCastle): AAD bytes produced in C# match the worker's
-   construction, BouncyCastle's ChaCha20-Poly1305 produces byte-identical
-   output for shared inputs with `@awasm/noble`, `VfsKeyHeader`
-   serializes and zeroizes as declared.
-3. **End-to-end (browser)** — `SqliteWasmBlazor.TestApp` under the "VFS
-   Encryption" category: full SQL round-trips through real OPFS SAHPool,
-   on-disk-ciphertext verification, plain pass-through regression,
-   wrong-key failure, tamper detection, mode mismatch, physical-slot
-   layout invariant (`VFS_PhysicalLayout`: exported size = N × 4124),
-   perf smoke.
+2. **Cross-language primitives** — `src/Base/SqliteWasmBlazor/TypeScript-Crypto/tests/crossLanguage*.test.ts`
+   (vitest) pin the shared vectors that `SqliteWasmBlazor.Crypto.BouncyCastle`
+   has to reproduce, so the offline C# adapter and the in-browser primitives
+   agree byte for byte.
+3. **End-to-end (browser)** — `samples/SqliteWasmBlazor.TestApp`, category
+   "VFS Encryption": full SQL round-trips through real OPFS SAHPool
+   (`VfsEncryptedRoundTripTest`), on-disk-ciphertext verification
+   (`VfsOnDiskCiphertextTest`), plain pass-through regression
+   (`VfsPlainRegressionTest`), wrong key (`VfsWrongKeyFailsTest`), tamper
+   detection (`VfsTamperDetectionTest`), manifest MAC
+   (`VfsManifestMacRejectsWrongKeyTest`), mode mismatch (`VfsModeMismatchTest`),
+   physical-slot layout (`VfsPhysicalLayoutTest`: exported size = N × 4124),
+   validated imports on both planes (`SingleDbValidatedImport*`,
+   `DbsValidatedImportRejectedTest`), import over an open database
+   (`SingleDbImportOverOpenDatabaseTest`), and a perf smoke
+   (`VfsEncryptedPerformanceSmokeTest`).
 
 ## Known limitations
 

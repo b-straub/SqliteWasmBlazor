@@ -137,10 +137,10 @@ public interface IEncryptedSqliteWasmDatabaseService
     /// <summary>
     /// <b>Encrypted → Plain transition.</b> Decrypts every database in the
     /// SAH pool in place under the active <c>globalKey</c>, clears the
-    /// passkey hint, and drops the global key. The disk ends in
+    /// passkey hint, and drops the global key. The pool ends in
     /// <see cref="EncryptedPoolState.Plain"/>. After this, native SQLite
     /// interop is available via <see cref="ISqliteWasmDatabaseService"/>'s
-    /// per-DB or batch-ZIP export.
+    /// per-DB (<c>.db</c>) or bundle (<c>.dbs</c>) export.
     ///
     /// <para>
     /// Caller invariant: must currently be Encrypted+Unlocked. Throws

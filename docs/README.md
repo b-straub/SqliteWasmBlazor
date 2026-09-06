@@ -8,7 +8,9 @@ This folder contains documentation for the SqliteWasmBlazor project.
 |------|-------------|
 | [architecture.md](architecture.md) | Worker-based architecture, how it works, technical details |
 | [ado-net.md](ado-net.md) | Using SqliteWasmBlazor without EF Core, transactions |
-| [advanced-features.md](advanced-features.md) | Migrations, FTS5 search, JSON collections, logging, raw database import/export |
+| [advanced-features.md](advanced-features.md) | Migrations, FTS5 search, JSON collections, logging, moving databases in and out |
+| [multi-database.md](multi-database.md) | Several databases at once, cross-database references |
+| [bulk-import-export.md](bulk-import-export.md) | V2 row format, multi-part export, conflict resolution, type conversions |
 | [crypto-vfs.md](crypto-vfs.md) | PRF-keyed encryption VFS: ChaCha20-Poly1305 at-rest encryption, threat model, code references |
 | [security/](security/README.md) | Threat model, assurance summary, links to formal Tamarin models |
 | [formal/](formal/README.md) | Machine-checked Tamarin models for the encryption VFS |
@@ -19,14 +21,3 @@ This folder contains documentation for the SqliteWasmBlazor project.
 
 - Main README: [/README.md](../README.md)
 - Changelog: [/CHANGELOG.md](../CHANGELOG.md)
-
-## Internal Documentation
-
-The `/internal` subfolder (git-ignored) contains development documentation:
-- FTS5 implementation guides and notes
-- Refactoring summaries
-- Component design documentation
-- Migration guides
-- Implementation details
-
-These files are for development reference only and are not included in the repository.

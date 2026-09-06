@@ -131,10 +131,22 @@ The `ValueComparer` is essential for EF Core to detect changes in collection pro
 
 ## Logging Configuration
 
+### SQL Command Logging (opt-in)
+
+Executed SQL and its parameter values are **not** logged unless you ask for
+them — schema and data would otherwise reach the browser console in production:
+
+```csharp
+builder.Services.AddSqliteWasm(o => o.EnableCommandSqlLogging = true);
+```
+
+The log level below gates whether those lines are *emitted*; this flag gates
+whether they exist at all. Both have to allow it.
+
 ### Worker Log Level
 
 ```csharp
-// Set worker log level (affects SQL logging in browser console)
+// Level for the worker and the main-thread half of the bridge.
 SqliteWasmLogger.SetLogLevel(LogLevel.Warning);
 ```
 
@@ -234,7 +246,8 @@ await DatabaseService.ImportDatabaseFromStreamAsync(
     async (imported, ct) =>
     {
         await using var ctx = await DbContextFactory.CreateDbContextAsync(ct);
-        await ctx.ValidateImportedSchemaAsync(ct);   // throws SchemaMismatchException
+        // Takes the database name for the error message, not a token.
+        await ctx.ValidateImportedSchemaAsync(imported);  // throws SchemaMismatchException
     });
 ```
 
@@ -281,17 +294,23 @@ not.
 
 ### Schema Validation
 
-Validate that an imported database matches the expected EF model schema:
+`ValidateImportedSchemaAsync` is the check itself, usable outside an import:
 
 ```csharp
-using SqliteWasmBlazor.Models.Extensions;
+using SqliteWasmBlazor;
 
 await using var ctx = await DbContextFactory.CreateDbContextAsync();
-await ctx.ValidateSchemaAsync();
-// Throws InvalidOperationException with missing table names if schema doesn't match
+await ctx.ValidateImportedSchemaAsync("TodoDb.db");
 ```
 
-Table names are derived from EF model metadata — no hardcoded strings.
+The argument is a display name for the error message. Required tables come from
+the design-time EF model — no hardcoded strings — with owned entities and
+anything excluded from migrations (FTS5 virtual tables) skipped. A mismatch
+throws `SchemaMismatchException`, an `InvalidOperationException` carrying
+`MissingTables` so a host can phrase the refusal in its own language.
+
+`IHostDatabaseService.ValidateSchemaAsync` is the seam a host implements; this
+extension is what it normally calls.
 
 ### Safe Import Pattern
 

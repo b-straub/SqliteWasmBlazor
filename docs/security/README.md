@@ -19,7 +19,7 @@ This folder collects the security-relevant documentation for SqliteWasmBlazor.
 | Cross-database page swap rejection | Encryption VFS | `dbPath` in AAD. Lemma `cross_db_swap_rejected`. |
 | Cross-slot page swap rejection | Encryption VFS | `slotIndex` in AAD. Lemma `cross_slot_swap_rejected`. |
 | Wrong-key unlock rejection | Encryption VFS lifecycle | Slot-0 AEAD probe + manifest MAC verification before unlock acceptance. Modeled in `vfs-cache-import-lifecycle.spthy`. |
-| Wipe-after-validate on destructive whole-pool import | Encryption VFS lifecycle | Entire source validated read-only before the pool wipe — `.eds`: every slot of every file AEAD-verified; `.zip`/`.dbs`: full structural walk. Mistargeted, tampered, or truncated sources rejected with the disk untouched. Lemmas `pool_wipe_requires_validated_source`, `rejected_import_preserves_disk_state`, `rejected_import_never_wipes` in `vfs-cache-import-lifecycle.spthy`. |
+| Wipe-after-validate on destructive whole-pool import | Encryption VFS lifecycle | Entire source validated read-only before the pool wipe — `.eds`: every slot of every file AEAD-verified; `.dbs`: full structural walk. Mistargeted, tampered, or truncated sources rejected with the pool untouched. Lemmas `pool_wipe_requires_validated_source`, `rejected_import_preserves_disk_state`, `rejected_import_never_wipes` in `vfs-cache-import-lifecycle.spthy`. |
 | Bounded one-shot key rotation | Encryption VFS | Single current-to-next rotation per pool; legacy ciphertext rejected after rotation. Modeled in `vfs.spthy`. |
 | Memory hygiene for secret buffers | C# / TypeScript | `CryptographicOperations.ZeroMemory` on every C# secret-bearing buffer; `clearBytes` helper on every JS bridge boundary. |
 

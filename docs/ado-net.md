@@ -213,10 +213,12 @@ For database management operations (check existence, delete, rename), inject `IS
         // Recreate...
     }
 
-    private async Task BackupDatabaseAsync()
+    private async Task BackupDatabaseAsync(Stream destination)
     {
-        // Rename for backup
-        await DatabaseService.RenameDatabaseAsync("MyApp.db", "MyApp.backup.db");
+        // Export, don't rename. A rename onto an occupied name leaves the
+        // occupant's slot claimed but unreachable, and it leaves you with one
+        // copy under two names rather than a backup.
+        await DatabaseService.ExportDatabaseToStreamAsync("MyApp.db", destination);
     }
 }
 ```
