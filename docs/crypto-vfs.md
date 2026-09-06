@@ -28,11 +28,11 @@ the device is not actively holding the key.
 | Same-origin in-page script (XSS, dep compromise) | **No** — see "known limitations" |
 | Live-process memory dump                      | Partial — see "known limitations" |
 
-The design target is *local file confidentiality*: a device that is at
-rest or whose user is not actively unlocking the DB reveals nothing
-useful from its OPFS directory. In-session and in-browser threats are
-handled by higher layers (CryptoSync permissions, content security
-policy, code review).
+The design target is *local file confidentiality*: a device at rest, or whose
+user is not actively unlocking the database, reveals nothing useful from its
+OPFS directory. Actors, scope boundaries and the reasoning behind each **No**
+above live in [`security/threat-model.md`](security/threat-model.md); this
+document covers how the mechanisms in the right-hand column work.
 
 ## Primitives and standards
 
@@ -422,75 +422,65 @@ Three layers:
 
 ### Rollback to an earlier snapshot (accepted)
 
-A local-file attacker (backup restore, forensic substitution, malware
-with filesystem access) can replace the OPFS directory with an earlier
-snapshot of the same DB. Every page decrypts correctly: same key, same
-AAD at each slot, same salt in the header region. The user sees stale
-state — a revoked permission row still present, a deleted secret still
-there. The AAD does not bind any monotonic epoch that could catch the
-rollback because no tamper-evident storage is available on the web
-platform to hold that epoch.
+A local-file attacker (backup restore, forensic substitution, malware with
+filesystem access) can replace the OPFS directory with an earlier snapshot of
+the same pool. Every page decrypts correctly — same key, same AAD at each slot —
+and the user sees stale state: a revoked permission row still present, a deleted
+secret still there.
 
-Mitigation requires *external state the attacker cannot roll back with
-the file*: a server-stored version counter, a sync-peer's latest epoch,
-or hardware tamper-evident storage. For a CryptoSync-connected device
-the practical mitigation is that a peer eventually delivers newer
-deltas that will not apply to the replayed local state — but there is
-an exploitable window until the next sync.
+The AAD binds no monotonic epoch because the web platform offers no
+tamper-evident storage to hold one. Mitigation needs external state the attacker
+cannot roll back with the file: a server-side version counter, a sync peer's
+latest epoch, or hardware. For a device on CryptoSync the practical mitigation is
+that a peer eventually delivers deltas that will not apply to the replayed local
+state — with an exploitable window until the next sync.
 
 ### Same-origin in-page attacker (out of scope)
 
-An attacker running inside the browsing-context origin (XSS,
-compromised npm dependency, malicious extension with host permissions)
-does not need the encryption key. They query through the existing
-worker bridge like any other code and receive plaintext rows. No
-file-level encryption scheme can defend against this — the threat is
-handled one layer up by CSP hardening, dependency review, and the
-worker's permission-enforcement logic.
+An attacker running inside the origin (XSS, compromised dependency, malicious
+extension) does not need the key: they query through the existing worker bridge
+and receive plaintext rows. No file-level scheme can defend against this. See
+[`security/threat-model.md`](security/threat-model.md) for where it is handled
+instead.
 
 ### Live-process memory dump (partial)
 
-While the worker holds a key, the 32-byte key bytes and any page
-currently being processed are present in WASM linear memory. Defense
-in depth:
+While the worker holds a key, the 32 key bytes and the page being processed are
+in WASM linear memory. Defense in depth narrows the window but does not close it:
 
-- `plaintextScratch` is zero-filled after every page op (so the
-  "recently accessed page" exposure window is sub-microsecond, not
-  hours).
-- Keys are held only for the DB's open lifetime and wiped with
+- `plaintextScratch` is zero-filled after every page op, making the
+  recently-accessed-page exposure sub-microsecond rather than session-long.
+- Keys live only for the database's open lifetime and are wiped with
   `clearBytes` on close.
-- The MessagePack envelope buffers that carried keys from C# are
-  zeroed after `postMessage` returns.
+- The MessagePack buffers that carried keys from C# are zeroed once
+  `postMessage` returns.
 
-A complete heap dump of the running worker still exposes currently-
-mounted keys; the platform offers no user-space enclave to hide them.
+A full heap dump of the running worker still exposes mounted keys; the platform
+has no user-space enclave to hide them in.
 
 ### WAL / `.db-shm` on disk (accepted)
 
-`journal_mode=WAL` puts the WAL file (`*.db-wal`) and shared-memory
-index (`*.db-shm`) in OPFS alongside the main DB. Every byte — including
-WAL frame headers and shared-memory page indices — goes through the
-offset-remap envelope, so the disk contents are ciphertext under the
-same AEAD. This is strictly better than SQLCipher on the WAL side
-(SQLCipher leaves 24-byte WAL frame headers in plaintext, exposing
-page numbers and commit markers).
+`journal_mode=WAL` puts `*.db-wal` and `*.db-shm` in OPFS beside the main
+database. Every byte of both — WAL frame headers and shared-memory page indices
+included — goes through the offset-remap envelope, so all of it is authenticated
+ciphertext. This is stricter than SQLCipher, which leaves 24-byte WAL frame
+headers in plaintext and with them the page numbers and commit markers. The cost
+is more files on disk than a `journal_mode=MEMORY` scheme would leave; the
+crash-safety trade is worth it.
 
-Net: more files exist on disk than under a hypothetical
-`journal_mode=MEMORY` scheme (the WAL and SHM now live in OPFS), but
-every byte is authenticated ciphertext, so the crash-safety tradeoff
-favors this design.
+### In-place key rotation (not implemented)
 
-### Key rotation (future work)
-
-Changing the DB's encryption key requires re-encrypting every page
-under the new key. Not yet implemented — current flows are wipe +
-recreate. Tracked as a follow-up `rotateVfsKey(old, new)` worker
-operation.
+The slot-rekey primitive itself exists — `rekeySlots` re-wraps every logical page
+from one key to another (or to none) and runs on every boundary crossing:
+import, export, and the in-place `EnterEncrypted` / `LeaveEncrypted`
+conversions. What has no operation is rotating a *live* encrypted pool from its
+current key to a new one without that round trip. Rebinding a pool to a
+different passkey today means exporting an `.eds` and running the guided import.
 
 ### Multi-tab concurrency (unchanged from vendor)
 
-Same constraints as vendor SAHPool: single writer per origin. The
-encryption layer does not introduce new concurrency concerns.
+Same constraint as vendor SAHPool: one writer per origin. The encryption layer
+adds no concurrency concerns of its own.
 
 ## Defense-in-depth summary
 
@@ -506,7 +496,8 @@ encryption layer does not introduce new concurrency concerns.
 | journal_mode=WAL with encrypted WAL frames    | ✓      |
 | Cross-library test vectors (BC ↔ awasm)       | ✓      |
 | Rollback protection                           | ✗ (out of scope, needs external state) |
-| Key rotation                                  | ✗ (future work)    |
+| Slot rekey (key→key, key→plain, plain→key)    | ✓      |
+| In-place rotation of a live pool's key        | ✗ (round-trip via `.eds` today) |
 | Same-origin script protection                 | ✗ (not possible at this layer) |
 
 ## Code references

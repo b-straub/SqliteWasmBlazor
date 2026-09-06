@@ -2,25 +2,23 @@
 
 ## How is this different from besql?
 
-besql uses Cache Storage API to emulate a filesystem. SqliteWasmBlazor uses **real OPFS filesystem** with synchronous access, providing true native-like performance and the ability to run the actual .NET SQLite provider.
+besql emulates a filesystem over the Cache Storage API. SqliteWasmBlazor runs
+the real SQLite engine on real OPFS files with synchronous access handles — see
+[Architecture](architecture.md).
 
 ## Can I use this in production?
 
 Yes! The technology is stable (OPFS is a W3C standard), and all major browsers support it. The library has been tested with complex real-world scenarios.
 
-## What about mobile browsers?
-
-Mobile Chrome (Android 108+) and Safari (iOS/iPadOS 16.4+) both support OPFS with synchronous access handles.
-
 ## How do I export/backup my database?
-
-The database files are in OPFS at `/databases/YourDb.db`. `ISqliteWasmDatabaseService` carries the whole file surface — one database or many, in or out, to a `Stream` or straight to a browser download — and none of it holds the file in managed memory, so a large database transfers on a phone:
 
 ```csharp
 await DatabaseService.ExportDatabaseToDownloadAsync("TodoDb.db", "backup.db");
 ```
 
-No extra package is needed; with `SqliteWasmBlazor.Crypto` loaded the same calls decrypt on the way out and re-encrypt on the way in. See [Moving Databases In and Out](advanced-features.md#moving-databases-in-and-out) for the full set, and the Demo app's encryption page for a working UI.
+No extra package needed, and nothing holds the file in managed memory. The full
+set — one database or many, in or out, to a `Stream` or a download — is in
+[Moving Databases In and Out](advanced-features.md#moving-databases-in-and-out).
 
 ## Is this compatible with existing EF Core code?
 
@@ -28,11 +26,10 @@ Yes! All standard EF Core features work: migrations, relationships, LINQ queries
 
 ## Why can't I open multiple browser tabs?
 
-OPFS uses exclusive synchronous access handles - only one tab can hold a write lock on the database at a time. This is a browser API limitation, not a library limitation. Use the [Multi-View pattern](patterns.md#multi-view-instead-of-multi-tab) instead.
-
-## What happens if I open another tab anyway?
-
-The second tab will fail to acquire the database lock and show an error message. The first tab continues to work normally.
+A synchronous access handle is exclusive, so only one tab can hold the database
+open. The second tab fails to acquire the lock and says so; the first keeps
+working. Put your views in one tab instead — see the
+[Multi-View pattern](patterns.md#multi-view-instead-of-multi-tab).
 
 ## How large can the database be?
 
@@ -67,8 +64,6 @@ EF Core migrations work normally. The `InitializeSqliteWasmDatabaseAsync` extens
 
 ## What's the performance like?
 
-- **Initial Load**: ~100-200ms (worker initialization + OPFS setup)
-- **Query Execution**: < 1ms for simple queries, 10-50ms for complex joins
-- **Persistence**: Automatic after `SaveChanges()`, ~10-30ms overhead
-
-See [Architecture](architecture.md#performance-characteristics) for more details.
+Sub-millisecond simple queries, tens of milliseconds for complex joins, and
+persistence is part of `SaveChanges()`. Numbers in
+[Architecture](architecture.md#performance-characteristics).

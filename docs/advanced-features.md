@@ -261,6 +261,12 @@ Writing under the real name is not a detail. On an encrypted pool, page AAD
 binds ciphertext to the database path, so a file written under a staging name
 would stop decrypting the moment it was moved.
 
+Don't roll this by hand with `RenameDatabaseAsync`: a rename onto an occupied
+name leaves the occupant's slot claimed but unreachable, and delete-then-rename
+leaves a window where the backup and the file that displaced it both stand with
+nothing to say which one is the database. The import does it as one pool-level
+replace.
+
 ### Telling the Library Which Databases You Own
 
 `MigrateAsync` and the schema gate need something only the host knows — which
@@ -311,12 +317,3 @@ throws `SchemaMismatchException`, an `InvalidOperationException` carrying
 
 `IHostDatabaseService.ValidateSchemaAsync` is the seam a host implements; this
 extension is what it normally calls.
-
-### Safe Import Pattern
-
-There is no pattern to write: pass `validateImported` and the park-and-restore
-above happens inside the import. Rolling it by hand with
-`RenameDatabaseAsync` cannot match it — a rename onto an occupied name leaves
-the occupant's slot claimed but unreachable, and splitting the job into
-delete-then-rename leaves a window where the backup and the import that
-displaced it both stand with nothing to say which one is the database.

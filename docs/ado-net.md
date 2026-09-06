@@ -1,11 +1,7 @@
 # ADO.NET Usage
 
-SqliteWasmBlazor provides a **complete ADO.NET provider** that can be used standalone, without Entity Framework Core. This is perfect for scenarios where you:
-
-- Want lightweight database access without the EF Core overhead
-- Have existing ADO.NET code you want to port to Blazor WASM
-- Prefer writing raw SQL queries for full control
-- Need to work with large databases (1GB+) efficiently
+SqliteWasmBlazor's ADO.NET provider is complete and usable standalone, without
+Entity Framework Core.
 
 ## Setup for Non-EF Core Usage
 
@@ -176,19 +172,15 @@ All standard ADO.NET types are implemented:
 
 ## When to Use ADO.NET vs EF Core
 
-**Use ADO.NET when you:**
-- Need lightweight access without EF Core overhead
-- Have simple CRUD operations
-- Want full control over SQL queries
-- Are porting existing ADO.NET code
-- Working with very large datasets where query control is critical
+The usual trade, with one WASM-specific wrinkle: EF Core brings migrations,
+LINQ and change tracking at the cost of ~1 MB of assemblies you ship to every
+visitor. Going without it is a real saving here in a way it is not on a server.
 
-**Use EF Core when you:**
-- Want automatic migrations
-- Need LINQ query composition
-- Want change tracking and lazy loading
-- Have complex relationships between entities
-- Prefer code-first database design
+Reach for raw ADO.NET when you are porting existing ADO.NET code, when the
+queries are simple enough that a mapper earns nothing, or when you want to
+control exactly what SQL runs. Take EF Core when you want the schema managed
+for you — `InitializeSqliteWasmDatabaseAsync` applies migrations at startup,
+and hand-rolling that is where most of the work would go.
 
 ## Database Management via DI
 

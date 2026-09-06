@@ -29,19 +29,11 @@ catalog above applies to the Plane-2 encryption VFS.
 
 ## Verifying the formal models
 
-The three Tamarin theories under `docs/formal/vfs-tamarin/` are
-self-contained and verifiable with the public
-[Tamarin Prover](https://tamarin-prover.com/) toolchain. From the
-repository root:
-
-```sh
-tamarin-prover --prove docs/formal/vfs-tamarin/vfs.spthy
-tamarin-prover --prove docs/formal/vfs-tamarin/vfs-inplace-lifecycle.spthy
-tamarin-prover --prove docs/formal/vfs-tamarin/vfs-cache-import-lifecycle.spthy
-```
-
-Each invocation reports `verified` for every `lemma` clause when the model
-holds against a Dolev-Yao attacker over the encrypted at-rest channel.
+The three Tamarin theories under `docs/formal/vfs-tamarin/` are self-contained
+and verifiable with the public [Tamarin Prover](https://tamarin-prover.com/)
+toolchain — 74 lemmas across the three. `./docs/formal/verify.sh` proves them
+and `./docs/formal/mutation-check.sh` shows they still bite; see
+[formal/](../formal/README.md).
 
 ## Reporting vulnerabilities
 
