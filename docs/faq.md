@@ -10,7 +10,7 @@ Yes! The technology is stable (OPFS is a W3C standard), and all major browsers s
 
 ## What about mobile browsers?
 
-Mobile Chrome (Android 108+) and Safari (iOS 16.4+) both support OPFS with synchronous access handles.
+Mobile Chrome (Android 108+) and Safari (iOS/iPadOS 16.4+) both support OPFS with synchronous access handles.
 
 ## How do I export/backup my database?
 
