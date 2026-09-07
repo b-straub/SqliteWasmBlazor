@@ -233,7 +233,7 @@ Please close any other tabs running this application and refresh the page.
 
     private static void ConfigureCommandLogging(SqliteWasmOptions options)
     {
-        SqliteWasmCommand.EnableCommandSqlLogging = options.EnableCommandSqlLogging;
+        SqliteWasmLogger.CommandSqlLoggingEnabled = options.EnableCommandSqlLogging;
     }
 
     private static string GetDatabaseName<TContext>(IServiceProvider services, Exception? _)

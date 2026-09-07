@@ -195,6 +195,34 @@ The same treatment reaches the demo's two remaining silent operations:
 - **"Clear All" is gone rather than fixed.** It was a raw `DELETE FROM TodoItems` against one table, duplicating two affordances that already do it properly: the per-database broom on the encryption panel, and the pool reset. It was also unsafe as written — no transaction around the delete and the FTS5 `'rebuild'` that follows it, and `FTSTodoItem` is an external-content table, so a failure between the two left the rows gone while the index still matched every one of them.
 - **Search-as-you-type waits for the typing to stop.** Every keystroke used to reach SQLite. `SearchString` now triggers a cancelable command that waits 300 ms before signalling a reload; because the command's method takes a `CancellationToken`, RxBlazorV2 gives it Switch semantics — the next keystroke cancels the previous execution mid-wait, and a query already running is cancelled with it. Mode toggles still refetch immediately; there is no burst to settle.
 
+### Logging: One Level, Set in One Place
+
+`SqliteWasmConnection(string, LogLevel)` set the **process-wide** log level from
+what looks like a per-connection argument, and the usual registration puts that
+constructor inside an `AddDbContextFactory` lambda — so it ran again on every
+context creation, silently overriding whatever the host had configured. With two
+databases it was last-writer-wins between them. The documentation called this
+"Per-Connection Logging", which is the one thing it was not.
+
+- **The opt-in flag now gates both sides of the boundary.** `EnableCommandSqlLogging`
+  guarded only the managed `SqliteWasmCommand` lines; the worker logged SQL text
+  and parameter values off its own log level, so raising the level to Debug for
+  timings emitted schema and data that the flag was supposed to withhold
+  ([#18](https://github.com/b-straub/SqliteWasmBlazor/issues/18)). The flag is
+  forwarded to the worker and gates its `Executing SQL:` and `[PARAM]` lines
+  too. The split is now clean: the **level** controls verbosity, the **flag**
+  controls whether query content is ever emitted. Request timings and the
+  bridge's own trace carry neither, so a Debug-level session exposes no data.
+- **Breaking:** the `(string connectionString, LogLevel logLevel)` constructor
+  overload is gone. `SqliteWasmLogger.SetLogLevel` is the single way to set the
+  level, alongside `SqliteWasmOptions.EnableCommandSqlLogging` for whether SQL
+  text is emitted at all. Callers passing a level drop the argument and call
+  `SetLogLevel` once in `Program.cs`.
+- `SetLogLevel` may now be called **before** the worker exists. The managed
+  level applies immediately; the bridge hands it to the JS halves once the
+  worker is up. Previously it threw or was lost, which meant worker startup,
+  the database opens and the migrations could never be traced.
+
 ### Other Fixes
 
 - **Bug Fix (#20):** Fixed a documentation error in the Quick Start guide that erroneously instructed users to register a non-existent `IDBInitializationService`.

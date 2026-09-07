@@ -155,18 +155,26 @@ export function sendBinaryToWorker(memoryView: IMemoryView, metadataJson: string
 }
 
 export const logger = {
-    setLogLevel(level: number): void {
-        // Two halves to configure: this module and the streaming router run on
-        // the main thread, the SQLite modules run inside the worker. Each side
-        // holds its own logger instance, so both need the level.
+    /**
+     * Two halves to configure: this module and the streaming router run on the
+     * main thread, the SQLite modules run inside the worker. Each side holds
+     * its own logger instance, so both need the level.
+     *
+     * `commandSql` is deliberately separate from the level: the level decides
+     * how verbose logging is, this decides whether query *content* — SQL text,
+     * parameter values — may be emitted at all. It mirrors
+     * SqliteWasmOptions.EnableCommandSqlLogging.
+     */
+    configureLogging(level: number, commandSql: boolean): void {
         sqliteLogger.setLogLevel(level as SqliteWasmLogLevel);
         if (!worker) {
-            sqliteLogger.warn(MODULE_NAME, 'Worker not initialized, cannot set log level');
+            sqliteLogger.warn(MODULE_NAME, 'Worker not initialized, cannot configure logging');
             return;
         }
         worker.postMessage({
-            type: 'setLogLevel',
-            level: level
+            type: 'configureLogging',
+            level: level,
+            commandSql: commandSql
         });
     }
 };

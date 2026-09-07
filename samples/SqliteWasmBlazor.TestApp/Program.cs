@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Components.Web;
+using Microsoft.Extensions.Logging;
 using Microsoft.AspNetCore.Components.WebAssembly.Hosting;
 using SqliteWasmBlazor.TestApp;
 using Microsoft.EntityFrameworkCore;
@@ -31,11 +32,7 @@ builder.Services.AddMudServices();
 // Add DbContext with SqliteWasm provider
 builder.Services.AddDbContextFactory<TodoDbContext>(options =>
 {
-#if DEBUG
-    var connection = new SqliteWasmConnection("Data Source=TestDb.db", LogLevel.Debug);
-#else
     var connection = new SqliteWasmConnection("Data Source=TestDb.db");
-#endif
     
     options.UseSqliteWasm(connection);
 
@@ -112,6 +109,13 @@ if (!TestPlane.IsPlain)
 }
 
 var host = builder.Build();
+
+// Worker/bridge log level. Set before initialization so worker startup and the
+// database opens are covered; it used to ride on the SqliteWasmConnection
+// constructor, which set it process-wide on every context creation.
+#if DEBUG
+SqliteWasmLogger.SetLogLevel(LogLevel.Debug);
+#endif
 
 // Initialize sqlite-wasm worker
 await host.Services.InitializeSqliteWasmAsync();

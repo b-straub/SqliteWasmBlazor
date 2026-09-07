@@ -4,7 +4,6 @@
 using System.Data;
 using System.Data.Common;
 using System.Diagnostics.CodeAnalysis;
-using Microsoft.Extensions.Logging;
 
 namespace SqliteWasmBlazor;
 
@@ -37,28 +36,6 @@ public sealed class SqliteWasmConnection : DbConnection
     public SqliteWasmConnection(string connectionString) : this()
     {
         _connectionString = connectionString;
-    }
-
-    /// <summary>
-    /// Creates a connection and sets the worker's log level before any worker
-    /// operation runs — the only point at which it can still take effect for
-    /// startup logging.
-    /// </summary>
-    /// <param name="connectionString">
-    /// Connection string naming the database in the OPFS pool, e.g.
-    /// <c>Data Source=TodoDb.db</c>.
-    /// </param>
-    /// <param name="logLevel">
-    /// Worker log level. Applied only when running in a browser; ignored
-    /// elsewhere, since there is no worker to configure.
-    /// </param>
-    public SqliteWasmConnection(string connectionString, LogLevel logLevel = LogLevel.Warning) : this(connectionString)
-    {
-        // Set log level before any worker operations
-        if (OperatingSystem.IsBrowser())
-        {
-            SqliteWasmLogger.SetLogLevel(logLevel);
-        }
     }
 
     /// <inheritdoc />

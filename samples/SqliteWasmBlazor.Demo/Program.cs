@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Components.Web;
+using Microsoft.Extensions.Logging;
 using Microsoft.AspNetCore.Components.WebAssembly.Hosting;
 using MudBlazor.Services;
 using SqliteWasmBlazor.Crypto.Extensions;
@@ -39,22 +40,20 @@ builder.Services.AddSingleton<TodoDataNotifier>();
 // Add TodoDbContext with SqliteWasm provider (database: TodoDb.db)
 builder.Services.AddDbContextFactory<TodoDbContext>(options =>
 {
-#if DEBUG
-    var connection = new SqliteWasmConnection("Data Source=TodoDb.db", LogLevel.Information);
-#else
-    var connection = new SqliteWasmConnection("Data Source=TodoDb.db", LogLevel.Error);
-#endif
+    // No log level here: that overload sets the process-wide level, and this
+    // lambda runs on every context creation, so it would override the level
+    // configured below on every query. See SqliteWasmLogger.SetLogLevel.
+    var connection = new SqliteWasmConnection("Data Source=TodoDb.db");
     options.UseSqliteWasm(connection);
 });
 
 // Add NoteDbContext with SqliteWasm provider (database: NotesDb.db)
 builder.Services.AddDbContextFactory<NoteDbContext>(options =>
 {
-#if DEBUG
-    var connection = new SqliteWasmConnection("Data Source=NotesDb.db", LogLevel.Information);
-#else
-    var connection = new SqliteWasmConnection("Data Source=NotesDb.db", LogLevel.Error);
-#endif
+    // No log level here: that overload sets the process-wide level, and this
+    // lambda runs on every context creation, so it would override the level
+    // configured below on every query. See SqliteWasmLogger.SetLogLevel.
+    var connection = new SqliteWasmConnection("Data Source=NotesDb.db");
     options.UseSqliteWasm(connection);
 });
 
@@ -112,6 +111,16 @@ var host = builder.Build();
 // Eagerly construct EncryptedPoolLifecycle so its AuthenticationStateChanged +
 // KeyExpired subscriptions are live before the first AuthorizeView renders.
 host.Services.UseEncryptedPoolLifecycle();
+
+// Worker/bridge log level. Set here rather than on the SqliteWasmConnection
+// constructor, which applied it process-wide on every context creation. Runs
+// before initialization so worker startup and the database opens are covered;
+// the bridge forwards it to the JS halves once the worker is up.
+#if DEBUG
+SqliteWasmLogger.SetLogLevel(LogLevel.Information);
+#else
+SqliteWasmLogger.SetLogLevel(LogLevel.Error);
+#endif
 
 // Initialize SqliteWasm databases with migration support
 await host.Services.InitializeSqliteWasmDatabaseAsync<TodoDbContext>();

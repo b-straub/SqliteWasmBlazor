@@ -217,7 +217,15 @@ async function initializeSQLite() {
 }
 
 // Handle messages from main thread
-self.onmessage = async (event: MessageEvent<WorkerRequest | { type: 'setLogLevel'; level: number } | { type: 'init'; baseHref: string; assetRoot?: string }>) => {
+/**
+ * Whether SQL text and parameter values may be logged. Mirrors
+ * SqliteWasmOptions.EnableCommandSqlLogging and is independent of the log
+ * level: the level controls verbosity, this controls whether query content is
+ * emitted at all, so tracing at Debug does not expose schema or data.
+ */
+let commandSqlLogging = false;
+
+self.onmessage = async (event: MessageEvent<WorkerRequest | { type: 'configureLogging'; level: number; commandSql: boolean } | { type: 'init'; baseHref: string; assetRoot?: string }>) => {
     // Handle initialization with base href and asset root
     if ('type' in event.data && event.data.type === 'init' && 'baseHref' in event.data) {
         baseHref = event.data.baseHref;
@@ -231,8 +239,9 @@ self.onmessage = async (event: MessageEvent<WorkerRequest | { type: 'setLogLevel
     }
 
     // Handle log level changes (no response needed)
-    if ('type' in event.data && event.data.type === 'setLogLevel' && 'level' in event.data) {
+    if ('type' in event.data && event.data.type === 'configureLogging' && 'level' in event.data) {
         logger.setLogLevel(event.data.level);
+        commandSqlLogging = event.data.commandSql === true;
         return;
     }
 
@@ -612,7 +621,9 @@ function convertParametersForBinding(
 
             if (value === null || value === undefined) {
                 converted[key] = null;
-                logger.debug(MODULE_NAME, `[PARAM] ${key}: null`);
+                if (commandSqlLogging) {
+                    logger.debug(MODULE_NAME, `[PARAM] ${key}: null`);
+                }
             }
             else if (type === 'blob' && binaryPayload && value && typeof value === 'object'
                      && typeof value.__blobOffset === 'number' && typeof value.__blobLength === 'number') {
@@ -625,7 +636,9 @@ function convertParametersForBinding(
                 const bytes = new Uint8Array(length);
                 bytes.set(binaryPayload.subarray(offset, offset + length));
                 converted[key] = bytes;
-                logger.debug(MODULE_NAME, `[PARAM] ${key}: blob (${length} bytes from binary attachment @ ${offset})`);
+                if (commandSqlLogging) {
+                    logger.debug(MODULE_NAME, `[PARAM] ${key}: blob (${length} bytes from binary attachment @ ${offset})`);
+                }
             }
             else if (type === 'blob' && typeof value === 'string') {
                 // Legacy fallback — Base64-encoded blob in the JSON message.
@@ -636,7 +649,9 @@ function convertParametersForBinding(
                         bytes[i] = binaryString.charCodeAt(i);
                     }
                     converted[key] = bytes;
-                    logger.debug(MODULE_NAME, `[PARAM] ${key}: blob (${bytes.length} bytes from base64)`);
+                    if (commandSqlLogging) {
+                        logger.debug(MODULE_NAME, `[PARAM] ${key}: blob (${bytes.length} bytes from base64)`);
+                    }
                 } catch (e) {
                     logger.error(MODULE_NAME, `[PARAM] Failed to decode blob ${key}:`, e);
                     converted[key] = value;
@@ -645,7 +660,9 @@ function convertParametersForBinding(
             else {
                 // For text, integer, real - use value as-is
                 converted[key] = value;
-                logger.debug(MODULE_NAME, `[PARAM] ${key}: ${type} = ${typeof value === 'string' && value.length > 50 ? value.substring(0, 50) + '...' : value}`);
+                if (commandSqlLogging) {
+                    logger.debug(MODULE_NAME, `[PARAM] ${key}: ${type} = ${typeof value === 'string' && value.length > 50 ? value.substring(0, 50) + '...' : value}`);
+                }
             }
         }
         else {
@@ -669,7 +686,9 @@ async function executeSql(
     }
 
     try {
-        logger.debug(MODULE_NAME, 'Executing SQL:', sql.substring(0, 100));
+        if (commandSqlLogging) {
+            logger.debug(MODULE_NAME, 'Executing SQL:', sql.substring(0, 100));
+        }
 
         // Convert parameters with type metadata for proper SQLite binding.
         // binaryPayload (if present) carries blob param bytes — see

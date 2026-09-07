@@ -140,15 +140,28 @@ them — schema and data would otherwise reach the browser console in production
 builder.Services.AddSqliteWasm(o => o.EnableCommandSqlLogging = true);
 ```
 
-The log level below gates whether those lines are *emitted*; this flag gates
-whether they exist at all. Both have to allow it.
+This is the only switch that lets SQL text or parameter values reach the
+console, on either side of the worker boundary — managed and worker alike. The
+log level is orthogonal: it decides how verbose logging is, this decides whether
+query *content* is emitted at all. So tracing at `Debug` shows request timings
+and row counts while schema and parameter values stay withheld.
 
 ### Worker Log Level
 
+One level, set once, for the worker and the main-thread half of the bridge:
+
 ```csharp
-// Level for the worker and the main-thread half of the bridge.
-SqliteWasmLogger.SetLogLevel(LogLevel.Warning);
+// In Program.cs, before InitializeSqliteWasmAsync /
+// InitializeSqliteWasmDatabaseAsync so worker startup and the database opens
+// are covered too.
+SqliteWasmLogger.SetLogLevel(LogLevel.Debug);
 ```
+
+Levels: `Trace`, `Debug`, `Information`, `Warning` (default), `Error`,
+`Critical`, `None`. The managed side takes the new level immediately; the JS
+bridge and the worker receive it as soon as the worker is up, so calling this
+before initialization is not only allowed, it is the only way to trace
+initialization.
 
 ### EF Core Logging
 
@@ -157,15 +170,6 @@ SqliteWasmLogger.SetLogLevel(LogLevel.Warning);
 builder.Logging.AddFilter("Microsoft.EntityFrameworkCore.Database.Command", LogLevel.Warning);
 builder.Logging.AddFilter("Microsoft.EntityFrameworkCore.Infrastructure", LogLevel.Error);
 ```
-
-### Per-Connection Logging
-
-```csharp
-// Specify log level in connection constructor
-var connection = new SqliteWasmConnection("Data Source=MyDb.db", LogLevel.Debug);
-```
-
-Available log levels: `Trace`, `Debug`, `Information`, `Warning` (default), `Error`, `Critical`, `None`
 
 ## Custom EF Core Functions
 

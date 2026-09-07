@@ -12,7 +12,6 @@ namespace SqliteWasmBlazor;
 /// </summary>
 public sealed class SqliteWasmCommand : DbCommand
 {
-    internal static bool EnableCommandSqlLogging { get; set; }
 
     private string _commandText = string.Empty;
     private readonly SqliteWasmParameterCollection _parameters;
@@ -101,7 +100,7 @@ public sealed class SqliteWasmCommand : DbCommand
             ? await bridge.ExecuteSqlAsync(Connection.Database, sql, parameterDict, cancellationToken)
             : await bridge.ExecuteSqlWithBlobsAsync(Connection.Database, sql, parameterDict, packedBlobs, cancellationToken);
 
-        if (EnableCommandSqlLogging)
+        if (SqliteWasmLogger.CommandSqlLoggingEnabled)
         {
             Console.WriteLine($"[SqliteWasmCommand] Result: RowsAffected={result.RowsAffected}");
         }
@@ -217,7 +216,7 @@ public sealed class SqliteWasmCommand : DbCommand
 
     private void LogCommandSql(string sql)
     {
-        if (!EnableCommandSqlLogging)
+        if (!SqliteWasmLogger.CommandSqlLoggingEnabled)
         {
             return;
         }

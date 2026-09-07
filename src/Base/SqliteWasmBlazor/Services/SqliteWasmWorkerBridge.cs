@@ -79,6 +79,7 @@ internal sealed partial class SqliteWasmWorkerBridge : ISqliteWasmDatabaseServic
     internal static ReadOnlySpan<byte> SqliteHeaderMagic => "SQLite format 3\0"u8;
 
     private readonly ConcurrentDictionary<int, TaskCompletionSource<SqlQueryResult>> _pendingRequests = new();
+
     private readonly ConcurrentDictionary<int, TaskCompletionSource<byte[]>> _pendingBinaryRequests = new();
     private readonly HashSet<string> _openDatabases = new();
     private int _nextRequestId;
@@ -199,6 +200,12 @@ internal sealed partial class SqliteWasmWorkerBridge : ISqliteWasmDatabaseServic
         }
 
         _isInitialized = true;
+
+        // Hand the JS halves whatever level was set before they existed. A host
+        // that calls SetLogLevel in Program.cs does so before this point, so
+        // without this the worker would keep its default while the managed side
+        // traced at Debug.
+        SqliteWasmLogger.PublishLevel();
     }
 
     /// <summary>
