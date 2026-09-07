@@ -48,6 +48,25 @@ public class TodoDbContext : DbContext
                 );
         });
 
+        modelBuilder.Entity<TodoItem>(entity =>
+        {
+            // The list is always "active rows, newest first", so the index is
+            // partial on exactly that predicate and ordered the way the page
+            // reads it. Without it both halves of a page load scan the whole
+            // table: the count walks every row, and the page walks every row
+            // and then sorts it to take ten.
+            //
+            // The filter is written as the provider renders `!t.IsDeleted`.
+            // SQLite only uses a partial index when the query's WHERE implies
+            // the index's, and that check compares expressions — a filter
+            // spelled `IsDeleted = 0` would not match `NOT "IsDeleted"` and the
+            // index would sit unused.
+            entity.HasIndex(e => e.UpdatedAt)
+                .IsDescending()
+                .HasFilter("NOT \"IsDeleted\"")
+                .HasDatabaseName("IX_TodoItems_Active_UpdatedAt");
+        });
+
         modelBuilder.Entity<TodoList>(entity =>
         {
             // Configure one-to-many relationship
