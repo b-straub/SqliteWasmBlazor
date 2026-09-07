@@ -34,35 +34,33 @@ public enum SearchDisplayMode
 /// markup wires straight into <c>MudTable.ServerData</c>.
 ///
 /// <para>
-/// <b>Reload signal pattern (intentional caveat).</b> Search-string / mode
-/// changes trigger a counter increment via <see cref="BumpReloadSignal"/>;
-/// the counter is declared <c>[ObservableComponentTriggerAsync]</c> and
-/// the page partial calls <c>MudTable.ReloadServerData()</c> from the
-/// SG-emitted <c>OnReloadSignalChangedAsync</c> hook. The RxBlazorV2 audit
-/// rules (<c>reactive-patterns.md</c> §6) discourage counter / toggle
-/// properties used as notification signals and ask for a semantic status
-/// property instead. We accept the stylistic deviation here because the
-/// consumer side effect (re-running an opaque MudTable's server-data
-/// callback) genuinely has no semantic state to surface — there's nothing
-/// to encode beyond "do it again." The alternative is fanning out
-/// <c>[ObservableComponentTriggerAsync]</c> across each of <see cref="SearchString"/> /
-/// <see cref="SearchMode"/> / <see cref="QueryMode"/> + the add / delete /
-/// toggle paths and implementing 5+ near-identical hooks, all of which
-/// would call <c>ReloadServerData()</c>. The counter wins on DRY.
+/// <b>One batch, one hook.</b> <c>MudTable.ServerData</c> is a pull API —
+/// it refetches only when something calls <c>ReloadServerData()</c>, never
+/// on a re-render. Everything that decides what the table shows carries
+/// <c>[ObservableComponentBatchAsync(<see cref="ListingBatchId"/>)]</c>, so
+/// the generator emits exactly one hook,
+/// <c>OnListingBatchChangedAsync</c>, and the page partial calls
+/// <c>ReloadServerData()</c> from there. The batch is dispatched with
+/// <c>AwaitOperation.Switch</c>: a newer change releases the running hook
+/// at once, and its <c>ReloadServerData()</c> makes MudTable cancel the
+/// in-flight fetch through the token it hands to
+/// <see cref="LoadServerDataAsync"/>.
 /// </para>
 ///
 /// <para>
-/// <b>Search debounce.</b> Typing does not reach the database directly.
-/// <see cref="SearchString"/> triggers <see cref="SearchSettled"/>, whose
-/// method takes a <see cref="CancellationToken"/> and therefore runs under
-/// RxBlazorV2's Switch semantics: each keystroke cancels the previous
-/// execution, so the <see cref="SearchSettleDelay"/> wait only elapses once
-/// typing stops, and only that last execution bumps the reload signal. A
-/// query already running when the next keystroke lands is cancelled with
-/// it — <see cref="MudTable{T}"/> passes its token into
-/// <see cref="LoadServerDataAsync"/>, which hands it to SQLite. Mode
-/// toggles keep the immediate <see cref="ObservableTriggerAttribute"/>:
-/// there is no burst to settle.
+/// <b>The window is per property.</b> <see cref="SearchString"/> declares
+/// <see cref="SearchDebounceMs"/> so a burst of keystrokes reaches the
+/// database once, when typing stops. The mode toggles and
+/// <see cref="LastChange"/> declare none — each is a single deliberate
+/// event with no burst to settle — and reload immediately. Same batch,
+/// same hook; only the timing differs.
+/// </para>
+///
+/// <para>
+/// <b>Publish results, never inputs.</b> <see cref="LoadServerDataAsync"/>
+/// writes <see cref="TotalCount"/> and the highlight cache, neither of
+/// which is a batch member. Writing one from inside the callback would ask
+/// the table to reload itself.
 /// </para>
 /// </summary>
 [ObservableModelScope(ModelScope.Scoped)]
@@ -70,6 +68,18 @@ public enum SearchDisplayMode
 public partial class TodoListModel : ObservableModel
 {
     public const string DatabaseName = "TodoDb.db";
+
+    /// <summary>
+    /// Batch id shared by everything that decides what the table shows.
+    /// Also the name the generated hook derives from:
+    /// <c>OnListingBatchChangedAsync</c>.
+    /// </summary>
+    public const string ListingBatchId = "listing";
+
+    /// <summary>
+    /// Trailing debounce window for the typed search term, in milliseconds.
+    /// </summary>
+    public const int SearchDebounceMs = 300;
 
     public partial TodoListModel(
         IDbContextFactory<TodoDbContext> contextFactory,
@@ -80,45 +90,56 @@ public partial class TodoListModel : ObservableModel
     public partial string NewTitle { get; set; } = string.Empty;
     public partial string NewDescription { get; set; } = string.Empty;
 
+    /// <summary>
+    /// Typed input, so it declares a window: only the settled term reaches
+    /// SQLite. R3's trailing-edge debounce lives in the generated
+    /// subscription — there is no <see cref="Task.Delay(TimeSpan, CancellationToken)"/>
+    /// and no CancellationTokenSource to write here.
+    /// </summary>
+    [ObservableComponentBatchAsync(ListingBatchId, SearchDebounceMs)]
     public partial string SearchString { get; set; } = string.Empty;
 
     /// <summary>
-    /// Settle window before a typed search reaches the database. A command
-    /// method that takes a <see cref="CancellationToken"/> gets Switch
-    /// semantics from RxBlazorV2 — the next keystroke cancels this one mid
-    /// <see cref="Task.Delay(TimeSpan, CancellationToken)"/>, so only the
-    /// last one in a burst ever reaches <see cref="BumpReloadSignal"/>, and
-    /// a query already in flight is cancelled rather than raced.
+    /// A radio click is one deliberate action, so it carries no window and
+    /// re-runs the query at once under the current term.
     /// </summary>
-    private static readonly TimeSpan SearchSettleDelay = TimeSpan.FromMilliseconds(300);
-
-    [ObservableCommand(nameof(SearchSettledAsync))]
-    [ObservableCommandTrigger(nameof(SearchString))]
-    public partial IObservableCommandAsync SearchSettled { get; }
-
-    private async Task SearchSettledAsync(CancellationToken cancellationToken)
-    {
-        await Task.Delay(SearchSettleDelay, cancellationToken);
-        BumpReloadSignal();
-    }
-
-    [ObservableTrigger(nameof(BumpReloadSignal))]
+    [ObservableComponentBatchAsync(ListingBatchId)]
     public partial SearchDisplayMode SearchMode { get; set; } = SearchDisplayMode.NORMAL;
 
-    [ObservableTrigger(nameof(BumpReloadSignal))]
+    /// <summary>
+    /// Same batch, same immediacy as <see cref="SearchMode"/>: switching
+    /// between processed and raw FTS5 syntax re-runs the current term.
+    /// </summary>
+    [ObservableComponentBatchAsync(ListingBatchId)]
     public partial Fts5QueryMode QueryMode { get; set; } = Fts5QueryMode.PROCESSED;
 
-    public partial int TotalCount { get; set; }
-    public partial long DatabaseFileSize { get; set; }
+    /// <summary>
+    /// What the last completed mutation did. Set by the add / toggle /
+    /// delete / refresh commands, never by <see cref="LoadServerDataAsync"/>,
+    /// and a batch member because the table's contents are a function of
+    /// the query <i>and</i> the data behind it.
+    ///
+    /// <para>
+    /// This is the semantic-completion property of
+    /// <c>reactive-patterns.md</c> §6, not the counter of §6b: it says what
+    /// happened rather than standing in for "do it again". Both fields
+    /// earn their place — a record setter is equality-guarded, so without
+    /// <see cref="TodoChange.At"/> a second toggle of the same row, or a
+    /// second press of Refresh, would compare equal to the first and
+    /// publish nothing.
+    /// </para>
+    /// </summary>
+    [ObservableComponentBatchAsync(ListingBatchId)]
+    public partial TodoChange? LastChange { get; set; }
 
     /// <summary>
-    /// Bumped whenever the table needs to refetch (search-string change,
-    /// add/delete/toggle, or explicit refresh). The page partial observes
-    /// this via the SG-emitted <c>OnReloadSignalChangedAsync</c> hook and
-    /// calls <c>MudTable.ReloadServerData()</c>.
+    /// Row count of the most recent page fetch. A <i>result</i>, written by
+    /// <see cref="LoadServerDataAsync"/>, so deliberately not a batch
+    /// member.
     /// </summary>
-    [ObservableComponentTriggerAsync]
-    public partial int ReloadSignal { get; set; }
+    public partial int TotalCount { get; set; }
+
+    public partial long DatabaseFileSize { get; set; }
 
     /// <summary>
     /// Toggle between processed and raw FTS5 query mode. Backs the
@@ -150,7 +171,6 @@ public partial class TodoListModel : ObservableModel
 
     private bool CanAddTodo() => !string.IsNullOrWhiteSpace(NewTitle);
 
-    private void BumpReloadSignal() => ReloadSignal++;
 
     /// <summary>
     /// Cache of FTS5 highlighted/snippet content keyed by row id. Refilled
@@ -316,7 +336,7 @@ public partial class TodoListModel : ObservableModel
 
         NewTitle = string.Empty;
         NewDescription = string.Empty;
-        BumpReloadSignal();
+        LastChange = new TodoChange(TodoChangeKind.ADDED, DateTime.UtcNow);
         await RefreshDatabaseFileSizeAsync(cancellationToken);
         StatusModel.AddSuccess(
             Localizer["Status_TodoAdded", stopwatch.ElapsedMilliseconds],
@@ -336,7 +356,7 @@ public partial class TodoListModel : ObservableModel
 
         stopwatch.Stop();
 
-        BumpReloadSignal();
+        LastChange = new TodoChange(TodoChangeKind.TOGGLED, DateTime.UtcNow);
         var statusKey = todo.IsCompleted ? "Status_TodoCompleted" : "Status_TodoReopened";
         StatusModel.AddSuccess(
             Localizer[statusKey, stopwatch.ElapsedMilliseconds],
@@ -367,14 +387,14 @@ public partial class TodoListModel : ObservableModel
                 StatusModel.AddWarning(
                     Localizer["Status_AlreadyDeleted"],
                     nameof(DeleteTodo));
-                BumpReloadSignal();
+                LastChange = new TodoChange(TodoChangeKind.DELETED, DateTime.UtcNow);
                 return;
             }
         }
 
         stopwatch.Stop();
 
-        BumpReloadSignal();
+        LastChange = new TodoChange(TodoChangeKind.DELETED, DateTime.UtcNow);
         await RefreshDatabaseFileSizeAsync(cancellationToken);
         StatusModel.AddWarning(
             Localizer["Status_TodoDeleted", stopwatch.ElapsedMilliseconds],
@@ -384,7 +404,7 @@ public partial class TodoListModel : ObservableModel
     private async Task RefreshListAsync(CancellationToken cancellationToken)
     {
         var stopwatch = Stopwatch.StartNew();
-        BumpReloadSignal();
+        LastChange = new TodoChange(TodoChangeKind.REFRESHED, DateTime.UtcNow);
         await RefreshDatabaseFileSizeAsync(cancellationToken);
         stopwatch.Stop();
         StatusModel.AddSuccess(
@@ -394,8 +414,9 @@ public partial class TodoListModel : ObservableModel
 
     private void ClearSearch()
     {
+        // A batch member, so this reaches OnListingBatchChangedAsync on its
+        // own — after the debounce window, like any other change to the term.
         SearchString = string.Empty;
-        // Trigger on SearchString fires BumpReloadSignal automatically.
     }
 
     /// <summary>
