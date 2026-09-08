@@ -2,6 +2,7 @@
 // MIT License
 
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Runtime.InteropServices.JavaScript;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -80,6 +81,104 @@ internal sealed partial class SqliteWasmWorkerBridge : ISqliteWasmDatabaseServic
 
     private readonly ConcurrentDictionary<int, TaskCompletionSource<SqlQueryResult>> _pendingRequests = new();
 
+    // ------------------------------------------------------------------
+    // Request tracing (SqliteWasmOptions.EnableRequestTracing)
+    //
+    // Answers one question the reactive layer cannot: when a caller cancels,
+    // does the work stop? It does not. Cancelling a request removes its
+    // TaskCompletionSource and stops the C# await; the message is already in
+    // the worker's queue and there is no cancel/interrupt message in the
+    // protocol to recall it. The worker runs it to completion and its
+    // response lands on an id nobody is waiting for.
+    //
+    // Because the worker is single-threaded, that abandoned query still holds
+    // it, and the next one waits. These two dictionaries make that visible:
+    // the in-flight count at send time separates "each query is slow" from
+    // "queries are queueing behind abandoned ones".
+    // ------------------------------------------------------------------
+    // Sent to the worker, no response yet — the worker's actual backlog, which
+    // survives cancellation. This is the number that matters: `_pendingRequests`
+    // counts only what C# is still awaiting, and cancelling removes an entry
+    // from it while the worker carries on running the request.
+    //
+    // Populated by the request paths that call TraceSent (the SQL paths). The
+    // import/export binary paths are not traced, so a concurrent bulk transfer
+    // would not be counted here.
+    private readonly ConcurrentDictionary<int, long> _traceStartedAt = new();
+    private readonly ConcurrentDictionary<int, long> _traceAbandonedAt = new();
+
+    private static double ElapsedMs(long fromTimestamp) =>
+        Stopwatch.GetElapsedTime(fromTimestamp).TotalMilliseconds;
+
+    private void TraceSent(int requestId, string kind)
+    {
+        if (!SqliteWasmLogger.IsTracingEnabled)
+        {
+            return;
+        }
+
+        _traceStartedAt[requestId] = Stopwatch.GetTimestamp();
+
+        // Both numbers include this request. When they differ, the gap is work
+        // the worker is still doing for callers that have already given up.
+        var outstanding = _traceStartedAt.Count;
+        var awaited = _pendingRequests.Count;
+        var abandoned = outstanding - awaited;
+
+        SqliteWasmLogger.Trace(
+            TraceModule,
+            abandoned > 0
+                ? $"req#{requestId} {kind} sent — {outstanding} outstanding at worker ({awaited} awaited, {abandoned} abandoned)"
+                : $"req#{requestId} {kind} sent — {outstanding} outstanding at worker");
+    }
+
+    /// <summary>
+    /// Records that the caller stopped waiting for a request the worker is
+    /// still running. No-ops for an id that is no longer outstanding, so it is
+    /// safe to call from a <c>finally</c> that also covers the success path.
+    /// </summary>
+    private void TraceAbandoned(int requestId)
+    {
+        if (!SqliteWasmLogger.IsTracingEnabled || !_traceStartedAt.TryGetValue(requestId, out var started))
+        {
+            return;
+        }
+
+        _traceAbandonedAt[requestId] = Stopwatch.GetTimestamp();
+        SqliteWasmLogger.Trace(
+            TraceModule,
+            $"req#{requestId} abandoned by caller after {ElapsedMs(started):F0} ms — " +
+            "the worker has no cancel message, so it keeps running and the next request waits behind it");
+    }
+
+    private static void TraceCompleted(int requestId)
+    {
+        if (!SqliteWasmLogger.IsTracingEnabled)
+        {
+            return;
+        }
+
+        var bridge = Instance;
+        if (!bridge._traceStartedAt.TryRemove(requestId, out var started))
+        {
+            return;
+        }
+
+        if (bridge._traceAbandonedAt.TryRemove(requestId, out var abandoned))
+        {
+            SqliteWasmLogger.Trace(
+                TraceModule,
+                $"req#{requestId} finished anyway after {ElapsedMs(started):F0} ms " +
+                $"({ElapsedMs(abandoned):F0} ms of it after it was abandoned) — result discarded");
+            return;
+        }
+
+        SqliteWasmLogger.Trace(
+            TraceModule,
+            $"req#{requestId} completed in {ElapsedMs(started):F0} ms");
+    }
+
+    private const string TraceModule = "Bridge";
     private readonly ConcurrentDictionary<int, TaskCompletionSource<byte[]>> _pendingBinaryRequests = new();
     private readonly HashSet<string> _openDatabases = new();
     private int _nextRequestId;
@@ -318,7 +417,7 @@ internal sealed partial class SqliteWasmWorkerBridge : ISqliteWasmDatabaseServic
         };
 
         // SendRequestAsync now returns SqlQueryResult directly - no deserialization needed
-        return await SendRequestAsync(request, cancellationToken);
+        return await SendRequestAsync(request, cancellationToken, "execute");
     }
 
     /// <summary>
@@ -380,6 +479,11 @@ internal sealed partial class SqliteWasmWorkerBridge : ISqliteWasmDatabaseServic
         finally
         {
             _pendingRequests.TryRemove(requestId, out _);
+
+            // No-ops on the success path: the response handler's TraceCompleted
+            // has already retired this id. Only a request leaving here still
+            // outstanding was abandoned.
+            TraceAbandoned(requestId);
         }
     }
 
@@ -456,7 +560,10 @@ internal sealed partial class SqliteWasmWorkerBridge : ISqliteWasmDatabaseServic
     // request/response round-trips through the same TaskCompletionSource map.
     // No behavior change: same-assembly partials (.Encryption.cs / .Delta.cs)
     // continue to see this method exactly as before.
-    internal async Task<SqlQueryResult> SendRequestAsync(object request, CancellationToken cancellationToken)
+    internal async Task<SqlQueryResult> SendRequestAsync(
+        object request,
+        CancellationToken cancellationToken,
+        string kind = "request")
     {
         var requestId = NextRequestId();
         var tcs = new TaskCompletionSource<SqlQueryResult>();
@@ -477,6 +584,7 @@ internal sealed partial class SqliteWasmWorkerBridge : ISqliteWasmDatabaseServic
                 data = request
             });
 
+            TraceSent(requestId, kind);
             SendToWorker(requestJson);
 
             // Timeout for general SQL operations.
@@ -502,6 +610,7 @@ internal sealed partial class SqliteWasmWorkerBridge : ISqliteWasmDatabaseServic
         catch
         {
             _pendingRequests.TryRemove(requestId, out _);
+            TraceAbandoned(requestId);
             throw;
         }
     }
@@ -697,6 +806,9 @@ internal sealed partial class SqliteWasmWorkerBridge : ISqliteWasmDatabaseServic
     {
         try
         {
+            // Traced before correlation: a response for an abandoned request
+            // still arrives here, and that arrival is the proof the worker
+            // ran it to completion after the caller stopped waiting.
             // Single deserialization to typed wrapper (id + data) with custom converter
             var message = JsonSerializer.Deserialize<WorkerMessage>(messageJson, JsonOptions);
 
@@ -705,6 +817,8 @@ internal sealed partial class SqliteWasmWorkerBridge : ISqliteWasmDatabaseServic
                 Console.Error.WriteLine("[Worker Bridge] Failed to deserialize worker message");
                 return;
             }
+
+            TraceCompleted(message.Id);
 
             var response = message.Data;
 
@@ -760,6 +874,8 @@ internal sealed partial class SqliteWasmWorkerBridge : ISqliteWasmDatabaseServic
     {
         try
         {
+            TraceCompleted(requestId);
+
             // Deserialize MessagePack binary data. byte[] marshaling is the
             // runtime's supported path for JS-originated buffers crossing
             // into a JSExport — [JSMarshalAs<MemoryView>] ArraySegment<byte>

@@ -116,6 +116,8 @@ host.Services.UseEncryptedPoolLifecycle();
 // constructor, which applied it process-wide on every context creation. Runs
 // before initialization so worker startup and the database opens are covered;
 // the bridge forwards it to the JS halves once the worker is up.
+//
+// Request tracing is deliberately not tied to this — see enableRequestTracing.
 #if DEBUG
 SqliteWasmLogger.SetLogLevel(LogLevel.Information);
 #else

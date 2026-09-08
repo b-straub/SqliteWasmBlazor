@@ -31,7 +31,7 @@ public static partial class SqliteWasmLogger
 
         // The managed level takes effect immediately and needs no JS, so this
         // may be called before the worker exists — which is the only way to
-        // cover worker startup, the database opens and the migrations.
+        // trace initialization itself.
         _level = level;
 
         // The two JS halves cannot be configured until the bridge module is
@@ -57,6 +57,22 @@ public static partial class SqliteWasmLogger
     internal static bool CommandSqlLoggingEnabled { get; set; }
 
     /// <summary>
+    /// Whether the request round trip is traced: the bridge's per-request
+    /// send / complete / abandon lines with the worker's backlog, and the
+    /// worker's own per-statement timing.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately independent of both the log level and
+    /// <see cref="CommandSqlLoggingEnabled"/>. Tracing is for benchmarking, so
+    /// it has to be usable in a Release build without turning on every other
+    /// debug message, and it must never emit SQL text or parameter values —
+    /// only ids, counts and durations. Off unless the host sets
+    /// <c>SqliteWasmOptions.EnableRequestTracing</c>; when off, nothing is
+    /// timed and no message is built on either side of the worker boundary.
+    /// </remarks>
+    internal static bool TracingEnabled { get; set; }
+
+    /// <summary>
     /// Called by the bridge once the worker is ready, to hand the JS halves the
     /// configuration <see cref="SetLogLevel"/> may have recorded before they
     /// existed. Idempotent.
@@ -68,7 +84,7 @@ public static partial class SqliteWasmLogger
     }
 
     private static void PublishToJs() =>
-        ConfigureLoggingInternal(ToWorkerLevel(_level), CommandSqlLoggingEnabled);
+        ConfigureLoggingInternal(ToWorkerLevel(_level), CommandSqlLoggingEnabled, TracingEnabled);
 
     /// <summary>Maps to the TypeScript logger's own 0-4 scale.</summary>
     private static int ToWorkerLevel(LogLevel level) => level switch
@@ -92,6 +108,41 @@ public static partial class SqliteWasmLogger
     /// </summary>
     private static LogLevel _level = LogLevel.Warning;
 
+    /// <summary>
+    /// Gets a value indicating whether request tracing is on, as set by
+    /// <c>SqliteWasmOptions.EnableRequestTracing</c>.
+    /// </summary>
+    /// <remarks>
+    /// Test this before building a message that costs anything to construct.
+    /// <see cref="Trace"/> checks it too, but only after its arguments have
+    /// already been evaluated — an interpolated string is built whether or not
+    /// the line is ultimately written.
+    /// </remarks>
+    public static bool IsTracingEnabled => TracingEnabled;
+
+    /// <summary>
+    /// Writes one trace line to the browser console, prefixed with
+    /// <paramref name="module"/>, so application lines sit in the same stream as
+    /// the bridge's and the worker's and read in the order they happened.
+    /// </summary>
+    /// <param name="module">
+    /// Short tag identifying the source, shown as a prefix — e.g. the name of
+    /// the page or model doing the work.
+    /// </param>
+    /// <param name="message">The line to write.</param>
+    /// <remarks>
+    /// No-ops unless <see cref="IsTracingEnabled"/>.
+    /// </remarks>
+    public static void Trace(string module, string message)
+    {
+        if (!TracingEnabled)
+        {
+            return;
+        }
+
+        Console.WriteLine($"[{module}] {message}");
+    }
+
     [JSImport("globalThis.__sqliteWasmLogger.configureLogging")]
-    private static partial void ConfigureLoggingInternal(int level, bool commandSql);
+    private static partial void ConfigureLoggingInternal(int level, bool commandSql, bool tracing);
 }

@@ -234,6 +234,11 @@ Please close any other tabs running this application and refresh the page.
     private static void ConfigureCommandLogging(SqliteWasmOptions options)
     {
         SqliteWasmLogger.CommandSqlLoggingEnabled = options.EnableCommandSqlLogging;
+        SqliteWasmLogger.TracingEnabled = options.EnableRequestTracing;
+
+        // Says so once, so a benchmarking session can tell at a glance that the
+        // numbers below are actually being produced.
+        SqliteWasmLogger.Trace(nameof(SqliteWasmLogger), "request tracing enabled");
     }
 
     private static string GetDatabaseName<TContext>(IServiceProvider services, Exception? _)

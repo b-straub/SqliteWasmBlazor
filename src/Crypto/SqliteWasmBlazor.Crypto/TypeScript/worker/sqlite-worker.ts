@@ -267,7 +267,15 @@ async function initializeSQLite() {
  */
 let commandSqlLogging = false;
 
-self.onmessage = async (event: MessageEvent<WorkerRequest | { type: 'configureLogging'; level: number; commandSql: boolean } | {
+/**
+ * Per-statement execution timing for benchmarking. Independent of the log
+ * level so it can run in a Release build on its own, and it emits durations
+ * only — never SQL text or parameters. Mirrors
+ * SqliteWasmOptions.EnableRequestTracing. When off, the clock is never read.
+ */
+let requestTracing = false;
+
+self.onmessage = async (event: MessageEvent<WorkerRequest | { type: 'configureLogging'; level: number; commandSql: boolean; tracing: boolean } | {
     type: 'init';
     baseHref: string;
     assetRoot?: string
@@ -288,6 +296,7 @@ self.onmessage = async (event: MessageEvent<WorkerRequest | { type: 'configureLo
     if ('type' in event.data && event.data.type === 'configureLogging' && 'level' in event.data) {
         logger.setLogLevel(event.data.level);
         commandSqlLogging = event.data.commandSql === true;
+        requestTracing = event.data.tracing === true;
         return;
     }
 
@@ -1434,6 +1443,7 @@ async function executeSql(
             }
         }
 
+        const execStartedAt = requestTracing ? performance.now() : 0;
         const result = db.exec({
             sql: sql,
             bind: Object.keys(convertedParams).length > 0 ? convertedParams : undefined,
@@ -1441,7 +1451,11 @@ async function executeSql(
             rowMode: 'array'
         });
 
-        logger.debug(MODULE_NAME, 'SQL executed successfully, rows:', result?.length || 0);
+        if (requestTracing) {
+            console.log(
+                `[SQLite Worker] SQL executed in ${(performance.now() - execStartedAt).toFixed(0)} ms,`,
+                `rows: ${result?.length || 0}`);
+        }
 
         // Columns the schema could not explain: infer from the first row, if any.
         if (inferFromValue.length > 0 && result && result.length > 0) {

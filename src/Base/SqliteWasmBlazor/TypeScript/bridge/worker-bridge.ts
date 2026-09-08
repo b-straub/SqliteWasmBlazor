@@ -164,8 +164,12 @@ export const logger = {
      * how verbose logging is, this decides whether query *content* — SQL text,
      * parameter values — may be emitted at all. It mirrors
      * SqliteWasmOptions.EnableCommandSqlLogging.
+     *
+     * `tracing` is separate again: benchmarking output (per-statement timing)
+     * that must be usable in a Release build without the rest, and that carries
+     * durations only. Mirrors SqliteWasmOptions.EnableRequestTracing.
      */
-    configureLogging(level: number, commandSql: boolean): void {
+    configureLogging(level: number, commandSql: boolean, tracing: boolean): void {
         sqliteLogger.setLogLevel(level as SqliteWasmLogLevel);
         if (!worker) {
             sqliteLogger.warn(MODULE_NAME, 'Worker not initialized, cannot configure logging');
@@ -174,7 +178,8 @@ export const logger = {
         worker.postMessage({
             type: 'configureLogging',
             level: level,
-            commandSql: commandSql
+            commandSql: commandSql,
+            tracing: tracing
         });
     }
 };

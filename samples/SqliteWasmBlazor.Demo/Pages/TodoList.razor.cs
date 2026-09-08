@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Components.Web;
+using SqliteWasmBlazor;
 using SqliteWasmBlazor.Demo.Models;
 
 namespace SqliteWasmBlazor.Demo.Pages;
@@ -29,17 +30,26 @@ public partial class TodoList
             return;
         }
 
+        var reload = Interlocked.Increment(ref _reloadCounter);
+        SqliteWasmLogger.Trace(LogModule, $"reload#{reload} requested");
+
         try
         {
             await table.ReloadServerData();
+            SqliteWasmLogger.Trace(LogModule, $"reload#{reload} returned");
         }
         catch (OperationCanceledException)
         {
             // A newer change superseded this one; MudTable cancelled the
             // fetch and the page already on screen stays until the next
             // one lands. Caught in the hook, never in the callback.
+            SqliteWasmLogger.Trace(LogModule, $"reload#{reload} cancelled");
         }
     }
+
+    private const string LogModule = "TodoPage";
+
+    private static int _reloadCounter;
 
     private async Task HandleKeyDownAsync(KeyboardEventArgs e)
     {

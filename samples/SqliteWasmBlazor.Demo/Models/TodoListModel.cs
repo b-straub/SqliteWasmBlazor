@@ -182,6 +182,15 @@ public partial class TodoListModel : ObservableModel
 
 
     /// <summary>
+    /// Names this model in the shared browser-console log, so its lines
+    /// interleave with the bridge's <c>req#</c> lines and the worker's own.
+    /// Everything below is gated on <c>SqliteWasmLogger.SetLogLevel(Debug)</c>.
+    /// </summary>
+    private const string LogModule = "TodoList";
+
+    private static int _fetchCounter;
+
+    /// <summary>
     /// MudTable's <c>ServerData</c> callback. Wires the model's search
     /// state into the FTS5 extensions on <see cref="TodoDbContext"/> and
     /// returns a paginated <see cref="TableData{T}"/>. Errors land in
@@ -195,6 +204,15 @@ public partial class TodoListModel : ObservableModel
         await using var context = await ContextFactory.CreateDbContextAsync(cancellationToken);
 
         _highlightCache.Clear();
+
+        var fetch = Interlocked.Increment(ref _fetchCounter);
+        var startedAt = Stopwatch.GetTimestamp();
+        if (SqliteWasmLogger.IsTracingEnabled)
+        {
+            SqliteWasmLogger.Trace(
+                LogModule,
+                $"fetch#{fetch} start — term '{SearchString}', mode {SearchMode}, page {state.Page}");
+        }
 
         try
         {
@@ -210,10 +228,16 @@ public partial class TodoListModel : ObservableModel
                     .Skip(state.Page * state.PageSize)
                     .Take(state.PageSize)
                     .ToListAsync(cancellationToken);
+                if (SqliteWasmLogger.IsTracingEnabled)
+                {
+                    SqliteWasmLogger.Trace(
+                        LogModule,
+                        $"fetch#{fetch} browsed {count} rows in {Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds:F0} ms");
+                }
                 return new TableData<TodoItem> { Items = data, TotalItems = count };
             }
 
-            return SearchMode switch
+            var page = SearchMode switch
             {
                 SearchDisplayMode.HIGHLIGHT =>
                     await LoadHighlightedAsync(context, state, cancellationToken),
@@ -222,6 +246,26 @@ public partial class TodoListModel : ObservableModel
                 _ =>
                     await LoadPlainSearchAsync(context, state, cancellationToken),
             };
+
+            if (SqliteWasmLogger.IsTracingEnabled)
+            {
+                SqliteWasmLogger.Trace(
+                    LogModule,
+                    $"fetch#{fetch} served {page.TotalItems} rows in {Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds:F0} ms");
+            }
+            return page;
+        }
+        catch (OperationCanceledException)
+        {
+            // MudTable cancelled this fetch because a newer one started. The
+            // await stops here; the SQL already handed to the worker does not.
+            if (SqliteWasmLogger.IsTracingEnabled)
+            {
+                SqliteWasmLogger.Trace(
+                    LogModule,
+                    $"fetch#{fetch} cancelled after {Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds:F0} ms");
+            }
+            throw;
         }
         catch (PoolLockedException)
         {
