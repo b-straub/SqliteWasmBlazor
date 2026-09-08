@@ -130,6 +130,13 @@ namespace SqliteWasmBlazor.Models.Migrations
                 });
 
             migrationBuilder.CreateIndex(
+                name: "IX_TodoItems_Active_UpdatedAt",
+                table: "TodoItems",
+                column: "UpdatedAt",
+                descending: new bool[0],
+                filter: "NOT \"IsDeleted\"");
+
+            migrationBuilder.CreateIndex(
                 name: "IX_todos_TodoListId",
                 table: "todos",
                 column: "TodoListId");
