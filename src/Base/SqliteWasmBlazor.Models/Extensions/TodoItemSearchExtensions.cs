@@ -164,14 +164,65 @@ public static class TodoItemSearchExtensions
             return dbContext.TodoItems.Where(t => false).AsQueryable();
         }
 
-        // Query FTS5 table and join with TodoItems, excluding soft-deleted items
-        // The Match property is used with equality to generate the FTS5 MATCH operator
-        return dbContext.FTSTodoItems
-            .Where(fts => fts.Match == preparedQuery)
-            .OrderBy(fts => fts.Rank)
-            .Select(fts => fts.TodoItem!)
-            .Where(t => !t.IsDeleted)
+        // Joined on rowid, not on Id. FTSTodoItem is an external-content table
+        // (content='TodoItems', content_rowid='rowid'), so its rowid *is* the
+        // TodoItems rowid — an integer seek. Reading the navigation instead
+        // makes SQLite fetch the content row to read FTSTodoItem.Id and then
+        // probe the BLOB primary-key index with that value to reach the same
+        // physical row a second time: measured 10x the cost at 100k matches,
+        // and the wasted work is page reads, which an encrypted pool charges
+        // ~6x for. Raw SQL because rowid is not part of the EF model.
+        return dbContext.TodoItems
+            .FromSql($@"
+                SELECT t.*
+                FROM FTSTodoItem
+                INNER JOIN TodoItems t ON FTSTodoItem.rowid = t.rowid
+                WHERE FTSTodoItem MATCH {preparedQuery} AND t.IsDeleted = 0
+                ORDER BY rank")
             .AsNoTracking();
+    }
+
+    /// <summary>
+    /// Counts the rows a search matches, without ordering them.
+    /// </summary>
+    /// <remarks>
+    /// A separate query rather than <c>Count()</c> over the search queryable:
+    /// the paging queries carry <c>ORDER BY rank</c>, and ranking rows only to
+    /// count and discard them measured 8x the cost of counting alone at 100k
+    /// matches. EF strips ordering from a translated <c>Count()</c>, but it
+    /// cannot reach inside raw SQL to do the same, so counting gets its own
+    /// statement.
+    /// </remarks>
+    /// <param name="dbContext">The database context.</param>
+    /// <param name="searchQuery">The search query.</param>
+    /// <param name="queryMode">The query processing mode.</param>
+    /// <param name="cancellationToken">Cancels the count.</param>
+    /// <returns>The number of non-deleted rows matching the query.</returns>
+    public static async Task<int> CountTodoItemsMatchingAsync(
+        this TodoDbContext dbContext,
+        string searchQuery,
+        Fts5QueryMode queryMode = Fts5QueryMode.PROCESSED,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(searchQuery))
+        {
+            return await dbContext.TodoItems
+                .CountAsync(t => !t.IsDeleted, cancellationToken);
+        }
+
+        var preparedQuery = PrepareQuery(searchQuery, queryMode);
+        if (string.IsNullOrWhiteSpace(preparedQuery))
+        {
+            return 0;
+        }
+
+        return await dbContext.Database
+            .SqlQuery<int>($@"
+                SELECT COUNT(*) AS Value
+                FROM FTSTodoItem
+                INNER JOIN TodoItems t ON FTSTodoItem.rowid = t.rowid
+                WHERE FTSTodoItem MATCH {preparedQuery} AND t.IsDeleted = 0")
+            .SingleAsync(cancellationToken);
     }
 
     /// <summary>
@@ -250,7 +301,7 @@ public static class TodoItemSearchExtensions
                     highlight(FTSTodoItem, 2, {highlightOpen}, {highlightClose}) AS HighlightedDescription,
                     rank AS Rank
                 FROM FTSTodoItem
-                INNER JOIN TodoItems t ON FTSTodoItem.Id = t.Id
+                INNER JOIN TodoItems t ON FTSTodoItem.rowid = t.rowid
                 WHERE FTSTodoItem MATCH {preparedQuery} AND t.IsDeleted = 0
                 ORDER BY rank")
             .AsNoTracking();
@@ -341,7 +392,7 @@ public static class TodoItemSearchExtensions
                     snippet(FTSTodoItem, 2, {snippetOpen}, {snippetClose}, {ellipsis}, {maxTokens}) AS DescriptionSnippet,
                     rank AS Rank
                 FROM FTSTodoItem
-                INNER JOIN TodoItems t ON FTSTodoItem.Id = t.Id
+                INNER JOIN TodoItems t ON FTSTodoItem.rowid = t.rowid
                 WHERE FTSTodoItem MATCH {preparedQuery} AND t.IsDeleted = 0
                 ORDER BY rank")
             .AsNoTracking();

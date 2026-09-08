@@ -180,6 +180,7 @@ public partial class TodoListModel : ObservableModel
     /// </summary>
     private readonly Dictionary<Guid, (string Title, string Description)> _highlightCache = new();
 
+
     /// <summary>
     /// MudTable's <c>ServerData</c> callback. Wires the model's search
     /// state into the FTS5 extensions on <see cref="TodoDbContext"/> and
@@ -202,6 +203,7 @@ public partial class TodoListModel : ObservableModel
                 var query = context.TodoItems
                     .Where(t => !t.IsDeleted)
                     .OrderByDescending(t => t.UpdatedAt);
+
                 var count = await query.CountAsync(cancellationToken);
                 TotalCount = count;
                 var data = await query
@@ -246,7 +248,7 @@ public partial class TodoListModel : ObservableModel
         TodoDbContext context, TableState state, CancellationToken cancellationToken)
     {
         var query = context.SearchTodoItemsWithHighlight(SearchString, "<mark>", "</mark>", QueryMode);
-        var count = await query.CountAsync(cancellationToken);
+        var count = await context.CountTodoItemsMatchingAsync(SearchString, QueryMode, cancellationToken);
         TotalCount = count;
         var rows = await query
             .Skip(state.Page * state.PageSize)
@@ -269,7 +271,7 @@ public partial class TodoListModel : ObservableModel
     {
         var query = context.SearchTodoItemsWithSnippet(
             SearchString, "<mark>", "</mark>", "...", 5, QueryMode);
-        var count = await query.CountAsync(cancellationToken);
+        var count = await context.CountTodoItemsMatchingAsync(SearchString, QueryMode, cancellationToken);
         TotalCount = count;
         var rows = await query
             .Skip(state.Page * state.PageSize)
@@ -291,7 +293,7 @@ public partial class TodoListModel : ObservableModel
         TodoDbContext context, TableState state, CancellationToken cancellationToken)
     {
         var query = context.SearchTodoItems(SearchString, QueryMode);
-        var count = await query.CountAsync(cancellationToken);
+        var count = await context.CountTodoItemsMatchingAsync(SearchString, QueryMode, cancellationToken);
         TotalCount = count;
         var data = await query
             .Skip(state.Page * state.PageSize)
