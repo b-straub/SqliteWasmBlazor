@@ -1377,7 +1377,63 @@ async function executeSql(
         // placeholder shape.
         const convertedParams = convertParametersForBinding(parameters, binaryPayload);
 
-        // Execute SQL - use returnValue to get the result
+        // Execute SQL - use returnValue to get the result.
+        // Timed on its own: the bridge measures send -> response, which is this
+        // plus however long the request waited for the worker to be free. The
+        // difference between the two numbers is the queue wait.
+        // Statement shape is read from the statement *before* it runs, never by
+        // re-preparing it afterwards. Two reasons:
+        //   - a query that matched nothing still has columns, and without them
+        //     EF's FromSql/SqlQuery fails with "The required column 'X' was not
+        //     present in the results of a 'FromSql' operation";
+        //   - re-preparing after execution is unsound for anything that alters
+        //     the schema — preparing `ALTER TABLE ... ADD COLUMN` a second time
+        //     fails with "duplicate column name", and DROP COLUMN likewise.
+        // Declared types come from the schema here; columns the schema cannot
+        // explain are inferred from the first row after the statement has run.
+        const columnNames: string[] = [];
+        const columnTypes: string[] = [];
+        const inferFromValue: number[] = [];
+
+        {
+            const shape = db.prepare(sql);
+            try {
+                const colCount = shape.columnCount;
+
+                let tableSchema: Map<string, string> | null = null;
+                if (colCount > 0 && sql.trim().toUpperCase().startsWith('SELECT')) {
+                    const tableName = extractTableName(sql);
+                    if (tableName) {
+                        tableSchema = getTableSchema(db, dbName, tableName);
+                    }
+                }
+
+                for (let i = 0; i < colCount; i++) {
+                    const colName = shape.getColumnName(i);
+                    columnNames.push(colName);
+
+                    const declaredType = tableSchema?.get(colName);
+                    if (declaredType) {
+                        const typeUpper = declaredType.toUpperCase();
+                        if (typeUpper.includes('INT')) {
+                            columnTypes.push('INTEGER');
+                        } else if (typeUpper.includes('REAL') || typeUpper.includes('DOUBLE') || typeUpper.includes('FLOAT')) {
+                            columnTypes.push('REAL');
+                        } else if (typeUpper.includes('BLOB')) {
+                            columnTypes.push('BLOB');
+                        } else {
+                            columnTypes.push('TEXT');
+                        }
+                    } else {
+                        columnTypes.push('TEXT');
+                        inferFromValue.push(i);
+                    }
+                }
+            } finally {
+                shape.finalize();
+            }
+        }
+
         const result = db.exec({
             sql: sql,
             bind: Object.keys(convertedParams).length > 0 ? convertedParams : undefined,
@@ -1387,62 +1443,22 @@ async function executeSql(
 
         logger.debug(MODULE_NAME, 'SQL executed successfully, rows:', result?.length || 0);
 
-        // Extract column metadata if there are results
-        let columnNames: string[] = [];
-        let columnTypes: string[] = [];
-
-        if (result && result.length > 0) {
-            const stmt = db.prepare(sql);
-            try {
-                const colCount = stmt.columnCount;
-
-                // Try to get schema from table (for SELECT queries)
-                let tableSchema: Map<string, string> | null = null;
-                if (sql.trim().toUpperCase().startsWith('SELECT')) {
-                    const tableName = extractTableName(sql);
-                    if (tableName) {
-                        tableSchema = getTableSchema(db, dbName, tableName);
-                    }
+        // Columns the schema could not explain: infer from the first row, if any.
+        if (inferFromValue.length > 0 && result && result.length > 0) {
+            for (const i of inferFromValue) {
+                const value = result[0][i];
+                if (value === null || value === undefined) {
+                    continue;
                 }
-
-                for (let i = 0; i < colCount; i++) {
-                    const colName = stmt.getColumnName(i);
-                    columnNames.push(colName);
-
-                    // Use declared type from schema if available
-                    let declaredType = tableSchema?.get(colName);
-
-                    // Normalize declared type to SQLite affinity
-                    let inferredType = 'TEXT';
-                    if (declaredType) {
-                        const typeUpper = declaredType.toUpperCase();
-                        if (typeUpper.includes('INT')) {
-                            inferredType = 'INTEGER';
-                        } else if (typeUpper.includes('REAL') || typeUpper.includes('DOUBLE') || typeUpper.includes('FLOAT')) {
-                            inferredType = 'REAL';
-                        } else if (typeUpper.includes('BLOB')) {
-                            inferredType = 'BLOB';
-                        } else {
-                            inferredType = 'TEXT';
-                        }
-                    } else if (result.length > 0 && result[0][i] !== null) {
-                        // Fallback to value-based inference if no schema available
-                        const value = result[0][i];
-
-                        if (typeof value === 'number') {
-                            inferredType = Number.isInteger(value) ? 'INTEGER' : 'REAL';
-                        } else if (typeof value === 'bigint') {
-                            inferredType = 'INTEGER';
-                        } else if (typeof value === 'boolean') {
-                            inferredType = 'INTEGER';
-                        } else if (value instanceof Uint8Array || ArrayBuffer.isView(value)) {
-                            inferredType = 'BLOB';
-                        }
-                    }
-                    columnTypes.push(inferredType);
+                if (typeof value === 'number') {
+                    columnTypes[i] = Number.isInteger(value) ? 'INTEGER' : 'REAL';
+                } else if (typeof value === 'bigint') {
+                    columnTypes[i] = 'INTEGER';
+                } else if (typeof value === 'boolean') {
+                    columnTypes[i] = 'INTEGER';
+                } else if (value instanceof Uint8Array || ArrayBuffer.isView(value)) {
+                    columnTypes[i] = 'BLOB';
                 }
-            } finally {
-                stmt.finalize();
             }
         }
 
@@ -1450,10 +1466,11 @@ async function executeSql(
         let rowsAffected = 0;
         let lastInsertId = 0;
 
-        if (sql.trim().toUpperCase().startsWith('INSERT') ||
-            sql.trim().toUpperCase().startsWith('UPDATE') ||
-            sql.trim().toUpperCase().startsWith('DELETE') ||
-            sql.trim().toUpperCase().startsWith('CREATE')) {
+        const trimmedUpper = sql.trim().toUpperCase();
+        if (trimmedUpper.startsWith('INSERT') ||
+            trimmedUpper.startsWith('UPDATE') ||
+            trimmedUpper.startsWith('DELETE') ||
+            trimmedUpper.startsWith('CREATE')) {
 
             // Check if statement has RETURNING clause
             // When RETURNING is used, db.changes() doesn't work correctly because
