@@ -75,6 +75,8 @@ public static class TestRegistry
         "MigrationRecovery_HistoryRebuildSucceeds",
         "MigrationRecovery_DroppedColumnSurfacesMismatch",
         "MigrationRecovery_ExtraColumnSurfacesMismatch",
+        "Migration_PopulatedDatabaseUpgrade",
+        "Migration_InterruptedUpgradeFailsLoudly",
 
         // Race Conditions
         "RaceCondition_PurgeThenLoad",
@@ -114,6 +116,7 @@ public static class TestRegistry
     /// </summary>
     public static readonly IReadOnlyList<string> CryptoPlaneNames =
     [
+        "Migration_PopulatedDatabaseUpgradeEncrypted",
         // Opaque writes — the raw slot write that accepts non-SQLite bytes.
         // Plane 2 forks the pool for it so ciphertext survives import; the
         // vendor pool this plane runs validates the header and refuses, which

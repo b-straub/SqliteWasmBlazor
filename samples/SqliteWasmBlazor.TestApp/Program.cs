@@ -8,6 +8,7 @@ using SqliteWasmBlazor;
 using SqliteWasmBlazor.Models;
 using SqliteWasmBlazor.Crypto.Extensions;
 using SqliteWasmBlazor.TestApp.TestInfrastructure;
+using SqliteWasmBlazor.TestApp.TestInfrastructure.Tests.Migrations.Upgrade;
 using SqliteWasmBlazor.TestApp.TestInfrastructure.VfsEncryption;
 
 var builder = WebAssemblyHostBuilder.CreateDefault(args);
@@ -41,6 +42,14 @@ builder.Services.AddDbContextFactory<TodoDbContext>(options =>
     options.EnableSensitiveDataLogging();
     options.LogTo(message => Console.WriteLine(message));
 #endif
+});
+
+// Migration-upgrade probe. Its own database and its own pair of migrations,
+// because TodoDbContext ships exactly one and an upgrade needs something to
+// upgrade from. See MigrationProbeContext.
+builder.Services.AddDbContextFactory<MigrationProbeContext>(options =>
+{
+    options.UseSqliteWasm(new SqliteWasmConnection($"Data Source={MigrationProbeContext.DatabaseName}"));
 });
 
 // Add PRF-VFS integration-test context. Opens via the encrypted VFS path

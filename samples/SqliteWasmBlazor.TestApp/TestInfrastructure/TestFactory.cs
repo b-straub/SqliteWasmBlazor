@@ -8,6 +8,8 @@ using SqliteWasmBlazor.TestApp.TestInfrastructure.Tests.ImportExport;
 using SqliteWasmBlazor.TestApp.TestInfrastructure.Tests.JsonCollections;
 using SqliteWasmBlazor.TestApp.TestInfrastructure.Tests.Migrations;
 using SqliteWasmBlazor.TestApp.TestInfrastructure.Tests.Migrations.Recovery;
+using SqliteWasmBlazor.Crypto;
+using SqliteWasmBlazor.TestApp.TestInfrastructure.Tests.Migrations.Upgrade;
 using SqliteWasmBlazor.TestApp.TestInfrastructure.Tests.RaceConditions;
 using SqliteWasmBlazor.TestApp.TestInfrastructure.Tests.Relationships;
 using SqliteWasmBlazor.TestApp.TestInfrastructure.Tests.Transactions;
@@ -244,6 +246,22 @@ internal class TestFactory
 
         var t3 = new RecoveryExtraColumnTest(services);
         _entries.Add(new TestEntry(cat, t3.Name, () => t3.RunTestWithFreshDatabaseAsync()));
+
+        // Upgrade cases own MigrationProbeDb.db, not TodoDb.db, so they manage
+        // their own lifecycle rather than going through SqliteWasmTest.
+        var u1 = new PopulatedUpgradeTest(services);
+        _entries.Add(new TestEntry(cat, u1.Name, () => u1.RunTestWithFreshDatabaseAsync()));
+
+        var u2 = new InterruptedUpgradeTest(services);
+        _entries.Add(new TestEntry(cat, u2.Name, () => u2.RunTestWithFreshDatabaseAsync()));
+
+        // Encrypted pool: the same upgrade with the worker-wide key installed.
+        // Only registered where the encrypted VFS exists.
+        if (services.GetService<IEncryptedSqliteWasmDatabaseService>() is not null)
+        {
+            var u3 = new EncryptedPopulatedUpgradeTest(services);
+            _entries.Add(new TestEntry(cat, u3.Name, () => u3.RunTestWithFreshDatabaseAsync()));
+        }
     }
 
     public IEnumerable<TestEntry> GetTests(string? testName = null, string? category = null)

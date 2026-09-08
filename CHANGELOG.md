@@ -223,6 +223,37 @@ databases it was last-writer-wins between them. The documentation called this
   worker is up. Previously it threw or was lost, which meant worker startup,
   the database opens and the migrations could never be traced.
 
+### Migrating a Populated Database Is Now Covered
+
+`InitializeSqliteWasmDatabaseAsync` applies pending migrations at startup and
+the documentation says migrations "work normally", but nothing exercised that
+against a database with data in it. The demo structurally could not: it does not
+migrate — a schema mismatch there means reset — so a migration only ever ran
+against the empty database the reset had just produced.
+
+The TestApp gains a probe context with two migrations of its own, since
+`TodoDbContext` ships exactly one and an upgrade needs something to upgrade
+from. `IMigrator.MigrateAsync(targetId)` stages a database at V1, the test fills
+it, and `MigrateAsync()` then applies V2 over rows that already exist.
+
+- `Migration_PopulatedDatabaseUpgrade` — the schema changed, the history row is
+  recorded, and every row survived. 20,000 rows, **37 ms** (1.9 us/row).
+- `Migration_PopulatedDatabaseUpgradeEncrypted` — the same on an encrypted pool:
+  **119 ms** (6.0 us/row), a **3.2x** multiplier. Lower than the ~8.6x the
+  browse path pays, an index build being a different profile from a scan.
+  Extrapolating, a comparable migration over 4M rows is roughly 24 s of boot
+  with the UI already up and nothing explaining the pause.
+- `Migration_InterruptedUpgradeFailsLoudly` — a migration that did its work but
+  died before recording it. EF replays the statement, SQLite refuses, and the
+  error names the object; the data is untouched. That the failure is loud rather
+  than a silently half-migrated database is the property worth pinning.
+
+The probe's migrations are hand-written: the TestApp is a Blazor WebAssembly
+project, so `dotnet ef migrations add` cannot load it, and the design-time
+snapshot is not needed at runtime. Migration ids keep EF's 15-character
+timestamp prefix — `MigrationsIdGenerator.GetName` takes `Substring(16)` and
+throws on anything shorter.
+
 ### Other Fixes
 
 - **Bug Fix (#20):** Fixed a documentation error in the Quick Start guide that erroneously instructed users to register a non-existent `IDBInitializationService`.
