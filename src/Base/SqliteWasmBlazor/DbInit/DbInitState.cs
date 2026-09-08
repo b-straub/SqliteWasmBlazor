@@ -20,6 +20,7 @@ public enum DbInitState
     /// <summary>All boot stages succeeded; the database is usable.</summary>
     READY = 2,
 
+
     /// <summary>OPFS is held by another tab — boot cannot proceed.</summary>
     TAB_LOCKED = 3,
 
@@ -40,4 +41,17 @@ public enum DbInitState
     /// <see cref="EncryptedDatabaseLockedFailure"/>.
     /// </summary>
     ENCRYPTED_LOCKED = 7,
+
+    /// <summary>
+    /// Pending migrations are being applied. Reached once the database is
+    /// openable — immediately for a plain pool, after unlock for an encrypted
+    /// one — which is why it can be shown: by then a UI exists.
+    /// </summary>
+    /// <remarks>
+    /// Indeterminate. A migration is a sequence of DDL statements with no
+    /// progress to report from inside, and on a large database it can take
+    /// seconds: 20,000 rows measured 37 ms plain and 119 ms encrypted, which
+    /// extrapolates to roughly 24 s for an index build over 4M encrypted rows.
+    /// </remarks>
+    MIGRATING = 8,
 }

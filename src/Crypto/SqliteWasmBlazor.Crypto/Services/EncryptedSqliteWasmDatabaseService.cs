@@ -43,6 +43,7 @@ internal sealed class EncryptedSqliteWasmDatabaseService
     private readonly SqliteWasmWorkerBridge _bridge;
     private readonly EncryptedSqliteWasmWorkerBridge _encryptedBridge;
     private readonly IDbInitializationReporter _reporter;
+    private readonly IDbSchemaInitializer _schema;
     private readonly IDbInitializationStatus _status;
     private readonly IPrfService _prfService;
     private readonly ICryptoProvider _cryptoProvider;
@@ -62,7 +63,8 @@ internal sealed class EncryptedSqliteWasmDatabaseService
         IDbInitializationReporter reporter,
         IDbInitializationStatus status,
         IPrfService prfService,
-        ICryptoProvider cryptoProvider)
+        ICryptoProvider cryptoProvider,
+        IDbSchemaInitializer schema)
     {
         _bridge = SqliteWasmWorkerBridge.Instance;
         _encryptedBridge = EncryptedSqliteWasmWorkerBridge.Instance;
@@ -70,6 +72,7 @@ internal sealed class EncryptedSqliteWasmDatabaseService
         _status = status;
         _prfService = prfService;
         _cryptoProvider = cryptoProvider;
+        _schema = schema;
     }
 
     /// <summary>
@@ -283,7 +286,10 @@ internal sealed class EncryptedSqliteWasmDatabaseService
             await VerifyUnlockedManifestAsync(allowAbsentForEmptyPool: false, cancellationToken);
         }
 
-        ReportDbState(DbInitState.READY);
+        // Boot could not migrate this pool: its pages were ciphertext and the
+        // key did not exist yet. It does now, so the step boot registered runs
+        // here — and reports READY itself, or the failure that stopped it.
+        await _schema.EnsureSchemaAsync(cancellationToken);
     }
 
     private async Task InstallEncryptionKeyAsync(

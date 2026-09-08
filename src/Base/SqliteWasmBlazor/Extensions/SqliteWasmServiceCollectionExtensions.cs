@@ -48,6 +48,12 @@ public static class SqliteWasmServiceCollectionExtensions
         services.AddSingleton<IDbInitializationStatus>(sp => sp.GetRequiredService<DbInitializationService>());
         services.AddSingleton<IDbInitializationReporter>(sp => sp.GetRequiredService<DbInitializationService>());
 
+        // Resolved through the interfaces above rather than the concrete
+        // service: Crypto.UI replaces both with DbStateModel, and the schema
+        // step must report through whichever is registered.
+        services.AddSingleton<DbSchemaInitializer>();
+        services.AddSingleton<IDbSchemaInitializer>(sp => sp.GetRequiredService<DbSchemaInitializer>());
+
         return services;
     }
 
@@ -190,45 +196,79 @@ Please close any other tabs running this application and refresh the page.
             }
         }
 
-        try
+        // The schema work is registered, not run. It needs a database that can
+        // be opened, and for an encrypted pool that is only true after a key
+        // arrives — which cannot happen before the app renders. Running it here
+        // is what left encrypted pools never migrating at all. See
+        // IDbSchemaInitializer.
+        RegisterSchemaStep<TContext>(services, databaseName);
+
+        // Driving initialization again means the caller believes something has
+        // changed — a retry after a failure, or a test staging a broken schema.
+        // The previous outcome is not evidence about the database as it is now.
+        services.GetRequiredService<IDbSchemaInitializer>().Reset();
+
+        // A plain pool is openable the moment the worker is up, so nothing has
+        // to wait for it — but the step still runs from the same place, so
+        // there is one migration site rather than two.
+        if (probe is null || !(await probe.GetStateAsync()).Encrypted)
         {
-            using var scope = services.CreateScope();
-            var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<TContext>>();
-            await using var dbContext = await factory.CreateDbContextAsync();
+            await services.GetRequiredService<IDbSchemaInitializer>().EnsureSchemaAsync();
+        }
+    }
 
-            var pendingMigrations = await dbContext.Database.GetPendingMigrationsAsync();
-            if (pendingMigrations.Any())
+    /// <summary>
+    /// Adds the pending-migration + history-recovery work for
+    /// <typeparamref name="TContext"/> to the deferred schema step.
+    /// </summary>
+    private static void RegisterSchemaStep<TContext>(IServiceProvider services, string databaseName)
+        where TContext : DbContext
+    {
+        var initializer = (DbSchemaInitializer)services.GetRequiredService<IDbSchemaInitializer>();
+
+        initializer.Register(typeof(TContext), async (onWorkStarting, cancellationToken) =>
+        {
+            try
             {
-                try
-                {
-                    await dbContext.Database.MigrateAsync();
-                }
-                catch (Exception ex) when (ex.Message.Contains("already exists", StringComparison.OrdinalIgnoreCase) ||
-                                            (ex.Message.Contains("table", StringComparison.OrdinalIgnoreCase) &&
-                                             ex.Message.Contains("exist", StringComparison.OrdinalIgnoreCase)))
-                {
-                    var recovery = await RecoverMigrationHistoryAsync(dbContext);
+                using var scope = services.CreateScope();
+                var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<TContext>>();
+                await using var dbContext = await factory.CreateDbContextAsync(cancellationToken);
 
-                    if (!recovery.Succeeded)
+                var pendingMigrations = await dbContext.Database.GetPendingMigrationsAsync(cancellationToken);
+                if (pendingMigrations.Any())
+                {
+                    // Only now is there something worth telling the user about.
+                    await onWorkStarting();
+
+                    try
                     {
-                        reporter.Report(
-                            DbInitState.SCHEMA_INCOMPATIBLE,
-                            new SchemaIncompatibleFailure(databaseName, recovery.Mismatches));
-                        return;
+                        await dbContext.Database.MigrateAsync(cancellationToken);
+                    }
+                    catch (Exception ex) when (ex.Message.Contains("already exists", StringComparison.OrdinalIgnoreCase) ||
+                                                (ex.Message.Contains("table", StringComparison.OrdinalIgnoreCase) &&
+                                                 ex.Message.Contains("exist", StringComparison.OrdinalIgnoreCase)))
+                    {
+                        var recovery = await RecoverMigrationHistoryAsync(dbContext);
+
+                        if (!recovery.Succeeded)
+                        {
+                            return (DbInitState.SCHEMA_INCOMPATIBLE,
+                                new SchemaIncompatibleFailure(databaseName, recovery.Mismatches));
+                        }
                     }
                 }
-            }
 
-            reporter.Report(DbInitState.READY);
-        }
-        catch (TimeoutException)
-        {
-            reporter.Report(DbInitState.TIMEOUT, new TimeoutFailure(databaseName));
-        }
-        catch (Exception ex)
-        {
-            reporter.Report(DbInitState.FAILED, new GenericInitFailure(databaseName, ex));
-        }
+                return (DbInitState.READY, null);
+            }
+            catch (TimeoutException)
+            {
+                return (DbInitState.TIMEOUT, new TimeoutFailure(databaseName));
+            }
+            catch (Exception ex)
+            {
+                return (DbInitState.FAILED, new GenericInitFailure(databaseName, ex));
+            }
+        });
     }
 
     private static void ConfigureCommandLogging(SqliteWasmOptions options)
