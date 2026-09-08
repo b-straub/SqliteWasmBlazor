@@ -1,6 +1,16 @@
-@inherits DatabaseErrorAlertModelComponent
+@inherits DatabaseInformationAlertModelComponent
 
-@if (Model.Failure is { } failure)
+@* Progress, not a fault: a migration on a populated database takes seconds
+   and there is nothing else on screen to say why. Checked before Failure
+   because the two are independent — a busy state carries no failure. *@
+@if (Model.IsBusy)
+{
+    <MudAlert Severity="Severity.Info" Class="mb-6" Variant="Variant.Filled">
+        <MudText Typo="Typo.body1">@Model.BusyMessage</MudText>
+        <MudProgressLinear Indeterminate="true" Color="Color.Inherit" Class="mt-3" />
+    </MudAlert>
+}
+else if (Model.Failure is { } failure)
 {
     @* EncryptedDatabaseLockedFailure is the standard "disk encrypted, sign in
        to unlock" state — the AuthenticationPanel below is the primary

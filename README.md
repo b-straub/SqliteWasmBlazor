@@ -60,9 +60,18 @@ await host.Services.InitializeSqliteWasmDatabaseAsync<TodoDbContext>();
 await host.RunAsync();
 ```
 
-`InitializeSqliteWasmDatabaseAsync` starts the worker bridge, applies pending migrations
-(with migration-history recovery), reports multi-tab conflicts, and tracks progress via
-`IDbInitializationStatus`.
+Then place the initializer once, in your layout:
+
+```razor
+<SqliteWasmDatabaseInitializer/>
+```
+
+`InitializeSqliteWasmDatabaseAsync` starts the worker bridge, reports multi-tab
+conflicts, and tracks progress via `IDbInitializationStatus`.
+`<SqliteWasmDatabaseInitializer/>` renders nothing; it applies pending migrations
+(with migration-history recovery) once the app has rendered, so a long one can be
+reported instead of freezing a blank page. On an encrypted pool it waits for the
+unlock, which is the only moment such a pool can be opened at all.
 
 Apps deployed on a sub-path must set the base href explicitly:
 

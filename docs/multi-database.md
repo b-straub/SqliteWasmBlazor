@@ -65,10 +65,13 @@ builder.Services.AddSqliteWasm();
 
 var host = builder.Build();
 
-// Initialize both databases with migration support
+// Register migration work for both databases
 await host.Services.InitializeSqliteWasmDatabaseAsync<TodoDbContext>();
 await host.Services.InitializeSqliteWasmDatabaseAsync<NoteDbContext>();
 ```
+
+One `<SqliteWasmDatabaseInitializer/>` in the layout applies them all — the
+component drives every registered context, in registration order.
 
 ### 3. Create Migrations for Each Context
 

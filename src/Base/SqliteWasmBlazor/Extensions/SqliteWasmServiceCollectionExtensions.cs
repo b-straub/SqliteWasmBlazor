@@ -51,7 +51,14 @@ public static class SqliteWasmServiceCollectionExtensions
         // Resolved through the interfaces above rather than the concrete
         // service: Crypto.UI replaces both with DbStateModel, and the schema
         // step must report through whichever is registered.
-        services.AddSingleton<DbSchemaInitializer>();
+        // The lock probe is optional — plain-only consumers never call
+        // AddSqliteWasmBlazorCrypto, and for them the pool is always openable —
+        // and resolved lazily, because the service implementing it depends on
+        // this one.
+        services.AddSingleton<DbSchemaInitializer>(sp => new DbSchemaInitializer(
+            sp.GetRequiredService<IDbInitializationReporter>(),
+            sp.GetRequiredService<IDbInitializationStatus>(),
+            sp.GetService<IDatabaseLockProbe>));
         services.AddSingleton<IDbSchemaInitializer>(sp => sp.GetRequiredService<DbSchemaInitializer>());
 
         return services;
@@ -183,6 +190,19 @@ Please close any other tabs running this application and refresh the page.
         // service does it automatically once the auth flow completes) and the
         // policy gate flips on its own. Resolved optionally — plain-only
         // consumers that didn't call AddSqliteWasmBlazorCrypto() skip it.
+        // The schema work is registered, not run. It needs a database that can
+        // be opened, and for an encrypted pool that is only true after a key
+        // arrives — which cannot happen before the app renders. Registration
+        // comes before the lock probe below, because a pool that is locked
+        // right now is precisely the one whose migration has to survive until
+        // the key shows up. See IDbSchemaInitializer.
+        RegisterSchemaStep<TContext>(services, databaseName);
+
+        // Driving initialization again means the caller believes something has
+        // changed — a retry after a failure, or a test staging a broken schema.
+        // The previous outcome is not evidence about the database as it is now.
+        services.GetRequiredService<IDbSchemaInitializer>().Reset();
+
         var probe = services.GetService<IDatabaseLockProbe>();
         if (probe is not null)
         {
@@ -194,26 +214,6 @@ Please close any other tabs running this application and refresh the page.
                     new EncryptedDatabaseLockedFailure(databaseName, lockState.Hint));
                 return;
             }
-        }
-
-        // The schema work is registered, not run. It needs a database that can
-        // be opened, and for an encrypted pool that is only true after a key
-        // arrives — which cannot happen before the app renders. Running it here
-        // is what left encrypted pools never migrating at all. See
-        // IDbSchemaInitializer.
-        RegisterSchemaStep<TContext>(services, databaseName);
-
-        // Driving initialization again means the caller believes something has
-        // changed — a retry after a failure, or a test staging a broken schema.
-        // The previous outcome is not evidence about the database as it is now.
-        services.GetRequiredService<IDbSchemaInitializer>().Reset();
-
-        // A plain pool is openable the moment the worker is up, so nothing has
-        // to wait for it — but the step still runs from the same place, so
-        // there is one migration site rather than two.
-        if (probe is null || !(await probe.GetStateAsync()).Encrypted)
-        {
-            await services.GetRequiredService<IDbSchemaInitializer>().EnsureSchemaAsync();
         }
     }
 

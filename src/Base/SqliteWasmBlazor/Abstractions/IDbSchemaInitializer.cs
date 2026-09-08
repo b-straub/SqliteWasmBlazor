@@ -35,12 +35,6 @@ public interface IDbSchemaInitializer
     ValueTask EnsureSchemaAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Whether <see cref="EnsureSchemaAsync"/> has completed its work, whether
-    /// that ended in <see cref="DbInitState.READY"/> or a failure.
-    /// </summary>
-    bool HasRun { get; }
-
-    /// <summary>
     /// Forgets that the work ran, so the next <see cref="EnsureSchemaAsync"/>
     /// does it again. For the paths that replace the database underneath the
     /// app — a whole-pool import, a reset — after which the schema on disk is

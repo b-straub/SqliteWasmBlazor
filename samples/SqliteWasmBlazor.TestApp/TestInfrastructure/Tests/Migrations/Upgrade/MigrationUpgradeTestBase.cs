@@ -21,7 +21,7 @@ internal abstract class MigrationUpgradeTestBase(IServiceProvider services)
     /// suite slow. The point is a real duration, not a stress test — the cost
     /// per row is what extrapolates to a consumer's database.
     /// </summary>
-    protected const int SeedRows = 20_000;
+    protected virtual int SeedRows => 20_000;
 
     public abstract string Name { get; }
 
@@ -59,15 +59,21 @@ internal abstract class MigrationUpgradeTestBase(IServiceProvider services)
         // would leave nothing pending to measure.
         await context.GetService<IMigrator>().MigrateAsync(MigrationProbeContext.V1Id);
 
+        // Batched so a large seed does not build one enormous change set.
+        // Sized against what is left rather than a whole batch, so a seed
+        // smaller than the batch still gets written.
+        const int batchSize = 1000;
         var stamp = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
-        for (var batch = 0; batch < SeedRows / 1000; batch++)
+        for (var seeded = 0; seeded < SeedRows; seeded += batchSize)
         {
-            for (var i = 0; i < 1000; i++)
+            var batch = seeded / batchSize;
+            var count = Math.Min(batchSize, SeedRows - seeded);
+            for (var i = 0; i < count; i++)
             {
                 context.Rows.Add(new ProbeRow
                 {
                     Payload = $"row-{batch}-{i}",
-                    StampedAt = stamp.AddSeconds(batch * 1000 + i)
+                    StampedAt = stamp.AddSeconds(seeded + i)
                 });
             }
 

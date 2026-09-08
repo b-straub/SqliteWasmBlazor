@@ -13,7 +13,7 @@ namespace SqliteWasmBlazor.TestApp.TestInfrastructure.VfsEncryption;
 /// <see cref="IDbInitFailure"/> can be constructed by a caller, reported
 /// via <see cref="IDbInitializationReporter"/>, and pattern-matched on
 /// <see cref="IDbInitializationStatus.Failure"/> by a consumer — the same
-/// shape the demo's <c>DatabaseErrorAlert</c> uses.
+/// shape the demo's <c>DatabaseInformationAlert</c> uses.
 /// </summary>
 internal sealed class PrfCredentialMismatchFailureTest : VfsEncryptionTestBase
 {

@@ -104,7 +104,7 @@ internal sealed class PrfAuthenticationStateProvider : AuthenticationStateProvid
                 break;
             // NOT_STARTED / INITIALIZING / TAB_LOCKED / SCHEMA_INCOMPATIBLE /
             // TIMEOUT / FAILED — no DatabaseState claim. DatabaseOpen policy
-            // fails; the standard DatabaseErrorAlert path covers the visual.
+            // fails; the standard DatabaseInformationAlert path covers the visual.
         }
 
         // PRF identity claims — only when a session is active.

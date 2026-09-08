@@ -7,6 +7,49 @@ All notable changes to SqliteWasmBlazor are documented in this file.
 ### A Note on the Development Delay
 > **A quick update from the maintainer:** You might have noticed a lack of updates over the past few weeks. My development pipeline was hit hard when Anthropic made their services more or less unusable for my workflow. That situation has since been resolved — development is back on **Claude (Opus 5 / Fable 5)** and fully on track again!
 
+### Migrations Run When the Database Can Be Opened
+
+Pending migrations were applied inside `InitializeSqliteWasmDatabaseAsync`, in
+`Program.cs`, before the app rendered. That is a point in time defined by when
+the host happens to call the helper rather than by when the database can be
+opened, and the two only coincide for a plain pool.
+
+An encrypted pool is locked at every boot — its key comes from a WebAuthn
+ceremony that cannot run before there is a UI — so boot reported
+`ENCRYPTED_LOCKED` and returned, and nothing came back for the migration
+afterwards. `UnlockAsync` installed the key, verified the manifest and reported
+`READY` over whatever schema was on disk. A consumer with a pending migration on
+an encrypted pool met it as `no such column` at their first query.
+
+The helper now registers the work and it runs once the database is openable:
+
+```razor
+@* MainLayout.razor — once, anywhere in the layout. Renders nothing. *@
+<SqliteWasmDatabaseInitializer/>
+```
+
+- **Breaking:** awaiting `InitializeSqliteWasmDatabaseAsync` no longer implies a
+  current schema. It means the worker is up. Hosts that use the typed helper
+  must add `<SqliteWasmDatabaseInitializer/>` to their layout, or migrations
+  never run. ADO-only hosts (`InitializeSqliteWasmAsync`) register no schema
+  work and are unaffected.
+- The component drives every registered context; on an encrypted pool it finds
+  the database not openable, leaves the work owed, and `UnlockAsync` runs it.
+  One migration site, reached by both, with no branch that can skip it.
+- Running after the first render is also what makes the work reportable:
+  `DbInitState.MIGRATING` is announced by the first context that finds something
+  pending — not up front, because most starts have nothing to do and a state
+  that flashes every time teaches people to ignore it.
+- `DatabaseErrorAlert` is now `DatabaseInformationAlert`: it renders
+  `MIGRATING` and `INITIALIZING` as an indeterminate progress bar alongside the
+  failure states it already handled.
+
+Three ordering faults fixed with it, each a live defect: a second unlock never
+re-reported `READY`, so a lock/unlock cycle left every `AuthorizeView` bound to
+`DatabaseOpen` shut; a host with no registered contexts reported nothing and
+stayed locked; and re-driving initialization accumulated a duplicate step per
+call while suppressing re-diagnosis.
+
 ### Moving Databases Around Is a Plain-Plane Job
 
 The streamed import/export paths were built on the encryption plane, because

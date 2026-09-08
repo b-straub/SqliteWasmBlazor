@@ -8,7 +8,8 @@ namespace SqliteWasmBlazor;
 /// </summary>
 internal sealed class DbSchemaInitializer(
     IDbInitializationReporter reporter,
-    IDbInitializationStatus status) : IDbSchemaInitializer
+    IDbInitializationStatus status,
+    Func<IDatabaseLockProbe?> lockProbe) : IDbSchemaInitializer
 {
     /// <summary>
     /// One step per context. Each reports what it ended in; anything other
@@ -25,9 +26,6 @@ internal sealed class DbSchemaInitializer(
 
     private volatile bool _hasRun;
     private (DbInitState State, IDbInitFailure? Failure) _outcome = (DbInitState.READY, null);
-
-    /// <inheritdoc />
-    public bool HasRun => _hasRun;
 
     /// <inheritdoc />
     public void Reset() => _hasRun = false;
@@ -77,6 +75,25 @@ internal sealed class DbSchemaInitializer(
                 _hasRun = true;
                 _outcome = (status.State, status.Failure);
                 return;
+            }
+
+            // The database has to be openable, and an encrypted pool is not
+            // until a key arrives — GetPendingMigrationsAsync would be reading
+            // ciphertext. Returning without setting _hasRun is the point: the
+            // work is still owed, and UnlockAsync is what comes back for it.
+            // This is what makes the call safe from any trigger, including a
+            // component rendering while the pool is still locked.
+            // Resolved per call, not injected: the probe is implemented by
+            // EncryptedSqliteWasmDatabaseService, which takes this type in its
+            // own constructor. Asking for the instance up front is a cycle the
+            // container refuses, and it takes the whole app down at startup.
+            if (lockProbe() is { } probe)
+            {
+                var lockState = await probe.GetStateAsync();
+                if (lockState.Encrypted && !lockState.Unlocked)
+                {
+                    return;
+                }
             }
 
             SchemaStep[] steps;

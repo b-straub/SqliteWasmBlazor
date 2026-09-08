@@ -69,8 +69,16 @@ else
     private string _newUserName = "";
     private string _newUserEmail = "";
 
-    protected override async Task OnInitializedAsync()
+    // Database work goes after the first render, never in OnInitializedAsync:
+    // the page paints before it waits on the worker, and an error has somewhere
+    // to show up. Same rule the EF Core samples follow.
+    protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        if (!firstRender)
+        {
+            return;
+        }
+
         try
         {
             // Create and open connection
@@ -97,6 +105,10 @@ else
         {
             _errorMessage = $"Initialization failed: {ex.Message}";
         }
+
+        // Nothing re-rendered this component: the work ran after the render
+        // that triggered it.
+        StateHasChanged();
     }
 
     private async Task LoadUsersAsync()

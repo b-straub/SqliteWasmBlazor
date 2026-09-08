@@ -261,6 +261,15 @@ internal class TestFactory
         {
             var u3 = new EncryptedPopulatedUpgradeTest(services);
             _entries.Add(new TestEntry(cat, u3.Name, () => u3.RunTestWithFreshDatabaseAsync()));
+
+            // Where the migration runs, not what it costs: boot registers the
+            // work and the first render applies it — on a locked pool, the
+            // unlock does.
+            var u4 = new BootDeferredMigrationTest(
+                services,
+                services.GetRequiredService<ISqliteWasmDatabaseService>(),
+                services.GetRequiredService<IEncryptedSqliteWasmDatabaseService>());
+            _entries.Add(new TestEntry(cat, u4.Name, () => u4.RunTestWithFreshDatabaseAsync()));
         }
     }
 

@@ -4,7 +4,7 @@ namespace SqliteWasmBlazor.Crypto.UI.Abstractions;
 /// The host seam plus the one thing only a UI needs: a way back from a
 /// broken boot. Extends <see cref="IHostDatabaseService"/>, whose contract
 /// is about databases and lives on the base plane, with the recovery
-/// affordance <see cref="Components.Shared.DatabaseErrorAlert"/> and the
+/// affordance <see cref="Components.Shared.DatabaseInformationAlert"/> and the
 /// encryption panel offer.
 ///
 /// <para>

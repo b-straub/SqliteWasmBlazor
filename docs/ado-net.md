@@ -179,7 +179,8 @@ visitor. Going without it is a real saving here in a way it is not on a server.
 Reach for raw ADO.NET when you are porting existing ADO.NET code, when the
 queries are simple enough that a mapper earns nothing, or when you want to
 control exactly what SQL runs. Take EF Core when you want the schema managed
-for you — `InitializeSqliteWasmDatabaseAsync` applies migrations at startup,
+for you — `InitializeSqliteWasmDatabaseAsync` plus `<SqliteWasmDatabaseInitializer/>`
+applies migrations,
 and hand-rolling that is where most of the work would go.
 
 ## Database Management via DI

@@ -28,7 +28,7 @@ namespace SqliteWasmBlazor;
 /// consumer's responsibility — recognize the type in your RxBlazorV2
 /// command error formatter (the third positional argument of
 /// <c>[ObservableCommand]</c>) and route to a localized resx key. The
-/// <c>&lt;DatabaseErrorAlert/&gt;</c> on <c>ENCRYPTED_LOCKED</c> covers
+/// <c>&lt;DatabaseInformationAlert/&gt;</c> on <c>ENCRYPTED_LOCKED</c> covers
 /// the boot-state UX separately.
 /// </para>
 /// </summary>

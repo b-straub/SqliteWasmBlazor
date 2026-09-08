@@ -21,7 +21,7 @@ namespace SqliteWasmBlazor.Crypto.UI;
 /// Registers the <see cref="ServiceLifetime.Scoped"/> <c>ObservableModel</c>
 /// instances backing each base-plane panel
 /// (<see cref="Components.Authentication.AuthenticationModel"/>,
-/// <see cref="Components.Shared.DatabaseErrorAlertModel"/>,
+/// <see cref="Components.Shared.DatabaseInformationAlertModel"/>,
 /// <see cref="Components.Shared.SessionExpiredPopoverModel"/>) plus the
 /// singleton <see cref="RxBlazorV2.MudBlazor.Components.StatusModel"/>
 /// status sink every command in this library routes to. Hosts render

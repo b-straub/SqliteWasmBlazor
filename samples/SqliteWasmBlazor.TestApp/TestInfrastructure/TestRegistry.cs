@@ -117,6 +117,7 @@ public static class TestRegistry
     public static readonly IReadOnlyList<string> CryptoPlaneNames =
     [
         "Migration_PopulatedDatabaseUpgradeEncrypted",
+        "Migration_BootDefersAndUnlockApplies",
         // Opaque writes — the raw slot write that accepts non-SQLite bytes.
         // Plane 2 forks the pool for it so ciphertext survives import; the
         // vendor pool this plane runs validates the header and refuses, which

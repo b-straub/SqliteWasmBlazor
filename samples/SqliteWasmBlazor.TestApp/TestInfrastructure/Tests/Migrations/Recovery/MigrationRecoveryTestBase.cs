@@ -98,13 +98,19 @@ internal abstract class MigrationRecoveryTestBase
 
     /// <summary>
     /// Reset the boot reporter to <see cref="DbInitState.NOT_STARTED"/> and
-    /// drive the typed initialization helper. The early-return guard in the
+    /// drive both halves of initialization. The early-return guard in the
     /// helper only triggers on terminal failure states, so READY → NOT_STARTED
     /// is needed to re-enter the path.
     /// </summary>
+    /// <remarks>
+    /// Two calls because boot is two moments: the helper registers the schema
+    /// work, and something after first render runs it — a
+    /// <c>SqliteWasmDatabaseInitializer</c> in a real host, this line here.
+    /// </remarks>
     protected async Task DriveBootAsync()
     {
         Reporter.Report(DbInitState.NOT_STARTED);
         await Services.InitializeSqliteWasmDatabaseAsync<TodoDbContext>();
+        await Services.GetRequiredService<IDbSchemaInitializer>().EnsureSchemaAsync();
     }
 }

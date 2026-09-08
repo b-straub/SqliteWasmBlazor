@@ -11,7 +11,7 @@ namespace SqliteWasmBlazor.Demo.Services;
 /// <list type="bullet">
 ///   <item><see cref="ResetAsync"/> — "reset everything": disk back to
 ///   Plain, user signed out, schema re-created, boot status READY.
-///   Reached from Crypto.UI's <c>DatabaseErrorAlert</c>, the encryption
+///   Reached from Crypto.UI's <c>DatabaseInformationAlert</c>, the encryption
 ///   page's Reset button, and the Administration page.</item>
 ///   <item><see cref="MigrateAsync"/> — the non-destructive half, run
 ///   after every import so the freshly landed bytes get their pending

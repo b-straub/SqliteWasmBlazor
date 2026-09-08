@@ -60,7 +60,7 @@ Yes! You can use the ADO.NET provider directly for raw SQL queries. See [ADO.NET
 
 ## How do migrations work?
 
-EF Core migrations work normally. The `InitializeSqliteWasmDatabaseAsync` extension method automatically applies pending migrations at startup with automatic migration history recovery. See [Advanced Features](advanced-features.md#migrations) for project structure recommendations.
+EF Core migrations work normally. `InitializeSqliteWasmDatabaseAsync` registers the migration work and `<SqliteWasmDatabaseInitializer/>` applies it after the first render, with automatic migration history recovery. See [Advanced Features](advanced-features.md#migrations) for project structure recommendations.
 
 ## What's the performance like?
 
