@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using SqliteWasmBlazor.Crypto;
 
 namespace SqliteWasmBlazor.TestApp.TestInfrastructure.Tests.Migrations.Upgrade;
@@ -48,6 +49,9 @@ internal sealed class BootDeferredMigrationTest(
 
     private RecordingDbInitNotifier Reported =>
         Services.GetRequiredService<RecordingDbInitNotifier>();
+
+    private SqliteWasmOptions Options =>
+        Services.GetRequiredService<IOptions<SqliteWasmOptions>>().Value;
 
     protected override async ValueTask PrepareAsync()
     {
@@ -108,16 +112,29 @@ internal sealed class BootDeferredMigrationTest(
         // What <SqliteWasmDatabaseInitializer /> does on first render. Reset
         // first: initialization already ran at boot, and without it this would
         // re-report that outcome instead of looking at what was just staged.
+        //
+        // The window is forced to zero for this phase: an index over
+        // SeedRows rows finishes well inside the default, and the point here is
+        // that the announcement happens at all, not how long it waits. The
+        // default window is what the two quiet cases below assert against.
+        var announceDelay = Options.MigrationAnnounceDelay;
+        Options.MigrationAnnounceDelay = TimeSpan.Zero;
+
         Reported.Clear();
         Initializer.Reset();
-        await Initializer.InitializeAsync();
+        try
+        {
+            await Initializer.InitializeAsync();
+        }
+        finally
+        {
+            Options.MigrationAnnounceDelay = announceDelay;
+        }
 
-        // V1 is applied and V2 is pending — an upgrade over existing rows,
-        // which is exactly the case MIGRATING exists for.
         if (!Reported.States.Contains(DbInitState.MIGRATING))
         {
-            return "FAIL[unlocked]: no MIGRATING for an upgrade over a populated " +
-                   $"database — reported [{string.Join(", ", Reported.States)}]";
+            return "FAIL[unlocked]: migrating with a zero announce window said nothing — " +
+                   $"reported [{string.Join(", ", Reported.States)}]";
         }
 
         if (Status.State != DbInitState.READY)
@@ -234,8 +251,10 @@ internal sealed class BootDeferredMigrationTest(
     /// </summary>
     /// <remarks>
     /// Every migration counts as pending on a database that has had none
-    /// applied, so this is the case that would otherwise put MIGRATING on every
-    /// first run — the most common boot there is.
+    /// applied, so "is anything pending?" is true here — which is why this is
+    /// the case that used to put MIGRATING on every first run, the most common
+    /// boot there is. Creating an empty schema finishes well inside the default
+    /// announce window, so nothing is said.
     /// </remarks>
     private async ValueTask<string?> AssertQuietOnInitialCreateAsync()
     {
@@ -257,7 +276,8 @@ internal sealed class BootDeferredMigrationTest(
         if (Reported.States.Contains(DbInitState.MIGRATING))
         {
             return "FAIL[create]: MIGRATING was announced for an initial create — " +
-                   $"reported [{string.Join(", ", Reported.States)}]";
+                   $"reported [{string.Join(", ", Reported.States)}]. Creating an empty " +
+                   "schema is not work anyone needs told about.";
         }
 
         // The quiet must not have come from doing nothing.
