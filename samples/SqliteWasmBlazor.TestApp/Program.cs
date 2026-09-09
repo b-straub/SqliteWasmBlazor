@@ -91,6 +91,11 @@ builder.Services.AddSqliteWasm(o => o.BaseHref = baseHref);
 builder.Services.AddSqliteWasmDbContext<TodoDbContext>();
 builder.Services.AddSqliteWasmDbContext<MigrationProbeContext>();
 
+// Records the reported transitions. MIGRATING is transient, so a test asking
+// "was it announced when nothing was pending?" cannot read that off the status
+// surface — it has to have been watching.
+builder.Services.AddDbInitNotifier<RecordingDbInitNotifier>();
+
 // Which worker bundle this run boots. `?plane=plain` leaves the Crypto
 // services unregistered, so the bridge stays on _content/SqliteWasmBlazor/ —
 // the only way base's own worker cases (replaceDb, the import sessions, the

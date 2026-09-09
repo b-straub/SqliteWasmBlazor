@@ -46,6 +46,9 @@ internal sealed class BootDeferredMigrationTest(
     private ISqliteWasmInitializer Initializer =>
         Services.GetRequiredService<ISqliteWasmInitializer>();
 
+    private RecordingDbInitNotifier Reported =>
+        Services.GetRequiredService<RecordingDbInitNotifier>();
+
     protected override async ValueTask PrepareAsync()
     {
         // Drop the worker-wide key. The encrypted upgrade case before this one
@@ -105,8 +108,17 @@ internal sealed class BootDeferredMigrationTest(
         // What <SqliteWasmDatabaseInitializer /> does on first render. Reset
         // first: initialization already ran at boot, and without it this would
         // re-report that outcome instead of looking at what was just staged.
+        Reported.Clear();
         Initializer.Reset();
         await Initializer.InitializeAsync();
+
+        // V1 is applied and V2 is pending — an upgrade over existing rows,
+        // which is exactly the case MIGRATING exists for.
+        if (!Reported.States.Contains(DbInitState.MIGRATING))
+        {
+            return "FAIL[unlocked]: no MIGRATING for an upgrade over a populated " +
+                   $"database — reported [{string.Join(", ", Reported.States)}]";
+        }
 
         if (Status.State != DbInitState.READY)
         {
@@ -114,7 +126,19 @@ internal sealed class BootDeferredMigrationTest(
                    $"({Status.Failure?.DefaultMessage ?? "no failure reported"})";
         }
 
-        return await AssertUpgradedAsync("unlocked");
+        var upgraded = await AssertUpgradedAsync("unlocked");
+        if (upgraded is not null)
+        {
+            return upgraded;
+        }
+
+        var quiet = await AssertQuietOnAlreadyCurrentAsync();
+        if (quiet is not null)
+        {
+            return quiet;
+        }
+
+        return await AssertQuietOnInitialCreateAsync();
     }
 
     /// <summary>
@@ -169,6 +193,81 @@ internal sealed class BootDeferredMigrationTest(
         }
 
         return await AssertUpgradedAsync("locked");
+    }
+
+    /// <summary>
+    /// Every declared database is now current, so initializing again has
+    /// nothing to do — and must not announce that it is doing it.
+    /// </summary>
+    /// <remarks>
+    /// MIGRATING drives a progress bar. Announcing it on a boot with nothing
+    /// pending is how a state that means something becomes one people learn to
+    /// ignore, so this asserts the announcement is absent rather than merely
+    /// that the end state is READY.
+    /// </remarks>
+    private async ValueTask<string?> AssertQuietOnAlreadyCurrentAsync()
+    {
+        Reported.Clear();
+        Initializer.Reset();
+        await Initializer.InitializeAsync();
+
+        if (Status.State != DbInitState.READY)
+        {
+            return $"FAIL[quiet]: expected READY re-initializing a current database, " +
+                   $"got {Status.State} " +
+                   $"({Status.Failure?.DefaultMessage ?? "no failure reported"})";
+        }
+
+        var states = Reported.States;
+        if (states.Contains(DbInitState.MIGRATING))
+        {
+            return "FAIL[quiet]: MIGRATING was announced with nothing pending — " +
+                   $"reported [{string.Join(", ", states)}]";
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Creating a database from nothing is not an upgrade, and must not say it
+    /// is.
+    /// </summary>
+    /// <remarks>
+    /// Every migration counts as pending on a database that has had none
+    /// applied, so this is the case that would otherwise put MIGRATING on every
+    /// first run — the most common boot there is.
+    /// </remarks>
+    private async ValueTask<string?> AssertQuietOnInitialCreateAsync()
+    {
+        await using (var context = await Factory.CreateDbContextAsync())
+        {
+            await context.Database.EnsureDeletedAsync();
+        }
+
+        Reported.Clear();
+        Initializer.Reset();
+        await Initializer.InitializeAsync();
+
+        if (Status.State != DbInitState.READY)
+        {
+            return $"FAIL[create]: expected READY creating the database, got {Status.State} " +
+                   $"({Status.Failure?.DefaultMessage ?? "no failure reported"})";
+        }
+
+        if (Reported.States.Contains(DbInitState.MIGRATING))
+        {
+            return "FAIL[create]: MIGRATING was announced for an initial create — " +
+                   $"reported [{string.Join(", ", Reported.States)}]";
+        }
+
+        // The quiet must not have come from doing nothing.
+        await using var check = await Factory.CreateDbContextAsync();
+        if (!await IndexExistsAsync(check))
+        {
+            return "FAIL[create]: the database was not brought up to the current schema";
+        }
+
+        return null;
     }
 
     /// <summary>V2 applied, recorded, and the rows still there.</summary>

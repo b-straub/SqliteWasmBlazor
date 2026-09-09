@@ -67,8 +67,21 @@ internal sealed class DbContextSchemaDescriptor
             var pendingMigrations = await dbContext.Database.GetPendingMigrationsAsync(cancellationToken);
             if (pendingMigrations.Any())
             {
-                // Only now is there something worth telling the user about.
-                await onWorkStarting(databaseName);
+                // Pending is not the same as slow. A database with nothing
+                // applied yet is being *created* — every migration counts as
+                // pending because none have run — and that work is a CREATE
+                // TABLE against an empty file, finished before a progress bar
+                // could paint. Announcing it would put MIGRATING on every first
+                // run, which is how a state that means something becomes one
+                // people learn to ignore.
+                //
+                // An upgrade is the case worth showing: rows already exist, and
+                // the cost scales with how many.
+                var applied = await dbContext.Database.GetAppliedMigrationsAsync(cancellationToken);
+                if (applied.Any())
+                {
+                    await onWorkStarting(databaseName);
+                }
 
                 try
                 {

@@ -76,6 +76,11 @@ builder.Services.AddSqliteWasmDbContext<NoteDbContext>();
 - `DatabaseErrorAlert` is now `DatabaseInformationAlert`: it renders `MIGRATING`
   and `INITIALIZING` as an indeterminate progress bar alongside the failure
   states it already handled.
+- `MIGRATING` means an **upgrade** — migrations pending over a database that
+  already has some applied. Creating a database from nothing reports nothing:
+  every migration counts as pending there, so announcing it would put the state
+  on every first run, and the work is a `CREATE TABLE` on an empty file rather
+  than something worth watching.
 
 This also fixes a defect that only appeared with more than one context on an
 encrypted pool. Because the old entry point was generic, it ran once per context
