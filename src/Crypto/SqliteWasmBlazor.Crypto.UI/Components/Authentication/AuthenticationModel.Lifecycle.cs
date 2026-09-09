@@ -35,17 +35,6 @@ public partial class AuthenticationModel
 {
     protected override async Task OnContextReadyAsync()
     {
-        // This panel renders in the NotAuthorized branch of
-        // <AuthorizeView Policy="DatabaseOpen">, which is what the tree shows
-        // before initialization has reported anything — so it is typically the
-        // first thing in the app to want the worker, and it renders before the
-        // layout's <SqliteWasmDatabaseInitializer/> gets its OnAfterRenderAsync
-        // (Blazor runs that child-before-parent). Without this await the
-        // manifest read below reaches a worker with no SAHPool installed and
-        // comes back "SQLite not initialized". Idempotent: whichever call
-        // arrives first does the work.
-        await Initializer.InitializeAsync();
-
         IsPrfSupported = await Authenticator.CheckPrfSupportAsync();
         if (IsPrfSupported != true)
         {
@@ -90,6 +79,23 @@ public partial class AuthenticationModel
     // manifest knows nothing about until EnterEncrypted writes it).
     private async ValueTask RefreshPoolStateAsync()
     {
+        // The single manifest read, so the single guard. This panel shows in
+        // the NotAuthorized branch of <AuthorizeView Policy="DatabaseOpen">, so
+        // it is on screen from the very first render — before anything has
+        // started the worker, because Blazor runs OnAfterRenderAsync
+        // child-before-parent and a page beats the layout's
+        // <SqliteWasmDatabaseInitializer/>. Asking a worker that does not exist
+        // yet comes back "SQLite not initialized".
+        //
+        // Touching DbState.State is also what makes this method an
+        // auto-detected observer of it (RxBlazorV2 §7), so the read runs again
+        // by itself the moment there is a worker. Removing the guard would
+        // remove the subscription with it.
+        if (!DbState.State.IsWorkerAvailable())
+        {
+            return;
+        }
+
         var poolState = await Session.GetStateAsync();
         PoolEncrypted = poolState.Encrypted;
         CredentialId = poolState.Hint;

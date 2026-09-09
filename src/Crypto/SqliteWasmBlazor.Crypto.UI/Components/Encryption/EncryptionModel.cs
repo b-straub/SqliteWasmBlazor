@@ -20,7 +20,6 @@ namespace SqliteWasmBlazor.Crypto.UI.Components.Encryption;
 public partial class EncryptionModel : ObservableModel
 {
     public partial EncryptionModel(
-        ISqliteWasmInitializer initializer,
         IEncryptedSqliteWasmDatabaseService session,
         ISqliteWasmDatabaseService databaseService,
         AuthenticationModel auth,
@@ -187,6 +186,19 @@ public partial class EncryptionModel : ObservableModel
 
     private async Task RefreshAsync(CancellationToken cancellationToken)
     {
+        // Every route into this panel's state passes here, so this is the only
+        // place the guard belongs. A panel can render before anything has
+        // started the worker — Blazor runs OnAfterRenderAsync
+        // child-before-parent, so a page beats the layout's
+        // <SqliteWasmDatabaseInitializer/> — and asking a worker that does not
+        // exist yet comes back "SQLite not initialized". Nothing is lost by
+        // returning: OnDbStateChangedAsync brings us back the moment the state
+        // says there is something to talk to.
+        if (!DbState.State.IsWorkerAvailable())
+        {
+            return;
+        }
+
         State = await Session.GetStateAsync(cancellationToken);
         // Rebuild the row list on every state transition so a newly-created
         // or freshly-imported database shows up immediately. Rows are the
