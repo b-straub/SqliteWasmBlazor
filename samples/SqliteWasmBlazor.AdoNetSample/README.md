@@ -14,11 +14,13 @@ This sample demonstrates using **SqliteWasmBlazor without Entity Framework Core*
 ## Key Files
 
 ### Program.cs
-Shows how to initialize SqliteWasm without EF Core:
+Registration only — `AddSqliteWasm()`, and no DbContext at all.
 
-```csharp
-// Initialize SqliteWasm for ADO.NET usage (no EF Core needed!)
-await host.Services.InitializeSqliteWasmAsync();
+### Layout/MainLayout.razor
+Starts the worker after the first render (no EF Core needed):
+
+```razor
+<SqliteWasmDatabaseInitializer/>
 ```
 
 ### Pages/Home.razor
@@ -41,7 +43,7 @@ Then navigate to `https://localhost:5001` in your browser.
 
 | Aspect | EF Core Sample | ADO.NET Sample (This) |
 |--------|----------------|------------------------|
-| Setup | `AddDbContextFactory<T>()` | `InitializeSqliteWasmAsync()` |
+| Setup | `AddSqliteWasmDbContext<T>()` | `AddSqliteWasm()` only |
 | Schema | Migrations | Raw SQL `CREATE TABLE` |
 | Queries | LINQ | Raw SQL with parameters |
 | Complexity | Higher | Lower |

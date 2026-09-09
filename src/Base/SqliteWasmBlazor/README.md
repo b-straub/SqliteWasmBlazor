@@ -19,13 +19,15 @@ builder.Services.AddSqliteWasm();                       // bridge + worker
 builder.Services.AddDbContextFactory<MyDbContext>(opt =>
     opt.UseSqliteWasm("Data Source=mydb.db"));
 
+builder.Services.AddSqliteWasmDbContext<MyDbContext>();  // declare, don't run
+
 var host = builder.Build();
-await host.Services.InitializeSqliteWasmDatabaseAsync<MyDbContext>(opt =>
-{
-    opt.BaseHref = builder.HostEnvironment.BaseAddress;
-    opt.AssetRoot = "_content/SqliteWasmBlazor/";
-});
 await host.RunAsync();
+```
+
+```razor
+@* MainLayout.razor — starts the worker and migrates, after the first render *@
+<SqliteWasmDatabaseInitializer/>
 ```
 
 ## Host seams
@@ -48,8 +50,10 @@ Plane 1 has no required host seams — the worker plus options are enough.
   class split by concern: core dispatch / `.Encryption.cs` / `.Persistence.cs`
   / `.Delta.cs`).
 - `Ado/` — ADO.NET provider (connection / command / reader / parameter).
-- `Extensions/` — `AddSqliteWasm` + the `InitializeSqliteWasm*Async`
-  startup helpers.
+- `Extensions/` — `AddSqliteWasm`, `AddSqliteWasmDbContext<T>` and the
+  other registration helpers.
+- `DbInit/` — `ISqliteWasmInitializer` and the
+  `<SqliteWasmDatabaseInitializer/>` component that drives it.
 - `Crypto/` — **Plane 2 engine, currently colocated.** The encryption
   services consumed by `Crypto.UI` live here for build-history reasons;
   the plane-split pass will carve them out into `SqliteWasmBlazor.Crypto`

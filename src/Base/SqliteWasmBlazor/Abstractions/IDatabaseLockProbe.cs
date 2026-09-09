@@ -6,7 +6,7 @@ namespace SqliteWasmBlazor;
 /// <summary>
 /// Plane-1-facing probe for the encrypted-VFS lock state. Implemented by
 /// plane 2 (SqliteWasmBlazor.Crypto)'s encryption lifecycle service; resolved
-/// optionally by <see cref="SqliteWasmServiceCollectionExtensions.InitializeSqliteWasmDatabaseAsync{TContext}"/>
+/// optionally by <see cref="ISqliteWasmInitializer"/>
 /// so plain-only consumers (no plane 2 registration) skip the check.
 ///
 /// <para>

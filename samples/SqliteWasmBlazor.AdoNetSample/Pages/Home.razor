@@ -63,6 +63,9 @@ else
 </ul>
 
 @code {
+    [Inject]
+    public required ISqliteWasmInitializer Initializer { get; init; }
+
     private SqliteWasmConnection? _connection;
     private readonly List<User> _users = new();
     private string? _errorMessage;
@@ -81,6 +84,12 @@ else
 
         try
         {
+            // Blazor runs OnAfterRenderAsync child-before-parent, so this can
+            // beat the <SqliteWasmDatabaseInitializer/> in MainLayout. Awaiting
+            // it here is the fix — the call is idempotent, so whichever runs
+            // first does the work and the other returns.
+            await Initializer.InitializeAsync();
+
             // Create and open connection
             _connection = new SqliteWasmConnection("Data Source=SimpleApp.db");
             await _connection.OpenAsync();

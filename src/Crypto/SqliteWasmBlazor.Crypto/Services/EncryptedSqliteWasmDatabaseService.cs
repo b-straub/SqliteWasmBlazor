@@ -43,7 +43,7 @@ internal sealed class EncryptedSqliteWasmDatabaseService
     private readonly SqliteWasmWorkerBridge _bridge;
     private readonly EncryptedSqliteWasmWorkerBridge _encryptedBridge;
     private readonly IDbInitializationReporter _reporter;
-    private readonly IDbSchemaInitializer _schema;
+    private readonly ISqliteWasmInitializer _initializer;
     private readonly IDbInitializationStatus _status;
     private readonly IPrfService _prfService;
     private readonly ICryptoProvider _cryptoProvider;
@@ -64,7 +64,7 @@ internal sealed class EncryptedSqliteWasmDatabaseService
         IDbInitializationStatus status,
         IPrfService prfService,
         ICryptoProvider cryptoProvider,
-        IDbSchemaInitializer schema)
+        ISqliteWasmInitializer initializer)
     {
         _bridge = SqliteWasmWorkerBridge.Instance;
         _encryptedBridge = EncryptedSqliteWasmWorkerBridge.Instance;
@@ -72,7 +72,7 @@ internal sealed class EncryptedSqliteWasmDatabaseService
         _status = status;
         _prfService = prfService;
         _cryptoProvider = cryptoProvider;
-        _schema = schema;
+        _initializer = initializer;
     }
 
     /// <summary>
@@ -101,7 +101,7 @@ internal sealed class EncryptedSqliteWasmDatabaseService
     }
 
     // IDatabaseLockProbe — plane-1-facing minimal probe so
-    // InitializeSqliteWasmDatabaseAsync<TContext> can detect ENCRYPTED_LOCKED
+    // ISqliteWasmInitializer can detect ENCRYPTED_LOCKED
     // boot state without referencing plane-2 types. Maps the rich
     // EncryptedPoolState down to the three fields plane 1 cares about.
     async Task<DatabaseLockState> IDatabaseLockProbe.GetStateAsync(CancellationToken cancellationToken)
@@ -289,7 +289,7 @@ internal sealed class EncryptedSqliteWasmDatabaseService
         // Boot could not migrate this pool: its pages were ciphertext and the
         // key did not exist yet. It does now, so the step boot registered runs
         // here — and reports READY itself, or the failure that stopped it.
-        await _schema.EnsureSchemaAsync(cancellationToken);
+        await _initializer.EnsureSchemaAsync(cancellationToken);
     }
 
     private async Task InstallEncryptionKeyAsync(

@@ -5,7 +5,7 @@ namespace SqliteWasmBlazor.TestApp.TestInfrastructure.Tests.Migrations.Recovery;
 
 /// <summary>
 /// Base for browser-based tests that drive
-/// <c>InitializeSqliteWasmDatabaseAsync&lt;TodoDbContext&gt;</c> end-to-end
+/// <see cref="ISqliteWasmInitializer"/> end-to-end
 /// and inspect the typed boot status surface. Shares the live worker bridge
 /// and singleton <see cref="DbInitializationService"/> with the rest of the
 /// app — each test resets the reporter before invoking the helper and
@@ -97,20 +97,19 @@ internal abstract class MigrationRecoveryTestBase
     }
 
     /// <summary>
-    /// Reset the boot reporter to <see cref="DbInitState.NOT_STARTED"/> and
-    /// drive both halves of initialization. The early-return guard in the
-    /// helper only triggers on terminal failure states, so READY → NOT_STARTED
-    /// is needed to re-enter the path.
+    /// Re-run initialization over the schema this test just staged.
     /// </summary>
     /// <remarks>
-    /// Two calls because boot is two moments: the helper registers the schema
-    /// work, and something after first render runs it — a
-    /// <c>SqliteWasmDatabaseInitializer</c> in a real host, this line here.
+    /// <see cref="ISqliteWasmInitializer.Reset"/> is the whole point of the
+    /// call: initialization is idempotent and would otherwise re-report the
+    /// outcome it reached at boot instead of looking at the database again.
+    /// Resetting is the claim that what is on disk has changed — which is
+    /// exactly what these tests do to it.
     /// </remarks>
     protected async Task DriveBootAsync()
     {
-        Reporter.Report(DbInitState.NOT_STARTED);
-        await Services.InitializeSqliteWasmDatabaseAsync<TodoDbContext>();
-        await Services.GetRequiredService<IDbSchemaInitializer>().EnsureSchemaAsync();
+        var initializer = Services.GetRequiredService<ISqliteWasmInitializer>();
+        initializer.Reset();
+        await initializer.InitializeAsync();
     }
 }

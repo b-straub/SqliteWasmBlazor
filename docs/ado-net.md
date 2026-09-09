@@ -16,11 +16,15 @@ var builder = WebAssemblyHostBuilder.CreateDefault(args);
 builder.Services.AddSqliteWasm();
 
 var host = builder.Build();
-
-// Initialize the SqliteWasm worker bridge (no EF Core needed)
-await host.Services.InitializeSqliteWasmAsync();
-
 await host.RunAsync();
+```
+
+The worker starts after the first render, so place the initializer once in your
+layout — no EF Core needed, and with no context declared there is nothing to
+migrate:
+
+```razor
+<SqliteWasmDatabaseInitializer/>
 ```
 
 ## Using the ADO.NET Provider
@@ -158,8 +162,10 @@ All standard ADO.NET types are implemented:
    - All operations are async (required for worker communication)
 
 2. **Initialization required**
-   - Call `host.Services.InitializeSqliteWasmAsync()` once at startup
-   - This initializes the Web Worker and OPFS
+   - Place `<SqliteWasmDatabaseInitializer/>` once in your layout
+   - It starts the Web Worker and OPFS after the first render
+   - A page that may render before the layout should await
+     `ISqliteWasmInitializer.InitializeAsync()` first; the call is idempotent
 
 3. **Persistence is automatic**
    - All changes are immediately written to OPFS
@@ -179,9 +185,8 @@ visitor. Going without it is a real saving here in a way it is not on a server.
 Reach for raw ADO.NET when you are porting existing ADO.NET code, when the
 queries are simple enough that a mapper earns nothing, or when you want to
 control exactly what SQL runs. Take EF Core when you want the schema managed
-for you — `InitializeSqliteWasmDatabaseAsync` plus `<SqliteWasmDatabaseInitializer/>`
-applies migrations,
-and hand-rolling that is where most of the work would go.
+for you — `AddSqliteWasmDbContext<T>()` plus `<SqliteWasmDatabaseInitializer/>`
+applies migrations, and hand-rolling that is where most of the work would go.
 
 ## Database Management via DI
 

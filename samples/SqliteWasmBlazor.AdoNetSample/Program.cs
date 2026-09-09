@@ -13,7 +13,7 @@ builder.Services.AddSqliteWasm(o => o.BaseHref = new Uri(builder.HostEnvironment
 
 var host = builder.Build();
 
-// Initialize SqliteWasm for ADO.NET usage (no EF Core needed!)
-await host.Services.InitializeSqliteWasmAsync();
-
+// No initialization here. <SqliteWasmDatabaseInitializer/> in MainLayout starts
+// the worker once the app has rendered; with no DbContext declared there is
+// nothing to migrate.
 await host.RunAsync();

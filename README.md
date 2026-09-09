@@ -55,8 +55,9 @@ builder.Services.AddDbContextFactory<TodoDbContext>(options =>
 
 builder.Services.AddSqliteWasm();
 
+builder.Services.AddSqliteWasmDbContext<TodoDbContext>();
+
 var host = builder.Build();
-await host.Services.InitializeSqliteWasmDatabaseAsync<TodoDbContext>();
 await host.RunAsync();
 ```
 
@@ -66,12 +67,15 @@ Then place the initializer once, in your layout:
 <SqliteWasmDatabaseInitializer/>
 ```
 
-`InitializeSqliteWasmDatabaseAsync` starts the worker bridge, reports multi-tab
-conflicts, and tracks progress via `IDbInitializationStatus`.
-`<SqliteWasmDatabaseInitializer/>` renders nothing; it applies pending migrations
-(with migration-history recovery) once the app has rendered, so a long one can be
-reported instead of freezing a blank page. On an encrypted pool it waits for the
-unlock, which is the only moment such a pool can be opened at all.
+`Program.cs` only registers. `<SqliteWasmDatabaseInitializer/>` renders nothing;
+after the first render it starts the worker and applies pending migrations (with
+migration-history recovery) for every context declared with
+`AddSqliteWasmDbContext<T>()`. Progress and failures are reported through
+`IDbInitializationStatus`.
+
+Initializing after the app renders is what lets a long migration be reported
+instead of freezing a blank page — and it is the only way an encrypted pool can
+be opened at all, since its key comes from a WebAuthn ceremony that needs a UI.
 
 Apps deployed on a sub-path must set the base href explicitly:
 

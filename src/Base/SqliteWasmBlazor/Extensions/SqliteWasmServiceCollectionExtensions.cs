@@ -49,17 +49,22 @@ public static class SqliteWasmServiceCollectionExtensions
         services.AddSingleton<IDbInitializationReporter>(sp => sp.GetRequiredService<DbInitializationService>());
 
         // Resolved through the interfaces above rather than the concrete
-        // service: Crypto.UI replaces both with DbStateModel, and the schema
-        // step must report through whichever is registered.
-        // The lock probe is optional — plain-only consumers never call
-        // AddSqliteWasmBlazorCrypto, and for them the pool is always openable —
-        // and resolved lazily, because the service implementing it depends on
-        // this one.
-        services.AddSingleton<DbSchemaInitializer>(sp => new DbSchemaInitializer(
+        // service: Crypto.UI replaces both with DbStateModel, and initialization
+        // must report through whichever is registered.
+        //
+        // Two seams are resolved lazily, as Func<T?>. The lock probe is
+        // implemented by a service that takes this one in its own constructor,
+        // so asking for the instance here is a container cycle. The notifier is
+        // optional and Scoped-friendly; holding one would pin the first scope's
+        // instance for the life of the app.
+        services.AddSingleton<ISqliteWasmInitializer>(sp => new SqliteWasmInitializer(
+            sp,
             sp.GetRequiredService<IDbInitializationReporter>(),
             sp.GetRequiredService<IDbInitializationStatus>(),
-            sp.GetService<IDatabaseLockProbe>));
-        services.AddSingleton<IDbSchemaInitializer>(sp => sp.GetRequiredService<DbSchemaInitializer>());
+            sp.GetRequiredService<IOptions<SqliteWasmOptions>>(),
+            sp.GetServices<DbContextSchemaDescriptor>(),
+            sp.GetService<IDatabaseLockProbe>,
+            sp.GetService<IDbInitNotifier>));
 
         return services;
     }
@@ -88,362 +93,50 @@ public static class SqliteWasmServiceCollectionExtensions
     }
 
     /// <summary>
-    /// Initializes the SqliteWasm worker bridge using the options configured via
-    /// <see cref="AddSqliteWasm"/>. Use this method when consuming the ADO.NET provider
-    /// directly without EF Core.
+    /// Declares a context whose pending migrations
+    /// <c>&lt;SqliteWasmDatabaseInitializer/&gt;</c> should apply.
     /// </summary>
-    /// <param name="services">The service provider.</param>
-    /// <param name="cancellationToken">Optional cancellation token.</param>
-    /// <exception cref="InvalidOperationException">Thrown when initialization fails or database is locked by another tab.</exception>
-    public static async Task InitializeSqliteWasmAsync(
-        this IServiceProvider services,
-        CancellationToken cancellationToken = default)
-    {
-        var options = services.GetRequiredService<IOptions<SqliteWasmOptions>>().Value;
-        var reporter = services.GetRequiredService<IDbInitializationReporter>();
-        ConfigureCommandLogging(options);
-
-        SqliteWasmWorkerBridge.Instance.AttachBootStatus(
-            reporter, services.GetRequiredService<IDbInitializationStatus>());
-        SqliteWasmWorkerBridge.Instance.AttachHostDatabaseService(
-            services.GetService<IHostDatabaseService>);
-        reporter.Report(DbInitState.INITIALIZING);
-
-        try
-        {
-            await SqliteWasmWorkerBridge.Instance.InitializeAsync(options, cancellationToken);
-            reporter.Report(DbInitState.READY);
-        }
-        catch (Exception ex)
-        {
-            reporter.Report(DbInitState.TAB_LOCKED, new TabLockedFailure(string.Empty));
-            throw new InvalidOperationException(
-$"""
-{ex.Message}
-Database is locked by another browser tab.
-This application uses OPFS (Origin Private File System) which only allows one tab to access the database at a time.
-Please close any other tabs running this application and refresh the page.
-""", ex);
-        }
-    }
-
-    /// <summary>
-    /// Initializes the SqliteWasm worker bridge and applies pending EF Core migrations
-    /// for <typeparamref name="TContext"/>, recovering the migration history when necessary.
-    /// Boot outcome is reported to <see cref="IDbInitializationReporter"/>; consumers
-    /// observe via <see cref="IDbInitializationStatus"/>.
-    /// </summary>
-    /// <typeparam name="TContext">The DbContext type to initialize.</typeparam>
-    /// <param name="services">The service provider.</param>
-    public static async Task InitializeSqliteWasmDatabaseAsync<TContext>(
-        this IServiceProvider services)
+    /// <remarks>
+    /// <para>
+    /// Declaration, not execution — nothing touches the database until the app
+    /// has rendered. Call it once per context, next to the matching
+    /// <c>AddDbContextFactory</c>.
+    /// </para>
+    /// <para>
+    /// <b>Order matters.</b> Contexts are migrated in the order declared and the
+    /// sequence stops at the first failure, so the diagnosis a host most wants
+    /// to see should be declared first.
+    /// </para>
+    /// </remarks>
+    /// <typeparam name="TContext">The context to migrate.</typeparam>
+    /// <param name="services">The service collection.</param>
+    /// <returns>The service collection for chaining.</returns>
+    public static IServiceCollection AddSqliteWasmDbContext<TContext>(
+        this IServiceCollection services)
         where TContext : DbContext
     {
-        var reporter = services.GetRequiredService<IDbInitializationReporter>();
-        var status = services.GetRequiredService<IDbInitializationStatus>();
-        var options = services.GetRequiredService<IOptions<SqliteWasmOptions>>().Value;
-        ConfigureCommandLogging(options);
-
-        // A whole-pool import reports READY through this so every
-        // <AuthorizeView> bound to the state re-evaluates; the bridge is a
-        // singleton outside the container and cannot resolve it itself.
-        SqliteWasmWorkerBridge.Instance.AttachBootStatus(reporter, status);
-
-        // Every import reconciles the host's schema with what it landed, so
-        // the invariant holds for a headless consumer too. Resolved per call
-        // rather than captured — the seam is Scoped, the bridge is not.
-        SqliteWasmWorkerBridge.Instance.AttachHostDatabaseService(
-            services.GetService<IHostDatabaseService>);
-
-        // Skip if a previous boot stage already failed — don't overwrite that diagnosis.
-        if (status.State is DbInitState.TAB_LOCKED
-                          or DbInitState.SCHEMA_INCOMPATIBLE
-                          or DbInitState.TIMEOUT
-                          or DbInitState.FAILED
-                          or DbInitState.ENCRYPTED_LOCKED)
-        {
-            return;
-        }
-
-        reporter.Report(DbInitState.INITIALIZING);
-
-        try
-        {
-            await SqliteWasmWorkerBridge.Instance.InitializeAsync(options);
-        }
-        catch (Exception ex)
-        {
-            reporter.Report(DbInitState.TAB_LOCKED, new TabLockedFailure(GetDatabaseName<TContext>(services, ex)));
-            return;
-        }
-
-        var databaseName = GetDatabaseName<TContext>(services, null);
-
-        // Encrypted-VFS probe: ask plane 2 for its state via the plane-1-facing
-        // IDatabaseLockProbe (implemented by EncryptedSqliteWasmDatabaseService).
-        // The probe self-heals an orphan hint (localStorage marker without any
-        // ciphertext on disk — left over from an aborted EnterEncrypted
-        // ceremony) by clearing the hint and returning Plain. If the state is
-        // genuinely Encrypted+Locked, report ENCRYPTED_LOCKED with the hint so
-        // the UI can prompt for credentials; the user calls
-        // IEncryptedSqliteWasmDatabaseService.UnlockAsync(key) (the lifecycle
-        // service does it automatically once the auth flow completes) and the
-        // policy gate flips on its own. Resolved optionally — plain-only
-        // consumers that didn't call AddSqliteWasmBlazorCrypto() skip it.
-        // The schema work is registered, not run. It needs a database that can
-        // be opened, and for an encrypted pool that is only true after a key
-        // arrives — which cannot happen before the app renders. Registration
-        // comes before the lock probe below, because a pool that is locked
-        // right now is precisely the one whose migration has to survive until
-        // the key shows up. See IDbSchemaInitializer.
-        RegisterSchemaStep<TContext>(services, databaseName);
-
-        // Driving initialization again means the caller believes something has
-        // changed — a retry after a failure, or a test staging a broken schema.
-        // The previous outcome is not evidence about the database as it is now.
-        services.GetRequiredService<IDbSchemaInitializer>().Reset();
-
-        var probe = services.GetService<IDatabaseLockProbe>();
-        if (probe is not null)
-        {
-            var lockState = await probe.GetStateAsync();
-            if (lockState.Encrypted && !lockState.Unlocked)
-            {
-                reporter.Report(
-                    DbInitState.ENCRYPTED_LOCKED,
-                    new EncryptedDatabaseLockedFailure(databaseName, lockState.Hint));
-                return;
-            }
-        }
+        services.AddSingleton(DbContextSchemaDescriptor.For<TContext>());
+        return services;
     }
 
     /// <summary>
-    /// Adds the pending-migration + history-recovery work for
-    /// <typeparamref name="TContext"/> to the deferred schema step.
+    /// Registers <typeparamref name="TNotifier"/> as the sink for
+    /// initialization progress, so the app can tell its user what is happening
+    /// while a migration runs.
     /// </summary>
-    private static void RegisterSchemaStep<TContext>(IServiceProvider services, string databaseName)
-        where TContext : DbContext
+    /// <remarks>
+    /// Optional. Hosts that register none get
+    /// <see cref="NullDbInitNotifier"/> and no notifications.
+    /// </remarks>
+    /// <typeparam name="TNotifier">The host's implementation.</typeparam>
+    /// <param name="services">The service collection.</param>
+    /// <returns>The service collection for chaining.</returns>
+    public static IServiceCollection AddDbInitNotifier<TNotifier>(
+        this IServiceCollection services)
+        where TNotifier : class, IDbInitNotifier
     {
-        var initializer = (DbSchemaInitializer)services.GetRequiredService<IDbSchemaInitializer>();
-
-        initializer.Register(typeof(TContext), async (onWorkStarting, cancellationToken) =>
-        {
-            try
-            {
-                using var scope = services.CreateScope();
-                var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<TContext>>();
-                await using var dbContext = await factory.CreateDbContextAsync(cancellationToken);
-
-                var pendingMigrations = await dbContext.Database.GetPendingMigrationsAsync(cancellationToken);
-                if (pendingMigrations.Any())
-                {
-                    // Only now is there something worth telling the user about.
-                    await onWorkStarting();
-
-                    try
-                    {
-                        await dbContext.Database.MigrateAsync(cancellationToken);
-                    }
-                    catch (Exception ex) when (ex.Message.Contains("already exists", StringComparison.OrdinalIgnoreCase) ||
-                                                (ex.Message.Contains("table", StringComparison.OrdinalIgnoreCase) &&
-                                                 ex.Message.Contains("exist", StringComparison.OrdinalIgnoreCase)))
-                    {
-                        var recovery = await RecoverMigrationHistoryAsync(dbContext);
-
-                        if (!recovery.Succeeded)
-                        {
-                            return (DbInitState.SCHEMA_INCOMPATIBLE,
-                                new SchemaIncompatibleFailure(databaseName, recovery.Mismatches));
-                        }
-                    }
-                }
-
-                return (DbInitState.READY, null);
-            }
-            catch (TimeoutException)
-            {
-                return (DbInitState.TIMEOUT, new TimeoutFailure(databaseName));
-            }
-            catch (Exception ex)
-            {
-                return (DbInitState.FAILED, new GenericInitFailure(databaseName, ex));
-            }
-        });
-    }
-
-    private static void ConfigureCommandLogging(SqliteWasmOptions options)
-    {
-        SqliteWasmLogger.CommandSqlLoggingEnabled = options.EnableCommandSqlLogging;
-        SqliteWasmLogger.TracingEnabled = options.EnableRequestTracing;
-
-        // Says so once, so a benchmarking session can tell at a glance that the
-        // numbers below are actually being produced.
-        SqliteWasmLogger.Trace(nameof(SqliteWasmLogger), "request tracing enabled");
-    }
-
-    private static string GetDatabaseName<TContext>(IServiceProvider services, Exception? _)
-        where TContext : DbContext
-    {
-        try
-        {
-            using var scope = services.CreateScope();
-            var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<TContext>>();
-            using var ctx = factory.CreateDbContext();
-            // SqliteWasmConnection's Data Source carries the OPFS filename.
-            var connectionString = ctx.Database.GetDbConnection().ConnectionString;
-            return ExtractDataSource(connectionString) ?? typeof(TContext).Name;
-        }
-        catch
-        {
-            return typeof(TContext).Name;
-        }
-    }
-
-    private static string? ExtractDataSource(string connectionString)
-    {
-        const string key = "Data Source=";
-        var idx = connectionString.IndexOf(key, StringComparison.OrdinalIgnoreCase);
-        if (idx < 0)
-        {
-            return null;
-        }
-
-        var start = idx + key.Length;
-        var end = connectionString.IndexOf(';', start);
-        return end < 0
-            ? connectionString[start..].Trim()
-            : connectionString[start..end].Trim();
-    }
-
-    /// <summary>
-    /// Outcome of <see cref="RecoverMigrationHistoryAsync"/>: whether recovery
-    /// landed on a usable schema, and any per-column mismatches detected
-    /// during verification.
-    /// </summary>
-    private sealed record RecoveryResult(bool Succeeded, IReadOnlyList<SchemaMismatch> Mismatches);
-
-    /// <summary>
-    /// Recovers the migration history table when it's missing or corrupted.
-    /// Walks every entity in the EF model and verifies its mapped columns
-    /// exist in the live SQLite schema. Returns structured per-column
-    /// diagnostics so callers can render actionable UI rather than a string.
-    /// </summary>
-    private static async Task<RecoveryResult> RecoverMigrationHistoryAsync(DbContext dbContext)
-    {
-        var connection = dbContext.Database.GetDbConnection();
-        var mismatches = new List<SchemaMismatch>();
-
-        try
-        {
-            await connection.OpenAsync();
-
-            await using var cmd = connection.CreateCommand();
-            cmd.CommandText = @"
-                CREATE TABLE IF NOT EXISTS __EFMigrationsHistory (
-                    MigrationId TEXT NOT NULL PRIMARY KEY,
-                    ProductVersion TEXT NOT NULL
-                );";
-            await cmd.ExecuteNonQueryAsync();
-
-            var allMigrations = dbContext.Database.GetMigrations();
-            foreach (var migration in allMigrations)
-            {
-                cmd.CommandText = @"
-                    INSERT OR IGNORE INTO __EFMigrationsHistory (MigrationId, ProductVersion)
-                    VALUES ($migration, $version);";
-                cmd.Parameters.Clear();
-
-                var migrationParam = cmd.CreateParameter();
-                migrationParam.ParameterName = "$migration";
-                migrationParam.Value = migration;
-                cmd.Parameters.Add(migrationParam);
-
-                var versionParam = cmd.CreateParameter();
-                versionParam.ParameterName = "$version";
-                versionParam.Value = "10.0.0";
-                cmd.Parameters.Add(versionParam);
-
-                await cmd.ExecuteNonQueryAsync();
-            }
-
-            cmd.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name != '__EFMigrationsHistory';";
-            cmd.Parameters.Clear();
-            var tableCount = await cmd.ExecuteScalarAsync();
-
-            if (tableCount is null || Convert.ToInt64(tableCount) == 0)
-            {
-                return new RecoveryResult(false, mismatches);
-            }
-
-            // Use the design-time model so IsTableExcludedFromMigrations is
-            // available — the runtime model strips that annotation. Mirrors
-            // ValidateImportedSchemaAsync's filter so FTS5 / virtual tables
-            // marked ExcludeFromMigrations don't produce spurious mismatches.
-            var designTimeModel = dbContext.GetService<IDesignTimeModel>().Model;
-            foreach (var entityType in designTimeModel.GetEntityTypes())
-            {
-                var tableName = entityType.GetTableName();
-                if (string.IsNullOrEmpty(tableName)
-                    || entityType.IsOwned()
-                    || entityType.IsTableExcludedFromMigrations())
-                {
-                    continue;
-                }
-
-                // PRAGMA table_info is the SQLite-canonical introspection
-                // path. SELECT * LIMIT 0 is unreliable here — some drivers
-                // (this one included) only populate column metadata when at
-                // least one row is materialized, leaving FieldCount=0 on
-                // empty results and miscounting every column as missing.
-                cmd.CommandText = $"PRAGMA table_info(\"{tableName}\")";
-                cmd.Parameters.Clear();
-
-                var actualColumns = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                await using (var reader = await cmd.ExecuteReaderAsync())
-                {
-                    // table_info row shape: cid, name, type, notnull, dflt_value, pk
-                    while (await reader.ReadAsync())
-                    {
-                        actualColumns.Add(reader.GetString(1));
-                    }
-                }
-
-                var expectedColumns = entityType.GetProperties()
-                    .Where(p => !p.IsShadowProperty())
-                    .Select(p => p.GetColumnName())
-                    .Where(c => !string.IsNullOrEmpty(c))
-                    .Select(c => c)
-                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
-
-                foreach (var expectedColumn in expectedColumns)
-                {
-                    if (!actualColumns.Contains(expectedColumn))
-                    {
-                        mismatches.Add(new SchemaMismatch(tableName, expectedColumn, null));
-                    }
-                }
-
-                foreach (var actualColumn in actualColumns)
-                {
-                    if (!expectedColumns.Contains(actualColumn))
-                    {
-                        mismatches.Add(new SchemaMismatch(tableName, null, actualColumn));
-                    }
-                }
-            }
-
-            return new RecoveryResult(mismatches.Count == 0, mismatches);
-        }
-        catch
-        {
-            return new RecoveryResult(false, mismatches);
-        }
-        finally
-        {
-            if (connection.State == System.Data.ConnectionState.Open)
-            {
-                await connection.CloseAsync();
-            }
-        }
+        services.AddScoped<TNotifier>();
+        services.AddScoped<IDbInitNotifier>(sp => sp.GetRequiredService<TNotifier>());
+        return services;
     }
 }

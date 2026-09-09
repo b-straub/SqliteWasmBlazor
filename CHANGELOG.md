@@ -7,48 +7,61 @@ All notable changes to SqliteWasmBlazor are documented in this file.
 ### A Note on the Development Delay
 > **A quick update from the maintainer:** You might have noticed a lack of updates over the past few weeks. My development pipeline was hit hard when Anthropic made their services more or less unusable for my workflow. That situation has since been resolved — development is back on **Claude (Opus 5 / Fable 5)** and fully on track again!
 
-### Migrations Run When the Database Can Be Opened
+### Nothing Initializes in `Program.cs` Any More
 
-Pending migrations were applied inside `InitializeSqliteWasmDatabaseAsync`, in
-`Program.cs`, before the app rendered. That is a point in time defined by when
-the host happens to call the helper rather than by when the database can be
-opened, and the two only coincide for a plain pool.
+Database initialization used to run from `Program.cs`, before the app rendered.
+That was wrong for two independent reasons, and both are gone.
 
-An encrypted pool is locked at every boot — its key comes from a WebAuthn
-ceremony that cannot run before there is a UI — so boot reported
-`ENCRYPTED_LOCKED` and returned, and nothing came back for the migration
-afterwards. `UnlockAsync` installed the key, verified the manifest and reported
-`READY` over whatever schema was on disk. A consumer with a pending migration on
-an encrypted pool met it as `no such column` at their first query.
+An **encrypted pool is locked at every boot** — its key comes from a WebAuthn
+ceremony that cannot run before the app renders — so boot reported
+`ENCRYPTED_LOCKED`, returned, and nothing came back for the migration.
+`UnlockAsync` then reported `READY` over whatever schema was on disk. And a
+migration over a populated database takes seconds, which from `Program.cs` are
+seconds of blank page with nothing able to say why.
 
-The helper now registers the work and it runs once the database is openable:
+`Program.cs` now only declares:
+
+```csharp
+builder.Services.AddSqliteWasm(o => o.BaseHref = baseHref);
+builder.Services.AddSqliteWasmDbContext<TodoDbContext>();
+builder.Services.AddSqliteWasmDbContext<NoteDbContext>();
+```
 
 ```razor
 @* MainLayout.razor — once, anywhere in the layout. Renders nothing. *@
 <SqliteWasmDatabaseInitializer/>
 ```
 
-- **Breaking:** awaiting `InitializeSqliteWasmDatabaseAsync` no longer implies a
-  current schema. It means the worker is up. Hosts that use the typed helper
-  must add `<SqliteWasmDatabaseInitializer/>` to their layout, or migrations
-  never run. ADO-only hosts (`InitializeSqliteWasmAsync`) register no schema
-  work and are unaffected.
-- The component drives every registered context; on an encrypted pool it finds
-  the database not openable, leaves the work owed, and `UnlockAsync` runs it.
-  One migration site, reached by both, with no branch that can skip it.
-- Running after the first render is also what makes the work reportable:
-  `DbInitState.MIGRATING` is announced by the first context that finds something
-  pending — not up front, because most starts have nothing to do and a state
-  that flashes every time teaches people to ignore it.
-- `DatabaseErrorAlert` is now `DatabaseInformationAlert`: it renders
-  `MIGRATING` and `INITIALIZING` as an indeterminate progress bar alongside the
-  failure states it already handled.
+- **Breaking: `InitializeSqliteWasmDatabaseAsync<TContext>()` and
+  `InitializeSqliteWasmAsync()` are removed.** Declare contexts with
+  `AddSqliteWasmDbContext<T>()` and add the component. Every host needs the
+  component, ADO-only ones included: starting the worker is part of what it does.
+  A host that omits it gets an immediate `InvalidOperationException` naming it at
+  the first database operation, not a stale schema.
+- **Breaking: a multi-tab conflict is reported, not thrown.** The ADO-only entry
+  point used to throw out of `Program.cs`; initialization now runs inside a
+  render, where throwing replaces the app with Blazor's error page. `TAB_LOCKED`
+  goes to `IDbInitializationStatus` and `<DatabaseInformationAlert/>` renders it
+  with a reload button.
+- Contexts are migrated in **declaration order**, stopping at the first failure,
+  so declare the one whose diagnosis matters most first.
+- `ISqliteWasmInitializer.InitializeAsync()` is idempotent and awaitable. Blazor
+  runs `OnAfterRenderAsync` child-before-parent, so a routed page can render
+  before the layout — code in that position awaits it directly.
+- New `IDbInitNotifier` seam: the library reports states, the host writes the
+  sentences. It carries no text, because the base package has no localization and
+  no UI framework. The Demo maps it onto `StatusModel`; hosts that register none
+  get `NullDbInitNotifier`.
+- `DatabaseErrorAlert` is now `DatabaseInformationAlert`: it renders `MIGRATING`
+  and `INITIALIZING` as an indeterminate progress bar alongside the failure
+  states it already handled.
 
-Three ordering faults fixed with it, each a live defect: a second unlock never
-re-reported `READY`, so a lock/unlock cycle left every `AuthorizeView` bound to
-`DatabaseOpen` shut; a host with no registered contexts reported nothing and
-stayed locked; and re-driving initialization accumulated a duplicate step per
-call while suppressing re-diagnosis.
+This also fixes a defect that only appeared with more than one context on an
+encrypted pool. Because the old entry point was generic, it ran once per context
+and bailed early on a terminal state — so if the first context left the pool
+`ENCRYPTED_LOCKED`, the second was never registered at all, and after unlock only
+the first database migrated. Declaration removes the failure mode rather than
+guarding it.
 
 ### Moving Databases Around Is a Plain-Plane Job
 

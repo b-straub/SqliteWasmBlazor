@@ -9,19 +9,18 @@ namespace SqliteWasmBlazor.TestApp.TestInfrastructure.Tests.Migrations.Upgrade;
 /// </summary>
 /// <remarks>
 /// <para>
-/// Boot registers the schema work; something after the first render runs it.
-/// The two halves matter separately, so both are asserted: an unlocked pool
-/// must still be at V1 when <c>InitializeSqliteWasmDatabaseAsync</c> returns,
-/// and a locked one must still owe the work after a component has already
-/// tried to drive it.
+/// An encrypted pool is locked at every boot: the key comes from a WebAuthn
+/// ceremony that cannot run before the app renders. So initialization has to
+/// survive being driven while the pages are still ciphertext, and the unlock
+/// has to be what finishes it. Get either wrong and the migration is silently
+/// never applied — the consumer meets it as <c>no such column</c> at their
+/// first query.
 /// </para>
 /// <para>
-/// The locked half is the regression. An encrypted pool is locked at every
-/// boot — the key comes from a WebAuthn ceremony that cannot run before the
-/// app renders — so if registration happens after the ENCRYPTED_LOCKED
-/// early-return, or if unlock does not drive the work, the migration is
-/// silently never applied and the consumer meets it as <c>no such column</c>
-/// at their first query.
+/// The locked phase also covers the multi-context invariant. This app declares
+/// <c>TodoDbContext</c> before <c>MigrationProbeContext</c>, so the probe
+/// reaching V2 proves the sequence ran past the first declaration rather than
+/// stopping at it.
 /// </para>
 /// </remarks>
 internal sealed class BootDeferredMigrationTest(
@@ -41,14 +40,11 @@ internal sealed class BootDeferredMigrationTest(
 
     public override string Name => "Migration_BootDefersAndUnlockApplies";
 
-    private IDbInitializationReporter Reporter =>
-        Services.GetRequiredService<IDbInitializationReporter>();
-
     private IDbInitializationStatus Status =>
         Services.GetRequiredService<IDbInitializationStatus>();
 
-    private IDbSchemaInitializer Schema =>
-        Services.GetRequiredService<IDbSchemaInitializer>();
+    private ISqliteWasmInitializer Initializer =>
+        Services.GetRequiredService<ISqliteWasmInitializer>();
 
     protected override async ValueTask PrepareAsync()
     {
@@ -86,8 +82,8 @@ internal sealed class BootDeferredMigrationTest(
     }
 
     /// <summary>
-    /// An unlocked pool: boot registers the work and leaves it, and the first
-    /// render is what applies it.
+    /// An unlocked pool: the staged database stays at V1 until something drives
+    /// initialization, and driving it applies the migration.
     /// </summary>
     private async ValueTask<string?> RunUnlockedPhaseAsync()
     {
@@ -97,26 +93,20 @@ internal sealed class BootDeferredMigrationTest(
             return $"FAIL[unlocked]: staged {seeded} rows, expected {SeedRows}";
         }
 
-        Reporter.Report(DbInitState.NOT_STARTED);
-        await Services.InitializeSqliteWasmDatabaseAsync<MigrationProbeContext>();
-
-        if (Status.State != DbInitState.INITIALIZING)
-        {
-            return $"FAIL[unlocked]: expected INITIALIZING after boot — the work is " +
-                   $"registered, not run — got {Status.State}";
-        }
-
         await using (var staged = await Factory.CreateDbContextAsync())
         {
             if (await IndexExistsAsync(staged))
             {
-                return "FAIL[unlocked]: boot applied the migration. It runs when the UI " +
-                       "exists, so that a long one can be reported.";
+                return "FAIL[unlocked]: the staged database is already at V2 — " +
+                       "there is no pending migration left to observe";
             }
         }
 
-        // What <SqliteWasmDatabaseInitializer /> does on first render.
-        await Schema.EnsureSchemaAsync();
+        // What <SqliteWasmDatabaseInitializer /> does on first render. Reset
+        // first: initialization already ran at boot, and without it this would
+        // re-report that outcome instead of looking at what was just staged.
+        Initializer.Reset();
+        await Initializer.InitializeAsync();
 
         if (Status.State != DbInitState.READY)
         {
@@ -128,9 +118,9 @@ internal sealed class BootDeferredMigrationTest(
     }
 
     /// <summary>
-    /// An encrypted pool, locked at boot — every encrypted boot. The work has
-    /// to survive the ENCRYPTED_LOCKED early return, ignore a component that
-    /// drives it while the pages are still ciphertext, and run at unlock.
+    /// An encrypted pool, locked at boot — every encrypted boot. Initialization
+    /// has to leave the work owed while the pages are ciphertext, stay that way
+    /// however many times it is driven, and finish at unlock.
     /// </summary>
     private async ValueTask<string?> RunLockedPhaseAsync()
     {
@@ -150,22 +140,23 @@ internal sealed class BootDeferredMigrationTest(
             return $"FAIL[locked]: expected Encrypted+Locked before boot, got {locked}";
         }
 
-        Reporter.Report(DbInitState.NOT_STARTED);
-        await Services.InitializeSqliteWasmDatabaseAsync<MigrationProbeContext>();
+        Initializer.Reset();
+        await Initializer.InitializeAsync();
 
         if (Status.State != DbInitState.ENCRYPTED_LOCKED)
         {
-            return $"FAIL[locked]: expected ENCRYPTED_LOCKED after boot, got {Status.State}";
+            return $"FAIL[locked]: expected ENCRYPTED_LOCKED after initialization, " +
+                   $"got {Status.State}";
         }
 
-        // A component renders while the pool is still locked. Reading pending
-        // migrations here would be reading ciphertext, so this must do nothing
-        // — and, more importantly, must not mark the work done.
-        await Schema.EnsureSchemaAsync();
+        // A second render drives it again. Reading pending migrations here would
+        // be reading ciphertext, so this must do nothing — and, more importantly,
+        // must not mark the work done.
+        await Initializer.InitializeAsync();
 
         if (Status.State != DbInitState.ENCRYPTED_LOCKED)
         {
-            return $"FAIL[locked]: driving the schema work on a locked pool changed the " +
+            return $"FAIL[locked]: driving initialization on a locked pool changed the " +
                    $"state to {Status.State}. It is not openable yet.";
         }
 

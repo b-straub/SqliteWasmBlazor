@@ -103,7 +103,7 @@ public static class CryptoUiServiceCollectionExtensions
         // reactive DbStateModel. ObservableModels.Initialize already
         // registered DbStateModel as a Singleton; bind the IDbInitialization*
         // interfaces to it so base-package writers (EncryptedSqliteWasmDatabaseService,
-        // InitializeSqliteWasmDatabaseAsync) push state through the model's
+        // ISqliteWasmInitializer) push state through the model's
         // partial-property pipeline. Hosts that don't reference Crypto.UI
         // keep the plain DbInitializationService and don't get reactivity.
         services.Replace(ServiceDescriptor.Singleton<IDbInitializationStatus>(

@@ -167,12 +167,16 @@ services.AddDbContextFactory<MyContext>(options =>
     options.UseSqliteWasm(connection);
 });
 
+// Declare the context; migrations are applied after the first render
+builder.Services.AddSqliteWasmDbContext<MyContext>();
+
 var host = builder.Build();
-
-// Initialize with automatic migrations
-await host.Services.InitializeSqliteWasmDatabaseAsync<MyContext>();
-
 await host.RunAsync();
+```
+
+```razor
+@* MainLayout.razor *@
+<SqliteWasmDatabaseInitializer/>
 ```
 
 ### Option 2: Standalone ADO.NET (No EF Core)
@@ -182,11 +186,12 @@ await host.RunAsync();
 var builder = WebAssemblyHostBuilder.CreateDefault(args);
 
 var host = builder.Build();
-
-// Initialize worker bridge only
-await host.Services.InitializeSqliteWasmAsync();
-
 await host.RunAsync();
+```
+
+```razor
+@* MainLayout.razor — starts the worker; no context declared, nothing to migrate *@
+<SqliteWasmDatabaseInitializer/>
 ```
 
 ```csharp
@@ -209,8 +214,8 @@ while (await reader.ReadAsync())
 ### Option 3: Direct Worker Bridge (Low-Level)
 
 ```csharp
-// Program.cs - same as Option 2
-await host.Services.InitializeSqliteWasmAsync();
+@* MainLayout.razor - same as Option 2 *@
+<SqliteWasmDatabaseInitializer/>
 ```
 
 ```csharp

@@ -56,12 +56,14 @@ builder.Services.AddCryptoUIPrfAuthenticator();      // WebAuthn-PRF auth seam
 builder.Services.AddDbContextFactory<MyDbContext>(opt =>
     opt.UseSqliteWasm("Data Source=mydb.db"));
 
+builder.Services.AddSqliteWasmDbContext<MyDbContext>();
+
 var host = builder.Build();
-await host.Services.InitializeSqliteWasmDatabaseAsync<MyDbContext>(opt =>
-{
-    opt.BaseHref = builder.HostEnvironment.BaseAddress;
-    opt.AssetRoot = "_content/SqliteWasmBlazor/";
-});
+```
+
+```razor
+@* MainLayout.razor. On an encrypted pool this waits for the unlock. *@
+<SqliteWasmDatabaseInitializer/>
 ```
 
 Consumer pages wrap content in `<AuthorizeView Policy="DatabaseOpen">`.

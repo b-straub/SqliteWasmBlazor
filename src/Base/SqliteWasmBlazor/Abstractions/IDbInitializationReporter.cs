@@ -5,7 +5,7 @@ namespace SqliteWasmBlazor;
 
 /// <summary>
 /// Write side of the boot status surface. Library boot helpers
-/// (<c>InitializeSqliteWasmAsync</c>, <c>InitializeSqliteWasmDatabaseAsync</c>)
+/// (<see cref="ISqliteWasmInitializer"/>)
 /// report through this; downstream packages and apps composing additional
 /// boot stages may also report their own <see cref="IDbInitFailure"/>s.
 ///

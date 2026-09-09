@@ -61,6 +61,12 @@ builder.Services.AddDbContextFactory<NoteDbContext>(options =>
 var baseHref = new Uri(builder.HostEnvironment.BaseAddress).AbsolutePath;
 builder.Services.AddSqliteWasm(o => o.BaseHref = baseHref);
 
+// Declare the contexts <SqliteWasmDatabaseInitializer/> migrates, in the order
+// it should migrate them. Nothing touches the database here — that happens once
+// MainLayout has rendered, so a long migration has somewhere to report.
+builder.Services.AddSqliteWasmDbContext<TodoDbContext>();
+builder.Services.AddSqliteWasmDbContext<NoteDbContext>();
+
 // Base-plane crypto (SubtleCrypto + @awasm/noble) and the production
 // IPrfAuthenticator bridge consumed by Crypto.UI's AuthenticationPanel.
 // Salt defaults to PrfOptions.Salt (no user identity in the demo);
@@ -88,6 +94,10 @@ SqliteWasmBlazor.Demo.ObservableModels.Initialize(builder.Services);
 // <BlazorWebAssemblyLoadAllGlobalizationData>true</> in the csproj, this
 // makes navigator.language drive panel text at boot.
 builder.Services.AddLocalization();
+
+// Boot progress as snackbar text. The library reports states; this turns them
+// into sentences, because the base package has no localization of its own.
+builder.Services.AddDbInitNotifier<DemoDbInitNotifier>();
 
 // The host seam, bound to both interfaces it satisfies: the panels resolve
 // IHostRecoveryService for the reset affordance (hidden when
@@ -123,9 +133,5 @@ SqliteWasmLogger.SetLogLevel(LogLevel.Information);
 #else
 SqliteWasmLogger.SetLogLevel(LogLevel.Error);
 #endif
-
-// Initialize SqliteWasm databases with migration support
-await host.Services.InitializeSqliteWasmDatabaseAsync<TodoDbContext>();
-await host.Services.InitializeSqliteWasmDatabaseAsync<NoteDbContext>();
 
 await host.RunAsync();

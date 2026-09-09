@@ -33,16 +33,19 @@ await dbContext.Database.MigrateAsync();
 
 ### When migrations run
 
-Migrations are applied by `<SqliteWasmDatabaseInitializer/>`, not by
-`InitializeSqliteWasmDatabaseAsync`. The `Program.cs` call registers the work;
-the component runs it after the first render.
+Migrations are applied by `<SqliteWasmDatabaseInitializer/>`. `Program.cs` only
+declares which contexts it should migrate:
+
+```csharp
+builder.Services.AddSqliteWasmDbContext<TodoDbContext>();
+```
 
 ```razor
 @* MainLayout.razor — once, anywhere in the layout. Renders nothing. *@
 <SqliteWasmDatabaseInitializer/>
 ```
 
-Two reasons for the split:
+Two reasons nothing initializes during startup:
 
 - **It can be reported.** A migration over a populated database takes seconds.
   Run from `Program.cs` it happens before there is a UI, so the app is a blank
@@ -52,16 +55,21 @@ Two reasons for the split:
 - **An encrypted pool cannot be opened at boot.** Reading pending migrations
   means reading `__EFMigrationsHistory`, and on a locked pool those pages are
   ciphertext. The key arrives from a WebAuthn ceremony that needs a UI, so
-  `UnlockAsync` is the earliest possible moment — and it drives the same
-  registered work.
+  `UnlockAsync` is the earliest possible moment — and it finishes the same work.
 
-Awaiting `InitializeSqliteWasmDatabaseAsync` therefore means the worker is up,
-not that the schema is current. Query only once the database is open — reactive
-components do this by working from `OnAfterRenderAsync`, and
-`<AuthorizeView Policy="DatabaseOpen">` gates on the same state.
+Contexts are migrated in declaration order, and the sequence stops at the first
+failure, so declare the one whose diagnosis matters most first.
 
-ADO-only hosts use `InitializeSqliteWasmAsync`, register no schema work, and do
-not need the component.
+Query only once the database is open — reactive components do this by working
+from `OnAfterRenderAsync`, and `<AuthorizeView Policy="DatabaseOpen">` gates on
+the same state.
+
+ADO-only hosts declare no contexts and have nothing to migrate, but still need
+the component: starting the worker is part of what it does.
+
+Blazor runs `OnAfterRenderAsync` child-before-parent, so a routed page can run
+before the layout hosting the component. Code in that position should await
+`ISqliteWasmInitializer.InitializeAsync()` itself — the call is idempotent.
 
 ## Full-Text Search (FTS5)
 
@@ -181,9 +189,8 @@ and row counts while schema and parameter values stay withheld.
 One level, set once, for the worker and the main-thread half of the bridge:
 
 ```csharp
-// In Program.cs, before InitializeSqliteWasmAsync /
-// InitializeSqliteWasmDatabaseAsync so worker startup and the database opens
-// are covered too.
+// In Program.cs. The worker starts after the first render, so anything set
+// here is in place before startup and the database opens are traced too.
 SqliteWasmLogger.SetLogLevel(LogLevel.Debug);
 ```
 

@@ -84,6 +84,13 @@ builder.Services.AddDbContextFactory<PrfVfsTestContext>(options =>
 var baseHref = new Uri(builder.HostEnvironment.BaseAddress).AbsolutePath;
 builder.Services.AddSqliteWasm(o => o.BaseHref = baseHref);
 
+// Declared, not initialized — <SqliteWasmDatabaseInitializer/> and the test
+// harness drive this after the first render. TodoDbContext is first on purpose:
+// initialization stops at the first context that fails, and the recovery tests
+// stage a broken TodoDb schema and assert on the diagnosis it produces.
+builder.Services.AddSqliteWasmDbContext<TodoDbContext>();
+builder.Services.AddSqliteWasmDbContext<MigrationProbeContext>();
+
 // Which worker bundle this run boots. `?plane=plain` leaves the Crypto
 // services unregistered, so the bridge stays on _content/SqliteWasmBlazor/ —
 // the only way base's own worker cases (replaceDb, the import sessions, the
@@ -126,42 +133,9 @@ var host = builder.Build();
 SqliteWasmLogger.SetLogLevel(LogLevel.Debug);
 #endif
 
-// Initialize sqlite-wasm worker
-await host.Services.InitializeSqliteWasmAsync();
-
-// Boot setup is conditional on disk state. The on-disk passkey manifest is
-// the source of truth for "is this VFS encrypted?" — wiping it (the old
-// boot ResetPoolAsync did this) would orphan any persisted ciphertext
-// across an F5 reload. Same story for the TodoDb EnsureDeletedAsync: a
-// fresh plain-recreate of TodoDb in an otherwise-encrypted pool would
-// break the disk-as-unit invariant. So we only do the destructive
-// setup when the disk is genuinely Plain. Test runs see Plain at boot
-// because each Playwright BrowserContext gets a fresh OPFS profile;
-// interactive use across F5 sees Encrypted and we leave the disk alone.
-{
-    // On the plain plane there is no manifest and nothing to preserve, so the
-    // clean-recreate below is unconditional.
-    var session = host.Services.GetService<IEncryptedSqliteWasmDatabaseService>();
-    var poolState = session is null ? null : await session.GetStateAsync();
-    if (poolState is null or { Encrypted: false })
-    {
-        using var scope = host.Services.CreateScope();
-        var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<TodoDbContext>>();
-        await using var dbContext = await factory.CreateDbContextAsync();
-
-        // Use EF Core migrations with custom SqliteWasmHistoryRepository
-        // The custom history repository disables the infinite polling lock mechanism
-        await dbContext.Database.EnsureDeletedAsync();
-        await dbContext.Database.MigrateAsync();
-
-        Console.WriteLine("[TestApp] Plain disk — TodoDb recreated for a clean test run.");
-    }
-    else
-    {
-        Console.WriteLine(
-            $"[TestApp] Pool is encrypted (manifest credentialId hint: '{poolState.Hint}'); " +
-            "preserving content across reload — Authenticate to unlock.");
-    }
-}
-
+// Initialization happens after the first render — see
+// <SqliteWasmDatabaseInitializer/> in MainLayout, and the harness in
+// SqliteWasmTests.razor, which awaits it before staging anything. The clean
+// plain-disk recreate that used to sit here moved there too: it needs an
+// initialized worker, and the harness already wipes the pool.
 await host.RunAsync();

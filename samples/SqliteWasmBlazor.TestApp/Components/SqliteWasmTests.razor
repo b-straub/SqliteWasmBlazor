@@ -9,6 +9,7 @@
 @inject IDbContextFactory<PlainVfsTestContext> PlainVfsFactory
 @inject ISqliteWasmDatabaseService DatabaseService
 @inject IServiceProvider Services
+@inject ISqliteWasmInitializer Initializer
 
 <button type="reset" hidden="@(!_running)" @onclick="@Cancel">Cancel</button>
 
@@ -77,6 +78,12 @@
 
             try
             {
+                // Before anything else: the worker has to be up. Blazor runs
+                // OnAfterRenderAsync child-before-parent, so this component
+                // beats the <SqliteWasmDatabaseInitializer/> in MainLayout.
+                // The call is idempotent, so whichever gets there first wins.
+                await Initializer.InitializeAsync();
+
                 // Test runner is "test mode" by definition — start each
                 // run-through from a clean disk regardless of what an
                 // earlier interactive session left behind. Boot in

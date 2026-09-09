@@ -268,7 +268,7 @@ internal sealed partial class SqliteWasmWorkerBridge : ISqliteWasmDatabaseServic
     }
 
     /// <summary>
-    /// Initialize the worker bridge. Invoked from <see cref="SqliteWasmServiceCollectionExtensions.InitializeSqliteWasmAsync"/>
+    /// Initialize the worker bridge. Invoked from <see cref="ISqliteWasmInitializer"/>
     /// with options resolved from DI — callers should not invoke this directly.
     /// </summary>
     /// <param name="options">Resolved <see cref="SqliteWasmOptions"/> carrying <c>BaseHref</c> and <c>AssetRoot</c>.</param>
@@ -551,8 +551,9 @@ internal sealed partial class SqliteWasmWorkerBridge : ISqliteWasmDatabaseServic
         // would 404 the worker and produce a confusing timeout. Forcing explicit init
         // at the DI layer makes the misconfiguration a visible startup error.
         throw new InvalidOperationException(
-            "SqliteWasm is not initialized. Call services.InitializeSqliteWasmAsync() " +
-            "or services.InitializeSqliteWasmDatabaseAsync<TContext>() in Program.cs before performing any database operation.");
+            "SqliteWasm is not initialized. Add <SqliteWasmDatabaseInitializer/> to your " +
+            "layout, or await ISqliteWasmInitializer.InitializeAsync() before performing any " +
+            "database operation.");
     }
 
     // Promoted from private → internal in plane-split Phase 1 so the future

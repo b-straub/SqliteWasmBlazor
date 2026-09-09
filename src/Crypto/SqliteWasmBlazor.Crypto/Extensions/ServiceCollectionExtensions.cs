@@ -82,7 +82,7 @@ public static class ServiceCollectionExtensions
         // this extension never see the encrypted-disk surface.
         services.AddSingleton<EncryptedSqliteWasmDatabaseService>();
         services.AddSingleton<IEncryptedSqliteWasmDatabaseService>(sp => sp.GetRequiredService<EncryptedSqliteWasmDatabaseService>());
-        // Plane-1-facing probe so InitializeSqliteWasmDatabaseAsync<TContext>
+        // Plane-1-facing probe so ISqliteWasmInitializer
         // can detect ENCRYPTED_LOCKED boot state without seeing plane-2 types.
         services.AddSingleton<IDatabaseLockProbe>(sp => sp.GetRequiredService<EncryptedSqliteWasmDatabaseService>());
 
@@ -145,7 +145,7 @@ public static class ServiceCollectionExtensions
         // for the rationale (depends on IPrfService for ResetPool cascade).
         services.AddSingleton<EncryptedSqliteWasmDatabaseService>();
         services.AddSingleton<IEncryptedSqliteWasmDatabaseService>(sp => sp.GetRequiredService<EncryptedSqliteWasmDatabaseService>());
-        // Plane-1-facing probe so InitializeSqliteWasmDatabaseAsync<TContext>
+        // Plane-1-facing probe so ISqliteWasmInitializer
         // can detect ENCRYPTED_LOCKED boot state without seeing plane-2 types.
         services.AddSingleton<IDatabaseLockProbe>(sp => sp.GetRequiredService<EncryptedSqliteWasmDatabaseService>());
 
