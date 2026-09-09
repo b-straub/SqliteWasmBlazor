@@ -6,7 +6,6 @@
   </Configurations>
   <Folder Name="/src/Base/">
     <Project Path="src/Base/SqliteWasmBlazor/SqliteWasmBlazor.csproj" />
-    <Project Path="src/Base/SqliteWasmBlazor.Components/SqliteWasmBlazor.Components.csproj" />
     <Project Path="src/Base/SqliteWasmBlazor.Models/SqliteWasmBlazor.Models.csproj" />
   </Folder>
   <Folder Name="/src/Crypto/">

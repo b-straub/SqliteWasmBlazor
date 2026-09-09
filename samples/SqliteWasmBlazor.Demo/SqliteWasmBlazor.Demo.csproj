@@ -30,7 +30,6 @@
     </ItemGroup>
 
     <ItemGroup>
-        <ProjectReference Include="..\..\src\Base\SqliteWasmBlazor.Components\SqliteWasmBlazor.Components.csproj" />
         <ProjectReference Include="..\..\src\Base\SqliteWasmBlazor.Models\SqliteWasmBlazor.Models.csproj" />
         <ProjectReference Include="..\SqliteWasmBlazor.FloatingWindow\SqliteWasmBlazor.FloatingWindow.csproj" />
     </ItemGroup>

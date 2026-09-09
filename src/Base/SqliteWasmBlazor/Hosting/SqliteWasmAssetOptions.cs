@@ -24,7 +24,7 @@ public abstract class SqliteWasmAssetOptions
     /// <summary>
     /// Path segment between <see cref="BaseHref"/> and the package's asset file
     /// names. Subclasses set their own default in the constructor (e.g.
-    /// <c>"_content/SqliteWasmBlazor.Components/"</c>). Override at registration
+    /// <c>"_content/SqliteWasmBlazor/"</c>). Override at registration
     /// time to <c>"content/&lt;Package&gt;/"</c> for Blazor.BrowserExtension
     /// builds, which flatten the underscore-prefixed path.
     /// </summary>

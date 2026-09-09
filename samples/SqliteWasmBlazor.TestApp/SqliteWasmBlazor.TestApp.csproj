@@ -27,7 +27,6 @@
         <NativeFileReference Include="..\..\src\Base\SqliteWasmBlazor\native\lib\e_sqlite3.a" />
         <ProjectReference Include="..\..\src\Base\SqliteWasmBlazor\SqliteWasmBlazor.csproj" />
         <ProjectReference Include="..\..\src\Base\SqliteWasmBlazor.Models\SqliteWasmBlazor.Models.csproj" />
-        <ProjectReference Include="..\..\src\Base\SqliteWasmBlazor.Components\SqliteWasmBlazor.Components.csproj" />
         <ProjectReference Include="..\..\src\Crypto\SqliteWasmBlazor.Crypto\SqliteWasmBlazor.Crypto.csproj" />
     </ItemGroup>
     

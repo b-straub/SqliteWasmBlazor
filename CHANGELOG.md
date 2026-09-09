@@ -7,6 +7,27 @@ All notable changes to SqliteWasmBlazor are documented in this file.
 ### A Note on the Development Delay
 > **A quick update from the maintainer:** You might have noticed a lack of updates over the past few weeks. My development pipeline was hit hard when Anthropic made their services more or less unusable for my workflow. That situation has since been resolved — development is back on **Claude (Opus 5 / Fable 5)** and fully on track again!
 
+### `SqliteWasmBlazor.Components` Is Gone
+
+The project was never packed — `IsPackable=false`, absent from all three
+`.nupkg`s, reachable only by `ProjectReference` from the two in-repo samples. It
+held four files. Two were live, two were dead, and after dealing with both there
+was nothing left.
+
+- **`MessagePackFileHeaderV2` and `SchemaHashGenerator` moved into
+  `SqliteWasmBlazor`**, under the root namespace. `ISqliteWasmDatabaseService.ImportRowsAsync`
+  documented the header type by name while it lived in an unshippable assembly,
+  so a NuGet consumer of the bulk-import API had to hand-roll it. They depend
+  only on MessagePack and the BCL, which base already carries.
+- **`FileOperationsInterop` and `SqliteWasmComponentsOptions` deleted.** The
+  interop imported `file-operations.js`, whose source had become `export {};`
+  after the download path moved to the worker's staged export. Its
+  `InitializeAsync()` call was also the last startup work left in the Demo's
+  `Program.cs`.
+
+Consumers using `SqliteWasmBlazor.Components.Interop` should drop the `using`;
+the types are in `SqliteWasmBlazor` now.
+
 ### Nothing Initializes in `Program.cs` Any More
 
 Database initialization used to run from `Program.cs`, before the app rendered.

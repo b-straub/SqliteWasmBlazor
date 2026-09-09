@@ -3,7 +3,7 @@ using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
 
-namespace SqliteWasmBlazor.Components.Interop;
+namespace SqliteWasmBlazor;
 
 /// <summary>
 /// Generates deterministic schema hashes for MessagePack-serialized types

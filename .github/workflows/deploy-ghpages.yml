@@ -52,10 +52,6 @@ jobs:
       run: npm install
       working-directory: src/Base/SqliteWasmBlazor/TypeScript
 
-    - name: Install npm dependencies (Components)
-      run: npm install
-      working-directory: src/Base/SqliteWasmBlazor.Components/TypeScript
-
     - name: Install npm dependencies (Crypto worker)
       run: npm install
       working-directory: src/Crypto/SqliteWasmBlazor.Crypto/TypeScript

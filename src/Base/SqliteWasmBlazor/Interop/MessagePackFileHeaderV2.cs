@@ -1,7 +1,7 @@
 using System.Reflection;
 using MessagePack;
 
-namespace SqliteWasmBlazor.Components.Interop;
+namespace SqliteWasmBlazor;
 
 /// <summary>
 /// V2 self-describing header for worker-side bulk import/export.
@@ -10,15 +10,19 @@ namespace SqliteWasmBlazor.Components.Interop;
 [MessagePackObject]
 public class MessagePackFileHeaderV2
 {
+    /// <summary>Format marker; always <c>SWBV2</c>. Checked by <see cref="Validate"/>.</summary>
     [Key(0)]
     public string MagicNumber { get; set; } = "SWBV2";
 
+    /// <summary>Hash of the DTO layout the file was written from, from <see cref="SchemaHashGenerator"/>.</summary>
     [Key(1)]
     public string SchemaHash { get; set; } = string.Empty;
 
+    /// <summary>The DTO type name the rows are, so an import can refuse the wrong file.</summary>
     [Key(2)]
     public string DataType { get; set; } = string.Empty;
 
+    /// <summary>Optional writing-application marker; <c>null</c> when the writer set none.</summary>
     [Key(3)]
     public string? AppIdentifier { get; set; }
 
@@ -28,6 +32,7 @@ public class MessagePackFileHeaderV2
     [Key(4)]
     public string ExportedAt { get; set; } = string.Empty;
 
+    /// <summary>How many rows follow the header.</summary>
     [Key(5)]
     public int RecordCount { get; set; }
 
@@ -37,6 +42,7 @@ public class MessagePackFileHeaderV2
     [Key(6)]
     public int Mode { get; set; }
 
+    /// <summary>The SQL table the rows belong in.</summary>
     [Key(7)]
     public string TableName { get; set; } = string.Empty;
 
@@ -53,6 +59,14 @@ public class MessagePackFileHeaderV2
     [Key(9)]
     public string PrimaryKeyColumn { get; set; } = string.Empty;
 
+    /// <summary>
+    /// Throws unless the header is well-formed and matches what the caller
+    /// expects. The import path calls this before writing anything.
+    /// </summary>
+    /// <param name="expectedType">The DTO type name the caller is importing.</param>
+    /// <param name="expectedSchemaHash">The caller's current layout hash, or <c>null</c> to skip the check.</param>
+    /// <param name="expectedAppId">The application marker to require, or <c>null</c> to skip the check.</param>
+    /// <exception cref="InvalidOperationException">The header is malformed, or describes different data.</exception>
     public void Validate(string expectedType, string? expectedSchemaHash = null, string? expectedAppId = null)
     {
         if (MagicNumber != "SWBV2")

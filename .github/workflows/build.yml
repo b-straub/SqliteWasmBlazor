@@ -57,10 +57,6 @@ jobs:
       run: npm install
       working-directory: src/Base/SqliteWasmBlazor/TypeScript
 
-    - name: Install npm dependencies (Components)
-      run: npm install
-      working-directory: src/Base/SqliteWasmBlazor.Components/TypeScript
-
     - name: Install npm dependencies (Crypto worker)
       run: npm install
       working-directory: src/Crypto/SqliteWasmBlazor.Crypto/TypeScript
@@ -81,10 +77,6 @@ jobs:
     - name: Typecheck + lint (Crypto worker)
       run: npm run typecheck && npm run lint
       working-directory: src/Crypto/SqliteWasmBlazor.Crypto/TypeScript
-
-    - name: Typecheck (Components)
-      run: npm run typecheck
-      working-directory: src/Base/SqliteWasmBlazor.Components/TypeScript
 
     # Run the vitest suites before the expensive .NET / Playwright stages.
     # These cover security-critical pure-TS logic that the browser E2E run
@@ -129,9 +121,6 @@ jobs:
 
     - name: Build SqliteWasmBlazor.Models
       run: dotnet build src/Base/SqliteWasmBlazor.Models/SqliteWasmBlazor.Models.csproj -c Release
-
-    - name: Build SqliteWasmBlazor.Components
-      run: dotnet build src/Base/SqliteWasmBlazor.Components/SqliteWasmBlazor.Components.csproj -c Release
 
     - name: Build SqliteWasmBlazor.Crypto — auto-pack
       run: dotnet build src/Crypto/SqliteWasmBlazor.Crypto/SqliteWasmBlazor.Crypto.csproj -c Release

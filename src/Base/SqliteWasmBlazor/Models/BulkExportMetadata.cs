@@ -33,7 +33,7 @@ public record BulkExportMetadata
     public IReadOnlyList<TableExportSpec> Tables { get; init; } = [];
 
     // --- Plain-path fields. These describe a single table and mirror the V2
-    // MessagePack header the worker reads (SqliteWasmBlazor.Components'
+    // MessagePack header the worker reads (this package's
     // MessagePackFileHeaderV2). The encrypted delta path ignores every one of
     // them — it takes its per-table spec from Tables instead.
 

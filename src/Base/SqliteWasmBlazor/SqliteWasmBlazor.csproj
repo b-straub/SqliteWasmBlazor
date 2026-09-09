@@ -84,10 +84,10 @@
     <!-- Exclude TypeScript source workspaces from NuGet pack AND publish
          output. The Razor SDK otherwise treats `TypeScript/package.json`
          etc. as static web assets and conflicts at `dotnet publish` time
-         with the sibling SqliteWasmBlazor.Components/TypeScript/ source
-         tree (NETSDK1152: same relative path). The TS-bundled outputs ship
-         from bundles/ and are registered as StaticWebAsset items by the
-         BuildTypeScriptBundles target, never as Content. -->
+         with another package's TypeScript/ tree (NETSDK1152: same relative
+         path). The TS-bundled outputs ship from bundles/ and are registered
+         as StaticWebAsset items by the BuildTypeScriptBundles target, never
+         as Content. -->
     <Content Remove="TypeScript/**" />
     <None Remove="TypeScript/**" />
     <Content Remove="TypeScript-Crypto/**" />

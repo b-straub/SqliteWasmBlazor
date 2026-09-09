@@ -8,7 +8,6 @@ using SqliteWasmBlazor.Crypto.UI.Services;
 using SqliteWasmBlazor.Demo.Services;
 using SqliteWasmBlazor.FloatingWindow.Extensions;
 using SqliteWasmBlazor;
-using SqliteWasmBlazor.Components.Interop;
 using SqliteWasmBlazor.Demo;
 using SqliteWasmBlazor.Models;
 
@@ -112,9 +111,6 @@ builder.Services.AddHostRecoveryService<DemoHostDatabaseService>();
 // this binding the DI validator fails the whole graph at boot with
 // "CannotResolveService ISessionAuthenticator".
 builder.Services.AddScoped<ISessionAuthenticator, DemoSessionAuthenticator>();
-
-// Initialize FileOperations JS module for import/export
-await FileOperationsInterop.InitializeAsync();
 
 var host = builder.Build();
 
