@@ -76,14 +76,11 @@ builder.Services.AddSqliteWasmDbContext<NoteDbContext>();
 - `DatabaseErrorAlert` is now `DatabaseInformationAlert`: it renders `MIGRATING`
   and `INITIALIZING` as an indeterminate progress bar alongside the failure
   states it already handled.
-- `MIGRATING` is reported only once a migration has been running for
-  `SqliteWasmOptions.MigrationAnnounceDelay` (500 ms by default). Nothing
-  available beforehand says whether the work will be slow — "are migrations
-  pending?" is true on every first run, because a database with none applied has
-  all of them pending — so the announcement waits and sees. An empty database is
-  created in silence; an upgrade over real rows shows a progress state for
-  exactly as long as it takes. Set the delay to `TimeSpan.Zero` to announce
-  every migration.
+- `MIGRATING` is reported whenever there are migrations to apply, for as long as
+  they take. Note that a database being created reports it too, briefly — every
+  migration counts as pending when none have been applied. Whether a state that
+  short belongs on screen is a presentation question, settled where the status is
+  rendered rather than by the library guessing at durations.
 
 This also fixes a defect that only appeared with more than one context on an
 encrypted pool. Because the old entry point was generic, it ran once per context

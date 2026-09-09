@@ -51,9 +51,9 @@ Two reasons nothing initializes during startup:
   Run from `Program.cs` it happens before there is a UI, so the app is a blank
   page for the duration. Run after the first render it can report
   `DbInitState.MIGRATING`, which is what `<DatabaseInformationAlert/>` renders
-  as a progress bar. Only migrations still running after
-  `SqliteWasmOptions.MigrationAnnounceDelay` (500 ms) are announced, so creating
-  a database — where every migration counts as pending — passes in silence.
+  as a progress bar. It is reported whenever there is work, including the brief
+  moment when a database is first created — every migration counts as pending
+  when none have been applied.
 - **An encrypted pool cannot be opened at boot.** Reading pending migrations
   means reading `__EFMigrationsHistory`, and on a locked pool those pages are
   ciphertext. The key arrives from a WebAuthn ceremony that needs a UI, so

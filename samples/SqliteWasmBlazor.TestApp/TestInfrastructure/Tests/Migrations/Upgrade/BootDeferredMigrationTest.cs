@@ -1,5 +1,4 @@
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Options;
 using SqliteWasmBlazor.Crypto;
 
 namespace SqliteWasmBlazor.TestApp.TestInfrastructure.Tests.Migrations.Upgrade;
@@ -49,9 +48,6 @@ internal sealed class BootDeferredMigrationTest(
 
     private RecordingDbInitNotifier Reported =>
         Services.GetRequiredService<RecordingDbInitNotifier>();
-
-    private SqliteWasmOptions Options =>
-        Services.GetRequiredService<IOptions<SqliteWasmOptions>>().Value;
 
     protected override async ValueTask PrepareAsync()
     {
@@ -112,28 +108,13 @@ internal sealed class BootDeferredMigrationTest(
         // What <SqliteWasmDatabaseInitializer /> does on first render. Reset
         // first: initialization already ran at boot, and without it this would
         // re-report that outcome instead of looking at what was just staged.
-        //
-        // The window is forced to zero for this phase: an index over
-        // SeedRows rows finishes well inside the default, and the point here is
-        // that the announcement happens at all, not how long it waits. The
-        // default window is what the two quiet cases below assert against.
-        var announceDelay = Options.MigrationAnnounceDelay;
-        Options.MigrationAnnounceDelay = TimeSpan.Zero;
-
         Reported.Clear();
         Initializer.Reset();
-        try
-        {
-            await Initializer.InitializeAsync();
-        }
-        finally
-        {
-            Options.MigrationAnnounceDelay = announceDelay;
-        }
+        await Initializer.InitializeAsync();
 
         if (!Reported.States.Contains(DbInitState.MIGRATING))
         {
-            return "FAIL[unlocked]: migrating with a zero announce window said nothing — " +
+            return "FAIL[unlocked]: applying a pending migration reported no MIGRATING — " +
                    $"reported [{string.Join(", ", Reported.States)}]";
         }
 
@@ -155,7 +136,7 @@ internal sealed class BootDeferredMigrationTest(
             return quiet;
         }
 
-        return await AssertQuietOnInitialCreateAsync();
+        return await AssertInitialCreateLandsCurrentAsync();
     }
 
     /// <summary>
@@ -246,24 +227,21 @@ internal sealed class BootDeferredMigrationTest(
     }
 
     /// <summary>
-    /// Creating a database from nothing is not an upgrade, and must not say it
-    /// is.
+    /// Creating a database from nothing goes through the same path and lands on
+    /// a current schema.
     /// </summary>
     /// <remarks>
     /// Every migration counts as pending on a database that has had none
-    /// applied, so "is anything pending?" is true here — which is why this is
-    /// the case that used to put MIGRATING on every first run, the most common
-    /// boot there is. Creating an empty schema finishes well inside the default
-    /// announce window, so nothing is said.
+    /// applied, so this reports MIGRATING like any other work. Whether a state
+    /// that brief belongs on screen is settled where the status is rendered.
     /// </remarks>
-    private async ValueTask<string?> AssertQuietOnInitialCreateAsync()
+    private async ValueTask<string?> AssertInitialCreateLandsCurrentAsync()
     {
         await using (var context = await Factory.CreateDbContextAsync())
         {
             await context.Database.EnsureDeletedAsync();
         }
 
-        Reported.Clear();
         Initializer.Reset();
         await Initializer.InitializeAsync();
 
@@ -273,14 +251,6 @@ internal sealed class BootDeferredMigrationTest(
                    $"({Status.Failure?.DefaultMessage ?? "no failure reported"})";
         }
 
-        if (Reported.States.Contains(DbInitState.MIGRATING))
-        {
-            return "FAIL[create]: MIGRATING was announced for an initial create — " +
-                   $"reported [{string.Join(", ", Reported.States)}]. Creating an empty " +
-                   "schema is not work anyone needs told about.";
-        }
-
-        // The quiet must not have come from doing nothing.
         await using var check = await Factory.CreateDbContextAsync();
         if (!await IndexExistsAsync(check))
         {

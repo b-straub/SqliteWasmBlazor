@@ -41,24 +41,4 @@ public sealed class SqliteWasmOptions : SqliteWasmAssetOptions
     /// parameter values. When off, nothing is timed and no message is built.
     /// </remarks>
     public bool EnableRequestTracing { get; set; }
-
-    /// <summary>
-    /// How long a migration has to be running before
-    /// <see cref="DbInitState.MIGRATING"/> is reported. Defaults to 500 ms.
-    /// </summary>
-    /// <remarks>
-    /// <para>
-    /// Whether a migration is worth showing is a question about duration, and
-    /// nothing available beforehand answers it. "Are migrations pending?" says
-    /// yes on every first run, because a database with none applied has all of
-    /// them pending — and that work is a <c>CREATE TABLE</c> on an empty file.
-    /// So the announcement waits to see: work that finishes inside this window
-    /// is never announced, and work that does not gets a progress state for as
-    /// long as it runs.
-    /// </para>
-    /// <para>
-    /// Set to <see cref="TimeSpan.Zero"/> to announce every migration.
-    /// </para>
-    /// </remarks>
-    public TimeSpan MigrationAnnounceDelay { get; set; } = TimeSpan.FromMilliseconds(500);
 }

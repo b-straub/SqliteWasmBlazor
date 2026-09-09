@@ -1,7 +1,5 @@
 using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Options;
 
 namespace SqliteWasmBlazor;
 
@@ -69,9 +67,15 @@ internal sealed class DbContextSchemaDescriptor
             var pendingMigrations = await dbContext.Database.GetPendingMigrationsAsync(cancellationToken);
             if (pendingMigrations.Any())
             {
+                // Reported whenever there is work, however briefly it lasts.
+                // Whether a state this short is worth putting on screen is a
+                // presentation question, and it is answered where the status is
+                // rendered — not here, by guessing at durations.
+                await onWorkStarting(databaseName);
+
                 try
                 {
-                    await MigrateAndAnnounceAsync(dbContext, databaseName, onWorkStarting, cancellationToken);
+                    await dbContext.Database.MigrateAsync(cancellationToken);
                 }
                 catch (Exception ex) when (ex.Message.Contains("already exists", StringComparison.OrdinalIgnoreCase) ||
                                            (ex.Message.Contains("table", StringComparison.OrdinalIgnoreCase) &&
@@ -97,46 +101,6 @@ internal sealed class DbContextSchemaDescriptor
         {
             return (DbInitState.FAILED, new GenericInitFailure(databaseName, ex));
         }
-    }
-
-    /// <summary>
-    /// Runs the migration, announcing it only if it is still going after
-    /// <see cref="SqliteWasmOptions.MigrationAnnounceDelay"/>.
-    /// </summary>
-    /// <remarks>
-    /// Nothing available before the work starts says whether it will be slow.
-    /// "Are migrations pending?" is true on every first run — a database with
-    /// none applied has all of them pending — and "has anything been applied
-    /// already?" is no better a proxy. So this does not predict: it starts the
-    /// work and announces only if it is still running when the window elapses.
-    /// An empty database is created in silence; an upgrade over real rows shows
-    /// a progress state for exactly as long as it takes.
-    /// </remarks>
-    private static async Task MigrateAndAnnounceAsync(
-        DbContext dbContext,
-        string databaseName,
-        Func<string, ValueTask> onWorkStarting,
-        CancellationToken cancellationToken)
-    {
-        var delay = dbContext.GetService<IOptions<SqliteWasmOptions>>().Value.MigrationAnnounceDelay;
-        var migrating = dbContext.Database.MigrateAsync(cancellationToken);
-
-        if (delay > TimeSpan.Zero)
-        {
-            using var announceWindow = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            var window = Task.Delay(delay, announceWindow.Token);
-
-            if (await Task.WhenAny(migrating, window) == migrating)
-            {
-                // Done inside the window — nobody needed telling.
-                await announceWindow.CancelAsync();
-                await migrating;
-                return;
-            }
-        }
-
-        await onWorkStarting(databaseName);
-        await migrating;
     }
 
     /// <summary>
