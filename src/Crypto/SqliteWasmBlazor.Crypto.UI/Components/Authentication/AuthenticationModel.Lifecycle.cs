@@ -35,6 +35,17 @@ public partial class AuthenticationModel
 {
     protected override async Task OnContextReadyAsync()
     {
+        // This panel renders in the NotAuthorized branch of
+        // <AuthorizeView Policy="DatabaseOpen">, which is what the tree shows
+        // before initialization has reported anything — so it is typically the
+        // first thing in the app to want the worker, and it renders before the
+        // layout's <SqliteWasmDatabaseInitializer/> gets its OnAfterRenderAsync
+        // (Blazor runs that child-before-parent). Without this await the
+        // manifest read below reaches a worker with no SAHPool installed and
+        // comes back "SQLite not initialized". Idempotent: whichever call
+        // arrives first does the work.
+        await Initializer.InitializeAsync();
+
         IsPrfSupported = await Authenticator.CheckPrfSupportAsync();
         if (IsPrfSupported != true)
         {

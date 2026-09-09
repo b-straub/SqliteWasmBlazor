@@ -18,6 +18,7 @@ public partial class AuthenticationModel : ObservableModel
 {
     public partial AuthenticationModel(
         IPrfAuthenticator authenticator,
+        ISqliteWasmInitializer initializer,
         IEncryptedSqliteWasmDatabaseService session,
         IPrfService prfService,
         IOptions<PrfOptions> prfOptions,

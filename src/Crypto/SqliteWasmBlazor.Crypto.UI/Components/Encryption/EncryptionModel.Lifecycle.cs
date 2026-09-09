@@ -24,6 +24,11 @@ public partial class EncryptionModel
 {
     protected override async Task OnContextReadyAsync(CancellationToken cancellationToken)
     {
+        // RefreshAsync reads pool state from the worker, and this panel can
+        // render before the layout's initializer has run — see the note in
+        // AuthenticationModel.OnContextReadyAsync. Idempotent.
+        await Initializer.InitializeAsync(cancellationToken);
+
         await RefreshAsync(cancellationToken);
     }
 

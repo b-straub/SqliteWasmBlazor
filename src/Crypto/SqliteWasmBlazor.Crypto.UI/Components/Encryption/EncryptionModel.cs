@@ -20,6 +20,7 @@ namespace SqliteWasmBlazor.Crypto.UI.Components.Encryption;
 public partial class EncryptionModel : ObservableModel
 {
     public partial EncryptionModel(
+        ISqliteWasmInitializer initializer,
         IEncryptedSqliteWasmDatabaseService session,
         ISqliteWasmDatabaseService databaseService,
         AuthenticationModel auth,
