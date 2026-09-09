@@ -125,8 +125,18 @@ public static class SqliteWasmServiceCollectionExtensions
     /// while a migration runs.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// Optional. Hosts that register none get
     /// <see cref="NullDbInitNotifier"/> and no notifications.
+    /// </para>
+    /// <para>
+    /// Registered as a singleton, and <typeparamref name="TNotifier"/> must be
+    /// able to be one: the initializer is a singleton and resolves this from
+    /// the root provider, where a scoped registration throws under scope
+    /// validation — which Blazor turns on in Development. A sink consumed by a
+    /// singleton is a singleton; a scoped one would be a different instance
+    /// every time it was told something.
+    /// </para>
     /// </remarks>
     /// <typeparam name="TNotifier">The host's implementation.</typeparam>
     /// <param name="services">The service collection.</param>
@@ -135,8 +145,8 @@ public static class SqliteWasmServiceCollectionExtensions
         this IServiceCollection services)
         where TNotifier : class, IDbInitNotifier
     {
-        services.AddScoped<TNotifier>();
-        services.AddScoped<IDbInitNotifier>(sp => sp.GetRequiredService<TNotifier>());
+        services.AddSingleton<TNotifier>();
+        services.AddSingleton<IDbInitNotifier>(sp => sp.GetRequiredService<TNotifier>());
         return services;
     }
 }

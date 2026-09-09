@@ -33,6 +33,11 @@ public readonly record struct DbInitNotification(
 /// current truth. Hosts that need neither register nothing and get
 /// <see cref="NullDbInitNotifier"/>.
 /// </para>
+/// <para>
+/// Implementations must be usable as a singleton — see
+/// <c>AddDbInitNotifier&lt;TNotifier&gt;</c> — so they may not depend on
+/// anything scoped.
+/// </para>
 /// </remarks>
 public interface IDbInitNotifier
 {
