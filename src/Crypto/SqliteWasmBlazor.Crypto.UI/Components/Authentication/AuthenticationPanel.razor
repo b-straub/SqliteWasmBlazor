@@ -15,6 +15,15 @@
    Either way one click runs one ceremony, and an abandoned prompt leaves the
    shape it started from standing — the warning goes to the status bar, not
    into a different screen. *@
+@* Nothing at all until the manifest has been read. The consumer renders this
+   in the NotAuthorized branch of <AuthorizeView Policy="DatabaseOpen">, which
+   is also what the tree shows before initialization has reported anything — so
+   on a cold start this panel is on screen before it knows which of its two
+   shapes to take, or whether a plain pool is about to open and make it moot.
+   Rendering the chrome meanwhile flashes a credential prompt at someone who
+   never needed one. *@
+@if (Model.PoolEncrypted is not null)
+{
 <MudContainer MaxWidth="MaxWidth.Small" Class="d-flex flex-column align-center justify-center" Style="min-height: 60vh;">
     <MudIcon Icon="@Icons.Material.Filled.Security"
              Color="Color.Primary"
@@ -63,7 +72,7 @@
             @Model.Localizer["Alert_PrfNotSupported"]
         </MudAlert>
     }
-    else if (Model.PoolEncrypted)
+    else if (Model.PoolEncrypted == true)
     {
         @* Encrypted VFS — sign-in only, targeted at the bound credential.
            Recovery for a passkey that is gone lives elsewhere: the host's
@@ -118,3 +127,4 @@
         </MudPaper>
     }
 </MudContainer>
+}

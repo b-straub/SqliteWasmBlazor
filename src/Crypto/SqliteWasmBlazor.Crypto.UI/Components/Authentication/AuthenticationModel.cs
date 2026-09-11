@@ -41,7 +41,14 @@ public partial class AuthenticationModel : ObservableModel
     // encrypted disk is bound to exactly one credential, so it offers sign-in
     // only — a second passkey derives a different PRF key and could never
     // unlock it. A plain disk offers sign-in and register side by side.
-    public partial bool PoolEncrypted { get; set; }
+    //
+    // Null until the manifest has actually been read, which is not the same as
+    // false and is why this is nullable. The read waits for a worker (see
+    // RefreshPoolStateAsync), so on a cold start there is a window where the
+    // answer is unknown — and a non-nullable bool made that window look like a
+    // plain pool, so the panel offered credentials before it knew whether any
+    // were wanted.
+    public partial bool? PoolEncrypted { get; set; }
 
     public partial string? RegisterDisplayName { get; set; }
 
@@ -62,7 +69,7 @@ public partial class AuthenticationModel : ObservableModel
 
     // An encrypted disk unlocks with the credential its manifest names and
     // no other, so registering is not an option there.
-    private bool CanRegister() => IsPrfSupported == true && !PoolEncrypted;
+    private bool CanRegister() => IsPrfSupported == true && PoolEncrypted == false;
 
     // One ceremony per click. A hint (encrypted disk) targets the bound
     // credential; no hint (plain disk) opens the platform's discoverable
