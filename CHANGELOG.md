@@ -79,8 +79,10 @@ builder.Services.AddSqliteWasmDbContext<NoteDbContext>();
 - `MIGRATING` is reported whenever there are migrations to apply, for as long as
   they take. Note that a database being created reports it too, briefly — every
   migration counts as pending when none have been applied. Whether a state that
-  short belongs on screen is a presentation question, settled where the status is
-  rendered rather than by the library guessing at durations.
+  short belongs on screen is a presentation question, so it is settled where the
+  status is rendered rather than by this package guessing at durations: the Demo
+  queues the message with RxBlazorV2's `StatusModel.QueueInfo` and drops it again
+  on `READY`, so a migration too quick to matter never appears.
 
 This also fixes a defect that only appeared with more than one context on an
 encrypted pool. Because the old entry point was generic, it ran once per context

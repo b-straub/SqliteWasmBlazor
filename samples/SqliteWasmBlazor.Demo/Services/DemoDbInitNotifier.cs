@@ -19,6 +19,16 @@ namespace SqliteWasmBlazor.Demo.Services;
 /// <c>&lt;DatabaseInformationAlert/&gt;</c>, which observes the same states
 /// continuously. Repeating them here would say everything twice.
 /// </para>
+/// <para>
+/// <b>Why MIGRATING is queued rather than added.</b> Every migration counts as
+/// pending on a database that has had none applied, so creating one reports
+/// MIGRATING for a few milliseconds — announcing that is how a state people
+/// should trust becomes one they learn to ignore. <c>QueueInfo</c> holds the
+/// message for <c>StatusModel.QueueWindow</c> (1s) and the
+/// <see cref="DbInitState.READY"/> branch drops it, so a migration too quick to
+/// matter is never shown while a real one still is. The failure branches need no
+/// such pairing: <c>AddError</c> cancels anything queued on its way past.
+/// </para>
 /// </remarks>
 public sealed class DemoDbInitNotifier(
     StatusModel statusModel,
@@ -32,7 +42,7 @@ public sealed class DemoDbInitNotifier(
         switch (notification.State)
         {
             case DbInitState.MIGRATING:
-                statusModel.AddInfo(
+                statusModel.QueueInfo(
                     localizer["Status_Migrating", notification.DatabaseName ?? string.Empty],
                     nameof(DemoDbInitNotifier));
                 break;
@@ -44,6 +54,9 @@ public sealed class DemoDbInitNotifier(
                 statusModel.AddError(
                     notification.Failure?.DefaultMessage ?? localizer["Status_Failed"],
                     nameof(DemoDbInitNotifier));
+                break;
+            case DbInitState.READY:
+                statusModel.CancelQueuedMessage();
                 break;
         }
 
