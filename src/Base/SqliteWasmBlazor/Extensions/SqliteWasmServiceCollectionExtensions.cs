@@ -55,8 +55,8 @@ public static class SqliteWasmServiceCollectionExtensions
         // Two seams are resolved lazily, as Func<T?>. The lock probe is
         // implemented by a service that takes this one in its own constructor,
         // so asking for the instance here is a container cycle. The notifier is
-        // optional and Scoped-friendly; holding one would pin the first scope's
-        // instance for the life of the app.
+        // optional, and a resolver keeps "not registered" a null rather than a
+        // construction-time failure.
         services.AddSingleton<ISqliteWasmInitializer>(sp => new SqliteWasmInitializer(
             sp,
             sp.GetRequiredService<IDbInitializationReporter>(),
@@ -79,6 +79,13 @@ public static class SqliteWasmServiceCollectionExtensions
     /// use its <c>AddHostRecoveryService</c> instead, which binds the same
     /// instance to the recovery interface those panels resolve as well.
     /// </para>
+    /// <para>
+    /// Registered as a singleton, and <typeparamref name="THost"/> must be
+    /// able to be one. Its consumers are singletons — the worker bridge and
+    /// the initializer — resolving from the root provider, where a scoped
+    /// registration throws under scope validation, which Blazor turns on in
+    /// Development. A seam consulted by a singleton is a singleton.
+    /// </para>
     /// </summary>
     /// <typeparam name="THost">The host's implementation.</typeparam>
     /// <param name="services">The service collection.</param>
@@ -87,8 +94,8 @@ public static class SqliteWasmServiceCollectionExtensions
         this IServiceCollection services)
         where THost : class, IHostDatabaseService
     {
-        services.AddScoped<THost>();
-        services.AddScoped<IHostDatabaseService>(sp => sp.GetRequiredService<THost>());
+        services.AddSingleton<THost>();
+        services.AddSingleton<IHostDatabaseService>(sp => sp.GetRequiredService<THost>());
         return services;
     }
 

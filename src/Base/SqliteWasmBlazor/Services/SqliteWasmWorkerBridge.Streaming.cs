@@ -45,10 +45,10 @@ internal sealed partial class SqliteWasmWorkerBridge
 
     /// <summary>
     /// Attach the host seam the import paths reconcile against. A
-    /// <em>resolver</em> rather than an instance: the seam is registered
-    /// Scoped and this bridge is a singleton, so holding one would pin the
-    /// first scope's instance forever. Absent — no registration, or a host
-    /// that never called an init helper — imports simply skip the step.
+    /// <em>resolver</em> rather than an instance so that "not registered" is
+    /// a null at the point of use rather than a failure at attach time.
+    /// Absent — no registration, or a host that never initialized — imports
+    /// simply skip the step.
     /// </summary>
     internal void AttachHostDatabaseService(Func<IHostDatabaseService?> resolve)
     {

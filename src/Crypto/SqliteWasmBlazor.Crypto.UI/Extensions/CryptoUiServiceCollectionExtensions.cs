@@ -162,8 +162,13 @@ public static class CryptoUiServiceCollectionExtensions
     /// which these panels resolve for the reset affordance, and
     /// <see cref="IHostDatabaseService"/>, which the base plane's import
     /// paths consult for owned-database names and the schema gate. One
-    /// class, one call, one scoped instance behind both.
+    /// class, one call, one instance behind both.
     /// </summary>
+    /// <remarks>
+    /// A singleton, because the base plane's consumers of it are — see
+    /// <c>AddHostDatabaseService</c>. The panels that inject it are scoped,
+    /// which is fine in that direction.
+    /// </remarks>
     /// <typeparam name="THost">The host's implementation.</typeparam>
     /// <param name="services">The service collection.</param>
     /// <returns>The service collection for chaining.</returns>
@@ -171,9 +176,9 @@ public static class CryptoUiServiceCollectionExtensions
         this IServiceCollection services)
         where THost : class, IHostRecoveryService
     {
-        services.AddScoped<THost>();
-        services.AddScoped<IHostRecoveryService>(sp => sp.GetRequiredService<THost>());
-        services.AddScoped<IHostDatabaseService>(sp => sp.GetRequiredService<THost>());
+        services.AddSingleton<THost>();
+        services.AddSingleton<IHostRecoveryService>(sp => sp.GetRequiredService<THost>());
+        services.AddSingleton<IHostDatabaseService>(sp => sp.GetRequiredService<THost>());
         return services;
     }
 }

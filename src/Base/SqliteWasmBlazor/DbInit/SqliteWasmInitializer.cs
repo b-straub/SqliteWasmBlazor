@@ -78,8 +78,6 @@ internal sealed class SqliteWasmInitializer(
         // The bridge is a singleton constructed outside the container, so it
         // cannot resolve these itself. Miss the attach and a whole-pool import
         // silently stops reporting READY, leaving every AuthorizeView shut.
-        // The host seam is passed as a resolver, not an instance: it is Scoped
-        // and the bridge is not.
         SqliteWasmWorkerBridge.Instance.AttachBootStatus(reporter, status);
         SqliteWasmWorkerBridge.Instance.AttachHostDatabaseService(services.GetService<IHostDatabaseService>);
 
