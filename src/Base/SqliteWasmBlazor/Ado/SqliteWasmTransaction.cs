@@ -90,6 +90,42 @@ public sealed class SqliteWasmTransaction : DbTransaction
     }
 
     /// <inheritdoc />
+    /// <remarks>
+    /// The override that matters. <see cref="DbTransaction.DisposeAsync"/>
+    /// defaults to calling <see cref="Dispose(bool)"/>, and the synchronous
+    /// rollback that runs cannot reach the worker — there is no sync execution
+    /// in WebAssembly, so it returns having sent nothing. An uncommitted
+    /// transaction disposed that way is marked completed here while the worker
+    /// still holds it open, and the next <c>BEGIN</c> on the connection fails
+    /// with "cannot start a transaction within a transaction". EF disposes a
+    /// failed transaction exactly this way, so the first migration to throw
+    /// used to wedge every statement after it.
+    /// </remarks>
+    public override async ValueTask DisposeAsync()
+    {
+        if (!_completed)
+        {
+            try
+            {
+                await RollbackAsync();
+            }
+            finally
+            {
+                _connection.ClearCurrentTransaction(this);
+            }
+        }
+
+        await base.DisposeAsync();
+    }
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// Cannot roll back: synchronous execution does not exist in WebAssembly,
+    /// so the ROLLBACK below is never sent and the worker keeps the
+    /// transaction. Callers that can await must use
+    /// <see cref="DisposeAsync"/>; this path only clears the bookkeeping so a
+    /// leaked transaction does not also poison the connection object.
+    /// </remarks>
     protected override void Dispose(bool disposing)
     {
         if (disposing && !_completed)
