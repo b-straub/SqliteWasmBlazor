@@ -44,14 +44,14 @@
     </div>
     <script src="_framework/blazor.webassembly.js" crossorigin="anonymous"></script>
     <script src="_content/MudBlazor/MudBlazor.min.js" crossorigin="anonymous"></script>
-    <!-- Checked in as the Release form (registers the SW + wires the
-         update-notification flow), so the deployable state is the default and a
-         publish never ships without service-worker-update.js registered.
-         DebugServiceWorker swaps this line back to a placeholder comment so the
-         dev iteration loop isn't cached; ReleaseServiceWorker swaps it forward
-         again. Both targets are in the csproj and each reverses the other, so
-         either configuration normalizes the file before the build reads it.
-         Registration is non-inline to satisfy the CSP script-src directive. -->
+    <!-- Registers the service worker and wires the update-notification flow,
+         in every configuration. The development worker (service-worker.js)
+         caches nothing, so the iteration loop is untouched; it is registered
+         anyway because query cancellation needs a service worker to carry the
+         cancel to the SQLite worker. A worker controls the page that registered
+         it from the next load on, so a fresh profile has cancellation from its
+         second load. Registration is non-inline to satisfy the CSP script-src
+         directive. -->
     <script src="service-worker-update.js"></script>
 </body>
 

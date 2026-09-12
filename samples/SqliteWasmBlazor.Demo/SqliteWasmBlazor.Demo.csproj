@@ -119,46 +119,6 @@ catch (Exception ex)
         />
     </Target>
 
-    <UsingTask TaskName="ReplaceTextInFile" TaskFactory="RoslynCodeTaskFactory"
-               AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.Core.dll">
-        <ParameterGroup>
-            <Filename ParameterType="System.String" Required="true"/>
-            <Placeholder ParameterType="System.String" Required="true"/>
-            <Replacement ParameterType="System.String" Required="true"/>
-        </ParameterGroup>
-        <Task>
-            <Using Namespace="System"/>
-            <Using Namespace="System.IO"/>
-            <Code Type="Fragment" Language="cs">
-                <![CDATA[
-try
-{
-    var input = File.ReadAllText(Filename);
-    var output = input.Replace(Placeholder, Replacement);
-    File.WriteAllText(Filename, output);
-    Console.WriteLine($"Replaced '{Placeholder}' in {Filename}");
-}
-catch (Exception ex)
-{
-    Console.WriteLine(ex.Message);
-}
-        ]]>
-            </Code>
-        </Task>
-    </UsingTask>
-
-<!-- Release: inject the service-worker bootstrap. service-worker-update.js
-         self-registers the worker (top-level call) and wires the update-
-         notification flow — one external script satisfies the CSP
-         `script-src 'self' 'wasm-unsafe-eval'` directive, no inline allowed. -->
-    <Target Name="ReleaseServiceWorker" Condition="'$(Configuration)'=='Release'" BeforeTargets="ResolveStaticWebAssetsInputs">
-        <ReplaceTextInFile
-                Filename="wwwroot\index.html"
-                Placeholder="&lt;!--SW_PLACEHOLDER--&gt;"
-                Replacement="&lt;script src=&quot;service-worker-update.js&quot;&gt;&lt;/script&gt;"
-        />
-    </Target>
-
     <Target Name="DebugSubfolder" Condition="'$(Configuration)'=='Debug'" BeforeTargets="ResolveStaticWebAssetsInputs">
         <ReplaceRegexInFile
                 Filename="wwwroot\index.html"
@@ -176,17 +136,6 @@ catch (Exception ex)
                 Filename="wwwroot\.htaccess"
                 Match="(RewriteBase ).*"
                 Default="/"
-        />
-    </Target>
-
-    <!-- Debug: ensure index.html keeps the placeholder commented (no SW in
-         dev — caching would defeat the iteration loop). Reverses the
-         Release substitution if a prior Release build left the script tag. -->
-    <Target Name="DebugServiceWorker" Condition="'$(Configuration)'=='Debug'" BeforeTargets="ResolveStaticWebAssetsInputs">
-        <ReplaceTextInFile
-                Filename="wwwroot\index.html"
-                Placeholder="&lt;script src=&quot;service-worker-update.js&quot;&gt;&lt;/script&gt;"
-                Replacement="&lt;!--SW_PLACEHOLDER--&gt;"
         />
     </Target>
 

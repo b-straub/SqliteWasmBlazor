@@ -36,7 +36,11 @@ runs at once. No `SharedArrayBuffer`, no COOP/COEP.
   cancellation. `clients.claim()` plus starting Blazor after control is taken
   closes that gap; the TestApp shows how.
 - Request tracing now reports each abandoned request as either interrupted or
-  finished anyway. The Demo's service workers carry the registry.
+  finished anyway.
+- The Demo's service workers carry the registry, and the Demo now registers its
+  service worker in Debug as well — the development worker caches nothing, so
+  the iteration loop is unchanged, and the `index.html` placeholder swap that
+  kept it out of Debug builds is gone with the targets that did it.
 
 ### `SqliteWasmBlazor.Components` Is Gone
 
