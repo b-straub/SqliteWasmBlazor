@@ -53,8 +53,8 @@ unavailable — once, as a fact, not silently.
 | G1 service-worker registry | done | `68f6347` |
 | G2 worker progress handler + JS bridge channel | done | `bcb45d8` |
 | G3 C# bridge: `CanCancelQueries`, cancel on token, TestApp cases | done | `c85c995` |
-| G4 Demo service worker | done (code); acceptance run open | (this commit) |
-| G5 docs + CHANGELOG | next | |
+| G4 Demo service worker | done (code); acceptance run open | `e6075f1` |
+| G5 docs + CHANGELOG | done | (this commit) |
 
 Decisions taken while building G1, on top of the plan:
 

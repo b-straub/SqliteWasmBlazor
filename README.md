@@ -112,6 +112,8 @@ path streams; none of them holds a database in managed memory.
 ```csharp
 public interface ISqliteWasmDatabaseService
 {
+    bool CanCancelQueries { get; }   // a service worker carries cancels to the running statement
+
     Task<IReadOnlyList<string>> ListDatabasesAsync(CancellationToken ct = default);
     Task<bool> ExistsDatabaseAsync(string databaseName, CancellationToken ct = default);
     Task DeleteDatabaseAsync(string databaseName, CancellationToken ct = default);

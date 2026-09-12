@@ -210,6 +210,79 @@ builder.Logging.AddFilter("Microsoft.EntityFrameworkCore.Database.Command", LogL
 builder.Logging.AddFilter("Microsoft.EntityFrameworkCore.Infrastructure", LogLevel.Error);
 ```
 
+## Cancelling Queries
+
+Every EF Core and ADO.NET call takes a `CancellationToken`, and cancelling it
+has always ended the *wait*. Whether it also ends the *statement* depends on
+one thing the library cannot supply itself: a service worker.
+
+The SQLite engine runs in a Web Worker, and while a statement runs that thread
+executes nothing else — a message telling it to stop would be read only after
+the statement it was meant to stop. What the thread can do from inside a
+statement is block on a synchronous `XMLHttpRequest`, and a service worker can
+answer that request without touching the network. So the bridge posts the
+cancelled request to the service worker controlling the page, and SQLite's
+progress handler asks it — once every 50 ms, a round trip of about a
+millisecond — whether the running request was cancelled. A yes aborts the
+statement with `SQLITE_INTERRUPT` and the worker moves on to the next request.
+This matters most for the search-as-you-type case: without it, the query for
+the last keystroke queues behind every abandoned predecessor.
+
+Two lines in your service worker are the whole integration:
+
+```js
+self.importScripts('_content/SqliteWasmBlazor/sqlite-wasm-cancel.sw.js');
+
+self.addEventListener('fetch', event => {
+    if (handleSqliteWasmCancel(event)) {
+        return;
+    }
+    // your own fetch handling
+});
+self.addEventListener('message', event => {
+    if (handleSqliteWasmCancel(event)) {
+        return;
+    }
+    // your own message handling
+});
+```
+
+`handleSqliteWasmCancel` claims only its own poll URL
+(`<base href>_sqlite-wasm/cancel/…`) and its own message type and returns
+`true`; for everything else it returns `false` without touching the event, so
+an offline cache or an update flow around it keeps working. The registry it
+keeps is in memory and needs nothing from you. A service worker that caches
+nothing — the one Blazor uses in development — is enough.
+
+`ISqliteWasmDatabaseService.CanCancelQueries` tells you which mode a session
+is in. It is decided once, when the worker starts, from whether a service
+worker controls the page, and logged at `Information`:
+
+```
+[Bridge] query cancellation available — a service worker controls the page
+```
+
+Without a service worker nothing changes: a cancelled token still ends the
+await with `OperationCanceledException`, the worker finishes the statement on
+its own, and the next request waits behind it. With
+`EnableRequestTracing` on, the bridge says which of the two happened to each
+abandoned request.
+
+Two things to know:
+
+- **The first load.** A service worker does not control the page that
+  registered it until the next navigation, so the very first session of a
+  fresh install runs without cancellation. A host that wants it from the
+  first load can call `clients.claim()` in the worker's `activate` handler
+  and start Blazor (`autostart="false"`, `Blazor.start()`) once
+  `navigator.serviceWorker.controller` is set — the TestApp does exactly this.
+- **Scope.** The SQLite worker's requests are intercepted only inside the
+  service worker's scope. The default `_content/SqliteWasmBlazor/` under the
+  app root is; a host serving the worker bundle from elsewhere must widen the
+  scope. If a poll ever reaches the network instead of the service worker,
+  the worker says so once (`query cancellation disabled for this session`)
+  and stops polling rather than paying a round trip every 50 ms.
+
 ## Custom EF Core Functions
 
 All EF Core functions are implemented for full compatibility:

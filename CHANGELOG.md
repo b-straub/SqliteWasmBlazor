@@ -7,6 +7,37 @@ All notable changes to SqliteWasmBlazor are documented in this file.
 ### A Note on the Development Delay
 > **A quick update from the maintainer:** You might have noticed a lack of updates over the past few weeks. My development pipeline was hit hard when Anthropic made their services more or less unusable for my workflow. That situation has since been resolved — development is back on **Claude (Opus 5 / Fable 5)** and fully on track again!
 
+### Cancelling a Query Now Stops the Query
+
+Cancelling the `CancellationToken` of an EF Core or ADO.NET call used to end
+the wait and nothing else: the worker ran the statement to completion, and the
+next request queued behind it. Measured on the Demo's encrypted FTS search, one
+keystroke's query was served after 57 s, of which its own work was 65 ms — the
+rest was eight abandoned predecessors from earlier keystrokes draining.
+
+The worker cannot be told to stop while a statement runs, but it can ask. A
+progress handler inside the statement polls the page's **service worker** over
+a synchronous XHR, once every 50 ms; the bridge posts the cancelled request
+there. A hit aborts the statement with `SQLITE_INTERRUPT`, the wait ends with
+`OperationCanceledException` bound to the caller's token, and the next request
+runs at once. No `SharedArrayBuffer`, no COOP/COEP.
+
+- **One `importScripts` is the integration.** `_content/SqliteWasmBlazor/sqlite-wasm-cancel.sw.js`
+  defines `handleSqliteWasmCancel(event)`; call it first in your service
+  worker's `fetch` and `message` listeners. It claims only its own URL and
+  message and leaves everything else alone. See *Cancelling Queries* in
+  `docs/advanced-features.md`.
+- **`ISqliteWasmDatabaseService.CanCancelQueries`** says whether a session has
+  it. Decided once at worker start and logged at `Information`. Without a
+  service worker, cancellation degrades to what it was: the wait ends, the
+  worker finishes the statement, the next request waits.
+- **First load.** A service worker controls the page that registered it only
+  from the next navigation on, so a fresh install's first session runs without
+  cancellation. `clients.claim()` plus starting Blazor after control is taken
+  closes that gap; the TestApp shows how.
+- Request tracing now reports each abandoned request as either interrupted or
+  finished anyway. The Demo's service workers carry the registry.
+
 ### `SqliteWasmBlazor.Components` Is Gone
 
 The project was never packed — `IsPackable=false`, absent from all three
