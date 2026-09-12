@@ -15,6 +15,13 @@ export const CANCEL_MESSAGE_TYPE = 'sqlite-wasm-cancel';
 /** Path, under the app's base href, that the service worker answers. */
 export const CANCEL_PATH = '_sqlite-wasm/cancel/';
 
+/**
+ * Header on every answer the registry gives. A poll that comes back without
+ * it reached the network instead — the page is controlled but the worker's
+ * requests are not intercepted — and the worker stops polling.
+ */
+export const CANCEL_ANSWER_HEADER = 'X-SqliteWasm-Cancel';
+
 export interface CancelMessage {
     type: typeof CANCEL_MESSAGE_TYPE;
     session: string;

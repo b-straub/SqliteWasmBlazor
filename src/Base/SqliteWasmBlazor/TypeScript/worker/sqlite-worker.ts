@@ -16,6 +16,7 @@ import {
     MODULE_NAME, bigIntUnpackr,
     setSqlite3, setPoolUtil, setBaseHref,
     bulkInsertRows, type BulkInsertHeader,
+    configureCancellation, runInterruptible, isInterruptError,
     openExportStaging, sweepExportStaging,
     deleteStagingFile, readStagingSlice,
     createDatabaseImportSink,
@@ -52,6 +53,8 @@ interface WorkerResponse {
     data: {
         success: boolean;
         error?: string;
+        /** The statement was aborted with SQLITE_INTERRUPT because the request was cancelled. */
+        interrupted?: boolean;
         columnNames?: string[];
         columnTypes?: string[];
         typedRows?: {
@@ -233,11 +236,14 @@ let commandSqlLogging = false;
  */
 let requestTracing = false;
 
-self.onmessage = async (event: MessageEvent<WorkerRequest | { type: 'configureLogging'; level: number; commandSql: boolean; tracing: boolean } | { type: 'init'; baseHref: string; assetRoot?: string }>) => {
+self.onmessage = async (event: MessageEvent<WorkerRequest | { type: 'configureLogging'; level: number; commandSql: boolean; tracing: boolean } | { type: 'init'; baseHref: string; assetRoot?: string; cancelSession: string | null }>) => {
     // Handle initialization with base href and asset root
     if ('type' in event.data && event.data.type === 'init' && 'baseHref' in event.data) {
         baseHref = event.data.baseHref;
         setBaseHref(baseHref);
+        // A null session says no service worker controls the page: the
+        // progress handler is then never installed and nothing is polled.
+        configureCancellation(baseHref, event.data.cancelSession);
         if (event.data.assetRoot) {
             assetRoot = event.data.assetRoot;
         }
@@ -271,7 +277,7 @@ self.onmessage = async (event: MessageEvent<WorkerRequest | { type: 'configureLo
     const { id, data, binaryPayload, binaryHeader } = event.data as WorkerRequest;
 
     try {
-        const result = await handleRequest(data, binaryPayload, binaryHeader);
+        const result = await handleRequest(id, data, binaryPayload, binaryHeader);
 
         // Check if result contains raw binary data (export operations)
         if (result && typeof result === 'object' && 'rawBinary' in result && result.rawBinary) {
@@ -305,7 +311,8 @@ self.onmessage = async (event: MessageEvent<WorkerRequest | { type: 'configureLo
             id,
             data: {
                 success: false,
-                error: error instanceof Error ? error.message : 'Unknown error'
+                error: error instanceof Error ? error.message : 'Unknown error',
+                interrupted: isInterruptError(error),
             }
         };
 
@@ -358,7 +365,7 @@ async function handleStreamingRequest(
     }
 }
 
-async function handleRequest(data: WorkerRequest['data'], binaryPayload?: ArrayBuffer, binaryHeader?: ArrayBuffer) {
+async function handleRequest(requestId: number, data: WorkerRequest['data'], binaryPayload?: ArrayBuffer, binaryHeader?: ArrayBuffer) {
     const { type, database, sql, parameters } = data;
 
     switch (type) {
@@ -381,7 +388,7 @@ async function handleRequest(data: WorkerRequest['data'], binaryPayload?: ArrayB
             // attached buffer instead of Base64 strings in the JSON.
             // convertParametersForBinding reads bytes from binaryPayload.
             return await executeSql(
-                database!, sql!, parameters || {},
+                requestId, database!, sql!, parameters || {},
                 binaryPayload ? new Uint8Array(binaryPayload) : undefined);
 
         case 'close':
@@ -685,6 +692,7 @@ function convertParametersForBinding(
 }
 
 async function executeSql(
+    requestId: number,
     dbName: string, sql: string,
     parameters: Record<string, any>,
     binaryPayload?: Uint8Array,
@@ -694,6 +702,7 @@ async function executeSql(
         throw new Error(`Database ${dbName} not open`);
     }
 
+    let execStartedAt = 0;
     try {
         if (commandSqlLogging) {
             logger.debug(MODULE_NAME, 'Executing SQL:', sql.substring(0, 100));
@@ -762,13 +771,16 @@ async function executeSql(
             }
         }
 
-        const execStartedAt = requestTracing ? performance.now() : 0;
-        const result = db.exec({
+        // Interruptible: while this runs, a cancel from the page reaches the
+        // progress handler through the service worker and aborts the
+        // statement with SQLITE_INTERRUPT. See cancel-poll.ts.
+        execStartedAt = requestTracing ? performance.now() : 0;
+        const result = runInterruptible(db, requestId, () => db.exec({
             sql: sql,
             bind: Object.keys(convertedParams).length > 0 ? convertedParams : undefined,
             returnValue: 'resultRows',
             rowMode: 'array'
-        });
+        }));
 
         if (requestTracing) {
             console.log(
@@ -835,6 +847,13 @@ async function executeSql(
 
         return pack(response);
     } catch (error) {
+        if (isInterruptError(error)) {
+            // The caller asked for this; it is not a failure of the statement.
+            if (requestTracing) {
+                console.log(`[SQLite Worker] SQL interrupted after ${(performance.now() - execStartedAt).toFixed(0)} ms`);
+            }
+            throw error;
+        }
         logger.error(MODULE_NAME, 'SQL execution failed:', error);
         logger.error(MODULE_NAME, 'SQL:', sql);
         throw error;

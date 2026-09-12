@@ -10,6 +10,8 @@ import {
     importDatabasesFromSession as importDatabasesFromSessionVia,
     logger as sqliteLogger,
     SqliteWasmLogLevel,
+    openCancellationChannel,
+    type CancellationChannel,
 } from '@sqlitewasmblazor/worker-common';
 
 /**
@@ -24,6 +26,13 @@ interface IMemoryView {
 const MODULE_NAME = 'Worker Bridge';
 
 let worker: Worker | null = null;
+
+/**
+ * Query cancellation — opened once at initializeBridge. Its session is null
+ * when no service worker controls the page, and the worker is told so in
+ * the init message; C# reads the same fact through canCancelQueries.
+ */
+let cancellation: CancellationChannel = {session: null, cancel() {}};
 
 /**
  * Streaming-response router — the half of the protocol whose payload rides
@@ -49,7 +58,8 @@ export async function initializeBridge(baseHref: string, assetRoot: string): Pro
         { type: 'module' }
     );
 
-    worker.postMessage({ type: 'init', baseHref, assetRoot });
+    cancellation = openCancellationChannel();
+    worker.postMessage({ type: 'init', baseHref, assetRoot, cancelSession: cancellation.session });
 
     worker.onmessage = async (event) => {
         if (event.data.type === 'ready') {
@@ -154,6 +164,19 @@ export function sendBinaryToWorker(memoryView: IMemoryView, metadataJson: string
     }
 }
 
+/** Whether a cancel posted from C# can reach a running statement. */
+export function canCancelQueries(): boolean {
+    return cancellation.session !== null;
+}
+
+/**
+ * C# stopped waiting for request `id`. Tells the service worker, which
+ * the SQLite worker's progress handler polls; see cancel-poll.ts.
+ */
+export function cancelRequest(id: number): void {
+    cancellation.cancel(id);
+}
+
 export const logger = {
     /**
      * Two halves to configure: this module and the streaming router run on the
@@ -216,7 +239,9 @@ export { downloadStagedExport };
     sendBinaryToWorker,
     exportDatabasesToDownload,
     importDatabasesFromSession,
-    downloadStagedExport
+    downloadStagedExport,
+    canCancelQueries,
+    cancelRequest,
 };
 
 (globalThis as any).__sqliteWasmLogger = logger;

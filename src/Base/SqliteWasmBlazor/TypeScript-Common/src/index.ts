@@ -26,3 +26,5 @@ export * from './envelope-import';
 export * from './envelope-export';
 export * from './handle-recovery';
 export * from './cancel-protocol';
+export * from './cancel-poll';
+export * from './cancel-bridge';

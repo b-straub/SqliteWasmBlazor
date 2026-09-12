@@ -8,6 +8,7 @@
 
 import {describe, expect, it} from 'vitest';
 import {
+    CANCEL_ANSWER_HEADER,
     CANCEL_MESSAGE_TYPE,
     cancelPollUrl,
     isCancelMessage,
@@ -144,11 +145,13 @@ describe('cancel event handler', () => {
         expect(handle(asEvent({type: 'activate'}))).toBe(false);
     });
 
-    it('marks its responses uncacheable', async () => {
+    it('marks its responses as its own and uncacheable', async () => {
         const handle = createCancelEventHandler();
         const event = poll('s1', 9);
         handle(asEvent(event));
 
-        expect((await event.response)?.headers.get('Cache-Control')).toBe('no-store');
+        const response = await event.response;
+        expect(response?.headers.get(CANCEL_ANSWER_HEADER)).toBe('registry');
+        expect(response?.headers.get('Cache-Control')).toBe('no-store');
     });
 });

@@ -15,7 +15,7 @@
 // it answers; an idle-terminated worker loses only entries whose requests
 // finished long ago.
 
-import {isCancelMessage, parseCancelPollUrl} from './cancel-protocol.js';
+import {CANCEL_ANSWER_HEADER, isCancelMessage, parseCancelPollUrl} from './cancel-protocol.js';
 
 /**
  * Entries older than this are dropped when the next one is added. A request
@@ -73,7 +73,7 @@ export function createCancelEventHandler(
             const cancelled = registry.isCancelled(target.session, target.id);
             fetchEvent.respondWith(new Response(null, {
                 status: cancelled ? 204 : 404,
-                headers: {'Cache-Control': 'no-store'},
+                headers: {'Cache-Control': 'no-store', [CANCEL_ANSWER_HEADER]: 'registry'},
             }));
             return true;
         }

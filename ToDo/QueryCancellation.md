@@ -50,9 +50,9 @@ unavailable — once, as a fact, not silently.
 
 | Goal | State | Commit |
 | --- | --- | --- |
-| G1 service-worker registry | done | (this commit) |
-| G2 worker progress handler | next | |
-| G3 bridge + `CanCancelQueries` + TestApp cases | open | |
+| G1 service-worker registry | done | `68f6347` |
+| G2 worker progress handler + JS bridge channel | done | (this commit) |
+| G3 C# bridge: `CanCancelQueries`, cancel on token, TestApp cases | next | |
 | G4 Demo service worker | open | |
 | G5 docs + CHANGELOG | open | |
 
@@ -68,6 +68,23 @@ Decisions taken while building G1, on top of the plan:
   is the three-line entry that binds `self.handleSqliteWasmCancel`. Importing
   the registry through worker-common's index would drag msgpackr and the
   worker state into a service worker; the subpath keeps the bundle at ~1 KB.
+
+Decisions taken while building G2:
+
+- The JS half of the bridge moved into this goal: the worker reads
+  `cancelSession` from the init message, and a worker that polls with no
+  bridge to tell it the session would poll under `undefined`. G3 is the C#
+  side only.
+- Every registry answer carries `X-SqliteWasm-Cancel: registry`. A poll that
+  comes back without it reached the network — the page is controlled but the
+  worker's fetches are not intercepted (the plan's "scope" risk) — and the
+  worker switches cancellation off for the session with one warning, instead
+  of paying a real HTTP round trip every 50 ms for the rest of the statement.
+- The handler is installed per statement and never uninstalled: the binding
+  caches the function pointer per db, so reinstalling the same function is
+  a lookup; uninstall/reinstall would allocate a table slot each time.
+- The request id is passed into `executeSql` rather than held in module
+  state: the worker's `onmessage` is async and interleaves at awaits.
 
 ## Goal tree
 
