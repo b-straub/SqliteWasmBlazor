@@ -25,3 +25,4 @@ export * from './import-session';
 export * from './envelope-import';
 export * from './envelope-export';
 export * from './handle-recovery';
+export * from './cancel-protocol';

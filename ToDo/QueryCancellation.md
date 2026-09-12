@@ -46,6 +46,29 @@ Nothing changes for a host without a service worker: the bridge detects at
 startup that no controller is present and reports that cancellation is
 unavailable — once, as a fact, not silently.
 
+## Status
+
+| Goal | State | Commit |
+| --- | --- | --- |
+| G1 service-worker registry | done | (this commit) |
+| G2 worker progress handler | next | |
+| G3 bridge + `CanCancelQueries` + TestApp cases | open | |
+| G4 Demo service worker | open | |
+| G5 docs + CHANGELOG | open | |
+
+Decisions taken while building G1, on top of the plan:
+
+- Requests are named `(session, id)`, not `id` alone. Ids restart at 1 on
+  every page load and are private to a tab, so the registry would otherwise
+  interrupt tab B's request 5 because tab A cancelled its own. The bridge
+  mints a random session token when it starts; the SW script never sees it
+  as anything but an opaque key.
+- The SW-side logic is `worker-common/cancel-registry.ts` (pure, Vitest-
+  covered) behind a subpath export; `TypeScript/sw/sqlite-wasm-cancel.sw.ts`
+  is the three-line entry that binds `self.handleSqliteWasmCancel`. Importing
+  the registry through worker-common's index would drag msgpackr and the
+  worker state into a service worker; the subpath keeps the bundle at ~1 KB.
+
 ## Goal tree
 
 ### G1 — Service worker side: the cancel registry

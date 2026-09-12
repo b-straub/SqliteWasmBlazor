@@ -12,6 +12,6 @@
     "allowSyntheticDefaultImports": true,
     "types": ["node"]
   },
-  "include": ["worker/**/*", "bridge/**/*"],
+  "include": ["worker/**/*", "bridge/**/*", "sw/**/*"],
   "exclude": ["node_modules"]
 }

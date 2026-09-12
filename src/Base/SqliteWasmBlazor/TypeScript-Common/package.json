@@ -9,6 +9,10 @@
     ".": {
       "import": "./src/index.ts",
       "types": "./src/index.ts"
+    },
+    "./cancel-registry": {
+      "import": "./src/cancel-registry.ts",
+      "types": "./src/cancel-registry.ts"
     }
   },
   "dependencies": {

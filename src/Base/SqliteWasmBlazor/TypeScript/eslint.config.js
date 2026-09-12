@@ -5,7 +5,7 @@ export default tseslint.config(
         ignores: ['node_modules/**', '../wwwroot/**'],
     },
     {
-        files: ['worker/**/*.ts', 'bridge/**/*.ts'],
+        files: ['worker/**/*.ts', 'bridge/**/*.ts', 'sw/**/*.ts'],
         languageOptions: {
             parser: tseslint.parser,
             parserOptions: {
