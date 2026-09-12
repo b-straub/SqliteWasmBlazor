@@ -21,10 +21,10 @@
   },
   "devDependencies": {
     "esbuild": "0.28.2",
-    "eslint": "10.8.1",
+    "eslint": "10.10.0",
     "typescript": "6.0.3",
-    "typescript-eslint": "8.67.0",
-    "vitest": "4.1.10"
+    "typescript-eslint": "8.70.0",
+    "vitest": "5.0.0"
   },
   "dependencies": {
     "@awasm/noble": "0.1.4"

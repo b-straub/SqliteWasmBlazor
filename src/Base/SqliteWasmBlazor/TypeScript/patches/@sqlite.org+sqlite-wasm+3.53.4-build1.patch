@@ -1,8 +1,8 @@
 diff --git a/node_modules/@sqlite.org/sqlite-wasm/dist/index.mjs b/node_modules/@sqlite.org/sqlite-wasm/dist/index.mjs
-index 6475875..2385c1f 100644
+index 5e6e43b..3a15819 100644
 --- a/node_modules/@sqlite.org/sqlite-wasm/dist/index.mjs
 +++ b/node_modules/@sqlite.org/sqlite-wasm/dist/index.mjs
-@@ -15085,6 +15085,81 @@ async function sqlite3InitModule(moduleArg = {}) {
+@@ -16370,6 +16370,81 @@ async function sqlite3InitModule$1(moduleArg = {}) {
  				
  				Returns the 2nd argument.
  				*/
@@ -84,7 +84,7 @@ index 6475875..2385c1f 100644
  				storeErr(e, code) {
  					if (e) {
  						e.sqlite3Rc = code || capi.SQLITE_IOERR;
-@@ -15336,6 +15411,27 @@ async function sqlite3InitModule(moduleArg = {}) {
+@@ -16621,6 +16696,27 @@ async function sqlite3InitModule$1(moduleArg = {}) {
  				unlink(filename) {
  					return this.#p.deletePath(filename);
  				}

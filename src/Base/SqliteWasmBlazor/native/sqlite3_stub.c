@@ -43,7 +43,7 @@ typedef uint64_t sqlite3_uint64;
 // gates features on sqlite3_libversion_number, so a mismatch would make the
 // managed layer reason about a different engine than the one answering.
 const char* sqlite3_libversion(void) {
-    return "3.53.0";
+    return "3.53.4";
 }
 
 const char* sqlite3_sourceid(void) {
@@ -51,7 +51,7 @@ const char* sqlite3_sourceid(void) {
 }
 
 int sqlite3_libversion_number(void) {
-    return 3053000;
+    return 3053004;
 }
 
 int sqlite3_threadsafe(void) {

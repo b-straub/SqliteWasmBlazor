@@ -406,14 +406,14 @@ throws on anything shorter.
 
 ### Dependencies & Tooling
 
-- .NET / EF Core `10.0.11`, MudBlazor `9.8.0`, RxBlazorV2.MudBlazor `1.2.6`, MessagePack `3.1.8`, R3 `1.3.1`, Playwright `1.62.0`, Test SDK `18.9.0`, xunit.runner.visualstudio `4.0.0`, PolySharp `1.16.0`, BouncyCastle `2.7.0`, SourceLink `10.0.400`.
-- Build now targets the .NET SDK `10.0.400` band (`global.json`), on runtime `10.0.11`.
+- .NET / EF Core `10.0.12`, MudBlazor `9.9.0`, RxBlazorV2.MudBlazor `1.3.2`, MessagePack `3.1.8`, R3 `1.3.1`, Playwright `1.62.0`, Test SDK `18.10.0`, xunit.runner.visualstudio `4.0.0`, PolySharp `1.16.0`, BouncyCastle `2.7.0`, SourceLink `10.0.401`.
+- Build now targets the .NET SDK `10.0.400` band (`global.json`), on runtime `10.0.12`.
 - Roslyn (`Microsoft.CodeAnalysis.*`) moves to `5.6.0` — the newest published Roslyn, and below the `5.9.0` compiler the SDK ships, so generators and analyzers never ask for a Roslyn newer than the one loading them.
-- TypeScript `6.0.3`, ESLint `10.8.1` + typescript-eslint `8.67.0`, msgpackr `2.0.5`, esbuild `0.28.2`, vitest `4.1.10`.
+- TypeScript `6.0.3`, ESLint `10.10.0` + typescript-eslint `8.70.0`, msgpackr `2.1.0`, esbuild `0.28.2`, vitest `5.0.0`.
 - TypeScript stays on the 6.0 line: typescript-eslint 8.x peer-caps `typescript <6.1.0`, so TS 7 (the native port) waits on typescript-eslint support.
-- The `@sqlite.org/sqlite-wasm` patch is ported to `3.53.0-build1` and adds `getFileSize` / `exportFileSlice` to the vendor SAHPool VFS, which is what lets the plain plane export in slices.
-- The native stub now reports SQLite `3.53.0`, matching the worker engine that actually answers — `Microsoft.Data.Sqlite` gates features on `sqlite3_libversion_number`.
-- `SQLitePCLRaw.lib.e_sqlite3` moves to the SQLite-versioned `3.53.3` package. Its `.a` is excluded and replaced by the stub, so only the provider's P/Invoke surface matters.
+- The `@sqlite.org/sqlite-wasm` patch is ported to `3.53.4-build1` and adds `getFileSize` / `exportFileSlice` to the vendor SAHPool VFS, which is what lets the plain plane export in slices.
+- The native stub now reports SQLite `3.53.4`, matching the worker engine that actually answers — `Microsoft.Data.Sqlite` gates features on `sqlite3_libversion_number`.
+- `SQLitePCLRaw.lib.e_sqlite3` moves to the SQLite-versioned `3.53.3` package — the newest published, one patch behind the worker engine. Its `.a` is excluded and replaced by the stub, so only the provider's P/Invoke surface matters.
 - `build_stub.sh` falls back to the .NET wasm-tools workload's Emscripten pack when no standalone emsdk is present — the same toolchain the Blazor native relink uses.
 
 ## Version 0.9.0-pre

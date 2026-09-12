@@ -105,7 +105,7 @@ its own and adds `crypto-bridge.js`; take it only if you need at-rest encryption
 
 ### SQLite Configuration
 
-Automatically configured for OPFS environment (SQLite 3.53.0):
+Automatically configured for OPFS environment (SQLite 3.53.4):
 
 ```sql
 PRAGMA locking_mode = exclusive;  -- Required for WAL mode with OPFS

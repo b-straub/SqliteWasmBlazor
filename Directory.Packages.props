@@ -5,31 +5,31 @@
   </PropertyGroup>
   <!-- ASP.NET Core / Blazor WebAssembly (.NET 10) -->
   <ItemGroup>
-    <PackageVersion Include="Microsoft.AspNetCore.Components" Version="10.0.11" />
-    <PackageVersion Include="Microsoft.AspNetCore.Components.Authorization" Version="10.0.11" />
-    <PackageVersion Include="Microsoft.AspNetCore.Components.Web" Version="10.0.11" />
-    <PackageVersion Include="Microsoft.AspNetCore.Components.WebAssembly" Version="10.0.11" />
-    <PackageVersion Include="Microsoft.AspNetCore.Components.WebAssembly.DevServer" Version="10.0.11" />
-    <PackageVersion Include="Microsoft.AspNetCore.Components.WebAssembly.Server" Version="10.0.11" />
-    <PackageVersion Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.11" />
+    <PackageVersion Include="Microsoft.AspNetCore.Components" Version="10.0.12" />
+    <PackageVersion Include="Microsoft.AspNetCore.Components.Authorization" Version="10.0.12" />
+    <PackageVersion Include="Microsoft.AspNetCore.Components.Web" Version="10.0.12" />
+    <PackageVersion Include="Microsoft.AspNetCore.Components.WebAssembly" Version="10.0.12" />
+    <PackageVersion Include="Microsoft.AspNetCore.Components.WebAssembly.DevServer" Version="10.0.12" />
+    <PackageVersion Include="Microsoft.AspNetCore.Components.WebAssembly.Server" Version="10.0.12" />
+    <PackageVersion Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.12" />
   </ItemGroup>
   <!-- Entity Framework Core -->
   <ItemGroup>
-    <PackageVersion Include="Microsoft.EntityFrameworkCore" Version="10.0.11" />
-    <PackageVersion Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.11" />
-    <PackageVersion Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.11" />
-    <PackageVersion Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.11" />
+    <PackageVersion Include="Microsoft.EntityFrameworkCore" Version="10.0.12" />
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.12" />
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.12" />
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.12" />
   </ItemGroup>
   <!-- Microsoft.Extensions -->
   <ItemGroup>
-    <PackageVersion Include="Microsoft.Extensions.Configuration.Abstractions" Version="10.0.11" />
-    <PackageVersion Include="Microsoft.Extensions.DependencyInjection" Version="10.0.11" />
-    <PackageVersion Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.11" />
-    <PackageVersion Include="Microsoft.Extensions.DependencyModel" Version="10.0.11" />
-    <PackageVersion Include="Microsoft.Extensions.Localization" Version="10.0.11" />
-    <PackageVersion Include="Microsoft.Extensions.Logging.Console" Version="10.0.11" />
-    <PackageVersion Include="Microsoft.Extensions.Options" Version="10.0.11" />
-    <PackageVersion Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="10.0.11" />
+    <PackageVersion Include="Microsoft.Extensions.Configuration.Abstractions" Version="10.0.12" />
+    <PackageVersion Include="Microsoft.Extensions.DependencyInjection" Version="10.0.12" />
+    <PackageVersion Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.12" />
+    <PackageVersion Include="Microsoft.Extensions.DependencyModel" Version="10.0.12" />
+    <PackageVersion Include="Microsoft.Extensions.Localization" Version="10.0.12" />
+    <PackageVersion Include="Microsoft.Extensions.Logging.Console" Version="10.0.12" />
+    <PackageVersion Include="Microsoft.Extensions.Options" Version="10.0.12" />
+    <PackageVersion Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="10.0.12" />
   </ItemGroup>
   <!-- Roslyn / source generators.
        Invariant: never reference a Roslyn newer than the csc that loads the
@@ -48,7 +48,7 @@
   </ItemGroup>
   <!-- Test stack -->
   <ItemGroup>
-    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.9.0" />
+    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.10.0" />
     <PackageVersion Include="xunit" Version="2.9.3" />
     <PackageVersion Include="xunit.runner.visualstudio" Version="4.0.0" />
     <PackageVersion Include="coverlet.collector" Version="10.0.1" />
@@ -56,8 +56,9 @@
   </ItemGroup>
   <!-- SQLite native.
        3.53.3 is the SQLite-versioned naming line of the lib package (first
-       three numbers = bundled SQLite version, matching the 3.53.0 worker
-       engine). EF Core 10 still pins the managed SQLitePCLRaw graph
+       three numbers = bundled SQLite version) and the newest published; it
+       trails the 3.53.4 worker engine by a patch, which is cosmetic here.
+       EF Core 10 still pins the managed SQLitePCLRaw graph
        (core/provider/bundle) at 2.1.x — that's fine: this package's .a is
        excluded and replaced by the native stub (native/lib/e_sqlite3.a),
        so only the provider's P/Invoke surface matters for the stub, and
@@ -67,10 +68,10 @@
   </ItemGroup>
   <!-- UI / serialization / build -->
   <ItemGroup>
-    <PackageVersion Include="MudBlazor" Version="9.8.0" />
-    <PackageVersion Include="RxBlazorV2.MudBlazor" Version="1.3.1" />
+    <PackageVersion Include="MudBlazor" Version="9.9.0" />
+    <PackageVersion Include="RxBlazorV2.MudBlazor" Version="1.3.2" />
     <PackageVersion Include="MessagePack" Version="3.1.8" />
-    <PackageVersion Include="Microsoft.SourceLink.GitHub" Version="10.0.400" />
+    <PackageVersion Include="Microsoft.SourceLink.GitHub" Version="10.0.401" />
     <PackageVersion Include="cmdwtf.BuildTimestampGenerator" Version="1.1.0" />
     <PackageVersion Include="R3" Version="1.3.1" />
   </ItemGroup>

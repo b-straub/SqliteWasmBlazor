@@ -19,15 +19,15 @@
   "dependencies": {
     "@sqlitewasmblazor/crypto-core": "file:../../../Base/SqliteWasmBlazor/TypeScript-Crypto",
     "@sqlitewasmblazor/worker-common": "file:../../../Base/SqliteWasmBlazor/TypeScript-Common",
-    "@sqlite.org/sqlite-wasm": "3.53.0-build1",
-    "msgpackr": "2.0.5"
+    "@sqlite.org/sqlite-wasm": "3.53.4-build1",
+    "msgpackr": "2.1.0"
   },
   "devDependencies": {
-    "@types/node": "22.20.1",
+    "@types/node": "22.20.2",
     "esbuild": "0.28.2",
-    "eslint": "10.8.1",
+    "eslint": "10.10.0",
     "typescript": "6.0.3",
-    "typescript-eslint": "8.67.0",
-    "vitest": "4.1.10"
+    "typescript-eslint": "8.70.0",
+    "vitest": "5.0.0"
   }
 }
