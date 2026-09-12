@@ -106,6 +106,12 @@ public static class TestRegistry
         "RestoreToCheckpoint_Basic",
         "RestoreToCheckpoint_WithDeltaReapply",
 
+        // Cancellation — each runs on the plane whose service-worker
+        // situation it asserts on and is SKIPPED on the other. The crypto
+        // run registers a claiming service worker in test-boot.js; the
+        // plain run registers none.
+        "Cancellation_InterruptsRunningStatement",
+        "Cancellation_UnavailableWithoutServiceWorker",
     ];
 
     /// <summary>

@@ -51,9 +51,9 @@ unavailable — once, as a fact, not silently.
 | Goal | State | Commit |
 | --- | --- | --- |
 | G1 service-worker registry | done | `68f6347` |
-| G2 worker progress handler + JS bridge channel | done | (this commit) |
-| G3 C# bridge: `CanCancelQueries`, cancel on token, TestApp cases | next | |
-| G4 Demo service worker | open | |
+| G2 worker progress handler + JS bridge channel | done | `bcb45d8` |
+| G3 C# bridge: `CanCancelQueries`, cancel on token, TestApp cases | done | (this commit) |
+| G4 Demo service worker | next | |
 | G5 docs + CHANGELOG | open | |
 
 Decisions taken while building G1, on top of the plan:
@@ -85,6 +85,29 @@ Decisions taken while building G2:
   a lookup; uninstall/reinstall would allocate a table slot each time.
 - The request id is passed into `executeSql` rather than held in module
   state: the worker's `onmessage` is async and interleaves at awaits.
+
+Decisions taken while building G3:
+
+- **The cancel is posted from the abandonment path, not from a
+  `CancellationToken.Register` callback.** Callbacks run newest-first; the
+  linked token `WaitAsync` registers *after* ours fires first, its
+  continuation unwinds `SendRequestAsync` synchronously, and the
+  `await using` disposes our registration before it ever runs. The old
+  registration was dead code for the same reason — nobody noticed because
+  the `catch` did the same cleanup. Both SQL paths now post from
+  `catch`/`finally` when the entry is still pending (so a request the worker
+  already answered with an error is not cancelled twice), and the OCE the
+  caller sees is bound to their token.
+- TestApp: `test-boot.js` (`autostart="false"`) registers a claiming
+  `service-worker.js` on the crypto plane and waits for control before
+  `Blazor.start()`; the plain plane registers none. Both cases sit in
+  `PlainPlaneNames`, each SKIPs on the plane whose expectation it does not
+  match, keyed off `TestPlane.IsPlain` — a service worker that failed to take
+  control fails the case rather than skipping it.
+- The statement is a 10M-row recursive CTE (~1.4 s in headless Chromium);
+  a 3M one ran ~430 ms and let a broken interrupt pass the 500 ms probe
+  bound. Measured: interrupted → next statement in ~50 ms; abandoned →
+  ~1290 ms. Bounds 300 ms / 500 ms floor.
 
 ## Goal tree
 

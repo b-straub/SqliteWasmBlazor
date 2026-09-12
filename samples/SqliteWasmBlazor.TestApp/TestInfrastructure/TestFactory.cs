@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using SqliteWasmBlazor.Models;
 using SqliteWasmBlazor.TestApp.TestInfrastructure.Tests;
+using SqliteWasmBlazor.TestApp.TestInfrastructure.Tests.Cancellation;
 using SqliteWasmBlazor.TestApp.TestInfrastructure.Tests.Checkpoints;
 using SqliteWasmBlazor.TestApp.TestInfrastructure.Tests.CRUD;
 using SqliteWasmBlazor.TestApp.TestInfrastructure.Tests.EFCoreFunctions;
@@ -365,6 +366,10 @@ internal class TestFactory
         // Transaction Tests
         Add("Transactions", new TransactionCommitTest(factory));
         Add("Transactions", new TransactionRollbackTest(factory));
+
+        // Cancellation — one case per service-worker situation; see TestRegistry.
+        Add("Cancellation", new CancellationInterruptsRunningStatementTest(factory, databaseService));
+        Add("Cancellation", new CancellationUnavailableWithoutServiceWorkerTest(factory, databaseService));
 
         // Relationship Tests (binary(16) Guid keys + one-to-many)
         Add("Relationships", new TodoListCreateWithGuidKeyTest(factory));

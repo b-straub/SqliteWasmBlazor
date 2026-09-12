@@ -76,6 +76,31 @@ public enum PoolImportResult
 public interface ISqliteWasmDatabaseService
 {
     /// <summary>
+    /// Whether cancelling a <see cref="CancellationToken"/> stops the
+    /// statement the worker is running, rather than only the wait for it.
+    ///
+    /// <para>
+    /// The worker is single-threaded and cannot be told anything while a
+    /// statement runs. A cancel reaches it through the service worker that
+    /// controls the page: the bridge posts the cancelled request there, and
+    /// SQLite's progress handler polls it from inside the statement. That
+    /// needs a service worker that has pulled in
+    /// <c>_content/SqliteWasmBlazor/sqlite-wasm-cancel.sw.js</c> and
+    /// controls the page — which, for the page that registered it, is from
+    /// the next navigation on, not the first load.
+    /// </para>
+    ///
+    /// <para>
+    /// <c>false</c> means cancellation degrades to what it always was: the
+    /// caller's await ends with <see cref="OperationCanceledException"/>, the
+    /// worker finishes the statement on its own, and the next request waits
+    /// behind it. Decided once when the worker starts and logged at
+    /// Information.
+    /// </para>
+    /// </summary>
+    bool CanCancelQueries { get; }
+
+    /// <summary>
     /// Bare main-DB names currently in the SAH pool — no journal / WAL /
     /// SHM siblings. Cheap pool metadata read; safe to call regardless of
     /// disk lock state.

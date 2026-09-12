@@ -143,6 +143,26 @@ public static partial class SqliteWasmLogger
         Console.WriteLine($"[{module}] {message}");
     }
 
+    /// <summary>
+    /// Writes one line at <see cref="LogLevel.Information"/>, in the same
+    /// <c>[module]</c> form as <see cref="Trace"/>. For facts a host decides
+    /// things by — the worker is up, cancellation is or is not available —
+    /// that are neither a warning nor benchmarking output.
+    /// </summary>
+    /// <remarks>
+    /// No-ops unless the level set through <see cref="SetLogLevel"/> is
+    /// Information or finer.
+    /// </remarks>
+    internal static void Information(string module, string message)
+    {
+        if (_level > LogLevel.Information)
+        {
+            return;
+        }
+
+        Console.WriteLine($"[{module}] {message}");
+    }
+
     [JSImport("globalThis.__sqliteWasmLogger.configureLogging")]
     private static partial void ConfigureLoggingInternal(int level, bool commandSql, bool tracing);
 }

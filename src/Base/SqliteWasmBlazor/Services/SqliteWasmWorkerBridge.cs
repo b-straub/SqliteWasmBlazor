@@ -85,13 +85,14 @@ internal sealed partial class SqliteWasmWorkerBridge : ISqliteWasmDatabaseServic
     // Request tracing (SqliteWasmOptions.EnableRequestTracing)
     //
     // Answers one question the reactive layer cannot: when a caller cancels,
-    // does the work stop? It does not. Cancelling a request removes its
-    // TaskCompletionSource and stops the C# await; the message is already in
-    // the worker's queue and there is no cancel/interrupt message in the
-    // protocol to recall it. The worker runs it to completion and its
-    // response lands on an id nobody is waiting for.
+    // does the work stop? Cancelling a request removes its
+    // TaskCompletionSource and stops the C# await either way; whether the
+    // worker stops too depends on CanCancelQueries. With it, the cancel is
+    // posted to the service worker and the statement is interrupted at its
+    // next poll; without it, the worker runs the statement to completion and
+    // its response lands on an id nobody is waiting for.
     //
-    // Because the worker is single-threaded, that abandoned query still holds
+    // Because the worker is single-threaded, an abandoned query still holds
     // it, and the next one waits. These two dictionaries make that visible:
     // the in-flight count at send time separates "each query is slow" from
     // "queries are queueing behind abandoned ones".
@@ -147,11 +148,14 @@ internal sealed partial class SqliteWasmWorkerBridge : ISqliteWasmDatabaseServic
         _traceAbandonedAt[requestId] = Stopwatch.GetTimestamp();
         SqliteWasmLogger.Trace(
             TraceModule,
-            $"req#{requestId} abandoned by caller after {ElapsedMs(started):F0} ms — " +
-            "the worker has no cancel message, so it keeps running and the next request waits behind it");
+            _canCancelQueries
+                ? $"req#{requestId} abandoned by caller after {ElapsedMs(started):F0} ms — " +
+                  "cancel posted to the service worker; the worker interrupts it at its next poll"
+                : $"req#{requestId} abandoned by caller after {ElapsedMs(started):F0} ms — " +
+                  "no service worker to carry a cancel, so the worker keeps running it and the next request waits behind it");
     }
 
-    private static void TraceCompleted(int requestId)
+    private static void TraceCompleted(int requestId, bool interrupted = false)
     {
         if (!SqliteWasmLogger.IsTracingEnabled)
         {
@@ -168,14 +172,19 @@ internal sealed partial class SqliteWasmWorkerBridge : ISqliteWasmDatabaseServic
         {
             SqliteWasmLogger.Trace(
                 TraceModule,
-                $"req#{requestId} finished anyway after {ElapsedMs(started):F0} ms " +
-                $"({ElapsedMs(abandoned):F0} ms of it after it was abandoned) — result discarded");
+                interrupted
+                    ? $"req#{requestId} interrupted after {ElapsedMs(started):F0} ms " +
+                      $"({ElapsedMs(abandoned):F0} ms after it was abandoned) — the worker is free"
+                    : $"req#{requestId} finished anyway after {ElapsedMs(started):F0} ms " +
+                      $"({ElapsedMs(abandoned):F0} ms of it after it was abandoned) — result discarded");
             return;
         }
 
         SqliteWasmLogger.Trace(
             TraceModule,
-            $"req#{requestId} completed in {ElapsedMs(started):F0} ms");
+            interrupted
+                ? $"req#{requestId} interrupted after {ElapsedMs(started):F0} ms with no caller having abandoned it"
+                : $"req#{requestId} completed in {ElapsedMs(started):F0} ms");
     }
 
     private const string TraceModule = "Bridge";
@@ -204,6 +213,37 @@ internal sealed partial class SqliteWasmWorkerBridge : ISqliteWasmDatabaseServic
     private bool _isInitialized;
     private volatile bool _poolLocked;
     private static TaskCompletionSource<bool>? _initializationTcs;
+
+    /// <summary>
+    /// Read once from the JS bridge after the worker is up: true when a
+    /// service worker controlled the page at that moment, so a cancel posted
+    /// there reaches the worker's progress handler.
+    /// </summary>
+    private bool _canCancelQueries;
+
+    /// <inheritdoc />
+    public bool CanCancelQueries => _canCancelQueries;
+
+    /// <summary>
+    /// The caller stopped waiting for <paramref name="requestId"/>. Posts the
+    /// cancel to the service worker when there is one to carry it; the pending
+    /// entry is dropped by the caller either way.
+    ///
+    /// <para>
+    /// Called from the request's abandonment path, never from a
+    /// <see cref="CancellationToken.Register(Action)"/> callback: callbacks
+    /// run newest-first, so the linked token <c>WaitAsync</c> registers after
+    /// ours fires first, its continuation unwinds the request synchronously,
+    /// and the <c>await using</c> disposes our registration before it runs.
+    /// </para>
+    /// </summary>
+    private void CancelRequestAtWorker(int requestId)
+    {
+        if (_canCancelQueries)
+        {
+            CancelRequest(requestId);
+        }
+    }
 
     /// <summary>
     /// Checks if the worker has a database open. Used by SqliteWasmConnection
@@ -305,6 +345,18 @@ internal sealed partial class SqliteWasmWorkerBridge : ISqliteWasmDatabaseServic
         // without this the worker would keep its default while the managed side
         // traced at Debug.
         SqliteWasmLogger.PublishLevel();
+
+        // Decided by the JS bridge when it created the worker, from whether a
+        // service worker controlled the page at that moment. Said once, as a
+        // fact: a host that expected cancellation and does not have it should
+        // not have to discover that from a slow search box.
+        _canCancelQueries = CanCancelQueriesJs();
+        SqliteWasmLogger.Information(
+            TraceModule,
+            _canCancelQueries
+                ? "query cancellation available — a service worker controls the page"
+                : "query cancellation unavailable — no service worker controls the page; " +
+                  "a cancelled query stops the wait, not the worker");
     }
 
     /// <summary>
@@ -439,18 +491,14 @@ internal sealed partial class SqliteWasmWorkerBridge : ISqliteWasmDatabaseServic
         await EnsureInitializedAsync(cancellationToken);
         ThrowIfPoolLocked($"ExecuteSqlWithBlobs on '{database}'");
 
+        cancellationToken.ThrowIfCancellationRequested();
+
         var requestId = NextRequestId();
         var tcs = new TaskCompletionSource<SqlQueryResult>(TaskCreationOptions.RunContinuationsAsynchronously);
         _pendingRequests[requestId] = tcs;
 
         try
         {
-            await using var registration = cancellationToken.Register(() =>
-            {
-                _pendingRequests.TryRemove(requestId, out _);
-                tcs.TrySetCanceled();
-            });
-
             var metadataJson = JsonSerializer.Serialize(new
             {
                 id = requestId,
@@ -475,17 +523,32 @@ internal sealed partial class SqliteWasmWorkerBridge : ISqliteWasmDatabaseServic
             {
                 throw new TimeoutException($"ExecuteSqlWithBlobsAsync on '{database}' timed out");
             }
+            catch (OperationCanceledException inner) when (cancellationToken.IsCancellationRequested)
+            {
+                throw CancelledBy(cancellationToken, inner);
+            }
         }
         finally
         {
-            _pendingRequests.TryRemove(requestId, out _);
+            // Still pending here means the worker has not answered and the
+            // caller is leaving anyway — cancelled or timed out — so the worker
+            // is told. On the success path the response handler has already
+            // retired the entry and this is a no-op, as is TraceAbandoned.
+            if (_pendingRequests.TryRemove(requestId, out _))
+            {
+                CancelRequestAtWorker(requestId);
+            }
 
-            // No-ops on the success path: the response handler's TraceCompleted
-            // has already retired this id. Only a request leaving here still
-            // outstanding was abandoned.
             TraceAbandoned(requestId);
         }
     }
+
+    /// <summary>
+    /// The cancellation the caller sees, bound to the token they passed rather
+    /// than to the linked one the timeout wait ran on.
+    /// </summary>
+    private static OperationCanceledException CancelledBy(CancellationToken cancellationToken, OperationCanceledException inner) =>
+        new("The database operation was cancelled.", inner, cancellationToken);
 
     /// <summary>
     /// Check if a database exists in OPFS SAHPool storage.
@@ -566,6 +629,8 @@ internal sealed partial class SqliteWasmWorkerBridge : ISqliteWasmDatabaseServic
         CancellationToken cancellationToken,
         string kind = "request")
     {
+        cancellationToken.ThrowIfCancellationRequested();
+
         var requestId = NextRequestId();
         var tcs = new TaskCompletionSource<SqlQueryResult>();
 
@@ -573,12 +638,6 @@ internal sealed partial class SqliteWasmWorkerBridge : ISqliteWasmDatabaseServic
 
         try
         {
-            await using var registration = cancellationToken.Register(() =>
-            {
-                _pendingRequests.TryRemove(requestId, out _);
-                tcs.TrySetCanceled();
-            });
-
             var requestJson = JsonSerializer.Serialize(new
             {
                 id = requestId,
@@ -607,10 +666,27 @@ internal sealed partial class SqliteWasmWorkerBridge : ISqliteWasmDatabaseServic
                 // Timeout occurred (not user cancellation)
                 throw new TimeoutException($"Database operation timed out after {defaultTimeoutMs / 1000} seconds.");
             }
+            catch (OperationCanceledException inner)
+            {
+                // The wait ends here, on the caller's token. Whether the worker
+                // stops too is CanCancelQueries, settled below: with a service
+                // worker the cancel is posted and the statement is interrupted
+                // at its next poll; without one the worker finishes it and the
+                // response is dropped.
+                throw CancelledBy(cancellationToken, inner);
+            }
         }
         catch
         {
-            _pendingRequests.TryRemove(requestId, out _);
+            // Still pending here means the worker has not answered and the
+            // caller is leaving anyway — cancelled or timed out — so the worker
+            // is told. A request that failed at the worker was retired by the
+            // response handler and is not cancelled twice.
+            if (_pendingRequests.TryRemove(requestId, out _))
+            {
+                CancelRequestAtWorker(requestId);
+            }
+
             TraceAbandoned(requestId);
             throw;
         }
@@ -819,15 +895,25 @@ internal sealed partial class SqliteWasmWorkerBridge : ISqliteWasmDatabaseServic
                 return;
             }
 
-            TraceCompleted(message.Id);
-
             var response = message.Data;
+
+            TraceCompleted(message.Id, response.Interrupted);
 
             // Check for error response — route to either pending requests or pending binary requests
             if (!response.Success)
             {
                 if (Instance._pendingRequests.TryRemove(message.Id, out var errorTcs))
                 {
+                    // An interrupted statement was cancelled by its caller, who
+                    // has normally already retired this entry on the way out.
+                    // One still pending is reported as what happened to it, not
+                    // as a worker fault.
+                    if (response.Interrupted)
+                    {
+                        errorTcs.TrySetCanceled();
+                        return;
+                    }
+
                     errorTcs.TrySetException(new InvalidOperationException($"Worker error: {response.Error ?? "Unknown error"}"));
                 }
                 else if (Instance._pendingBinaryRequests.TryRemove(message.Id, out var binaryErrorTcs))
@@ -1071,6 +1157,12 @@ internal sealed partial class SqliteWasmWorkerBridge : ISqliteWasmDatabaseServic
     [JSImport("sendToWorker", "sqliteWasmWorker")]
     private static partial void SendToWorker(string messageJson);
 
+    [JSImport("canCancelQueries", "sqliteWasmWorker")]
+    private static partial bool CanCancelQueriesJs();
+
+    [JSImport("cancelRequest", "sqliteWasmWorker")]
+    private static partial void CancelRequest(int requestId);
+
     [JSImport("sendBinaryToWorker", "sqliteWasmWorker")]
     private static partial void SendBinaryToWorker([JSMarshalAs<JSType.MemoryView>] Span<byte> data, string metadataJson);
 
@@ -1231,6 +1323,11 @@ internal sealed class WorkerResponse
 {
     public bool Success { get; set; }
     public string? Error { get; set; }
+    /// <summary>
+    /// Set with <see cref="Success"/> false when the statement was aborted
+    /// with <c>SQLITE_INTERRUPT</c> because its request was cancelled.
+    /// </summary>
+    public bool Interrupted { get; set; }
     public List<string>? ColumnNames { get; set; }
     public List<string>? ColumnTypes { get; set; }
     public int RowsAffected { get; set; }
