@@ -1,5 +1,4 @@
 using Microsoft.Playwright;
-using SqliteWasmBlazor.TestApp.TestInfrastructure;
 using SqliteWasmBlazor.Tests.Infrastructure;
 using Xunit.Abstractions;
 

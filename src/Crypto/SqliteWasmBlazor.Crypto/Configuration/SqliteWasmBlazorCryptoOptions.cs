@@ -1,4 +1,3 @@
-using SqliteWasmBlazor.Crypto.Extensions;
 using SqliteWasmBlazor.Hosting;
 
 namespace SqliteWasmBlazor.Crypto.Configuration;

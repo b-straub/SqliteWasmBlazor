@@ -8,7 +8,6 @@ using SqliteWasmBlazor.TestApp.TestInfrastructure.Tests.EFCoreFunctions;
 using SqliteWasmBlazor.TestApp.TestInfrastructure.Tests.ImportExport;
 using SqliteWasmBlazor.TestApp.TestInfrastructure.Tests.JsonCollections;
 using SqliteWasmBlazor.TestApp.TestInfrastructure.Tests.Migrations;
-using SqliteWasmBlazor.Crypto;
 using SqliteWasmBlazor.TestApp.TestInfrastructure.Tests.Migrations.Upgrade;
 using SqliteWasmBlazor.TestApp.TestInfrastructure.Tests.RaceConditions;
 using SqliteWasmBlazor.TestApp.TestInfrastructure.Tests.Relationships;

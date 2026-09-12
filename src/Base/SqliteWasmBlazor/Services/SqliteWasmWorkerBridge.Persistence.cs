@@ -1,9 +1,7 @@
 // SqliteWasmBlazor - Minimal EF Core compatible provider
 // MIT License
 
-using System.Security.Cryptography;
 using System.Text.Json;
-using MessagePack;
 
 namespace SqliteWasmBlazor;
 

@@ -1,6 +1,5 @@
 using System.Runtime.InteropServices.JavaScript;
 using System.Runtime.Versioning;
-using SqliteWasmBlazor.Crypto.Configuration;
 
 namespace SqliteWasmBlazor.Crypto.Interop;
 

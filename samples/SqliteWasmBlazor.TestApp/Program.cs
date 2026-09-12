@@ -1,8 +1,6 @@
 using Microsoft.AspNetCore.Components.Web;
-using Microsoft.Extensions.Logging;
 using Microsoft.AspNetCore.Components.WebAssembly.Hosting;
 using SqliteWasmBlazor.TestApp;
-using Microsoft.EntityFrameworkCore;
 using MudBlazor.Services;
 using SqliteWasmBlazor;
 using SqliteWasmBlazor.Models;

@@ -1,5 +1,3 @@
-using SqliteWasmBlazor.Crypto;
-
 namespace SqliteWasmBlazor.TestApp.TestInfrastructure.Tests.Migrations.Upgrade;
 
 /// <summary>

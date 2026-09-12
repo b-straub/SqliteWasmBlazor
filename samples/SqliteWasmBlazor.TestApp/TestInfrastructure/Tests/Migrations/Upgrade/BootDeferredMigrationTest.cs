@@ -1,5 +1,4 @@
 using Microsoft.EntityFrameworkCore;
-using SqliteWasmBlazor.Crypto;
 
 namespace SqliteWasmBlazor.TestApp.TestInfrastructure.Tests.Migrations.Upgrade;
 

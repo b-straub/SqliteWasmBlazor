@@ -1,5 +1,4 @@
 using R3;
-using RxBlazorV2.Model;
 
 namespace SqliteWasmBlazor.Crypto.UI.Components.Authentication;
 
