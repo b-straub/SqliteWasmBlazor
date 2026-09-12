@@ -1,5 +1,4 @@
 using Microsoft.AspNetCore.Components.Web;
-using SqliteWasmBlazor;
 using SqliteWasmBlazor.Demo.Models;
 
 namespace SqliteWasmBlazor.Demo.Pages;
@@ -15,7 +14,7 @@ public partial class TodoList
     ///
     /// <para>
     /// <b>No initial DB-stats fill here.</b> Initial population is owned by
-    /// the model (<see cref="TodoListModel.OnContextReadyAsync"/> +
+    /// the model (<see cref="TodoListModel.OnContextReadyAsync(CancellationToken)"/> +
     /// <c>OnDbStateChangedAsync</c>) so it stays gated on
     /// <see cref="SqliteWasmBlazor.Crypto.UI.DbStateModel.State"/> = READY — the page partial's
     /// <c>OnContextReady</c> runs at component init regardless of the

@@ -471,7 +471,7 @@ public partial class TodoListModel : ObservableModel
     /// DB stats refresh. Self-guarded on <see cref="DbStateModel.State"/> ==
     /// READY so it no-ops while the encrypted VFS is locked — mirrors the
     /// "domain code never touches a locked disk" rule. Called from the
-    /// model's own <see cref="OnContextReadyAsync"/> (covers the
+    /// model's own <see cref="OnContextReadyAsync(CancellationToken)"/> (covers the
     /// already-READY-at-construction case) and from
     /// <see cref="OnDbStateChangedAsync"/> (covers the
     /// becomes-READY-after-construction case).
