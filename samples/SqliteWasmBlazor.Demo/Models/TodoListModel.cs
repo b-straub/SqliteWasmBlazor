@@ -258,7 +258,9 @@ public partial class TodoListModel : ObservableModel
         catch (OperationCanceledException)
         {
             // MudTable cancelled this fetch because a newer one started. The
-            // await stops here; the SQL already handed to the worker does not.
+            // await stops here; whether the SQL already handed to the worker
+            // stops too is ISqliteWasmDatabaseService.CanCancelQueries — with
+            // the service worker registered, it is interrupted at its next poll.
             if (SqliteWasmLogger.IsTracingEnabled)
             {
                 SqliteWasmLogger.Trace(

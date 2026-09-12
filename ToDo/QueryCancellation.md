@@ -52,9 +52,9 @@ unavailable — once, as a fact, not silently.
 | --- | --- | --- |
 | G1 service-worker registry | done | `68f6347` |
 | G2 worker progress handler + JS bridge channel | done | `bcb45d8` |
-| G3 C# bridge: `CanCancelQueries`, cancel on token, TestApp cases | done | (this commit) |
-| G4 Demo service worker | next | |
-| G5 docs + CHANGELOG | open | |
+| G3 C# bridge: `CanCancelQueries`, cancel on token, TestApp cases | done | `c85c995` |
+| G4 Demo service worker | done (code); acceptance run open | (this commit) |
+| G5 docs + CHANGELOG | next | |
 
 Decisions taken while building G1, on top of the plan:
 
@@ -108,6 +108,17 @@ Decisions taken while building G3:
   a 3M one ran ~430 ms and let a broken interrupt pass the 500 ms probe
   bound. Measured: interrupted → next statement in ~50 ms; abandoned →
   ~1290 ms. Bounds 300 ms / 500 ms floor.
+
+G4 acceptance run — still owed, by hand:
+
+- The Demo registers its service worker only in **Release** (Debug swaps the
+  `service-worker-update.js` tag out on purpose, see
+  `project_demo_index_html_sw_form`), and a service worker controls the page
+  that registered it only from the **next** load. So: Release build, open the
+  Demo, reload once, then the `1`/`12`/`123`/`1234` keystroke run on the 4M-row
+  encrypted seed. `EnableRequestTracing` shows `req#N interrupted after …` in
+  the console when it works; `[Bridge] query cancellation available` at
+  Information says whether the run can work at all.
 
 ## Goal tree
 

@@ -2,10 +2,23 @@
 // offline support. See https://aka.ms/blazor-offline-considerations
 
 self.importScripts('./service-worker-assets.js');
+// Query cancellation: the page posts a cancelled request here and the SQLite
+// worker polls for it from inside the running statement. The handler claims
+// only its own poll URL and message type; everything else falls through to
+// the offline cache below.
+self.importScripts('_content/SqliteWasmBlazor/sqlite-wasm-cancel.sw.js');
 self.addEventListener('install', event => event.waitUntil(onInstall(event)));
 self.addEventListener('activate', event => event.waitUntil(onActivate(event)));
-self.addEventListener('fetch', event => event.respondWith(onFetch(event)));
+self.addEventListener('fetch', event => {
+    if (handleSqliteWasmCancel(event)) {
+        return;
+    }
+    event.respondWith(onFetch(event));
+});
 self.addEventListener('message', event => {
+    if (handleSqliteWasmCancel(event)) {
+        return;
+    }
     if (event.data?.type === 'SKIP_WAITING') {
         self.skipWaiting();
     }
