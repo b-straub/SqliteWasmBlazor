@@ -38,30 +38,24 @@ public sealed class SqliteWasmTransaction : DbTransaction
     protected override DbConnection DbConnection => _connection;
 
     /// <inheritdoc />
-    public override void Commit()
-    {
-        if (_completed)
-        {
-            throw new InvalidOperationException("Transaction has already been committed or rolled back.");
-        }
-
-        ExecuteNonQuery("COMMIT");
-        _completed = true;
-        _connection.ClearCurrentTransaction(this);
-    }
+    /// <exception cref="NotSupportedException">Always.</exception>
+    /// <remarks>
+    /// There is no synchronous execution in WebAssembly, so a synchronous
+    /// COMMIT cannot be sent. It used to return as if it had been, marking the
+    /// transaction complete while the worker still held it open — every write
+    /// in it then quietly rolled back when the connection closed. Throwing is
+    /// the only honest answer; use <see cref="CommitAsync"/>.
+    /// </remarks>
+    public override void Commit() =>
+        throw new NotSupportedException(
+            "Synchronous Commit is not available in WebAssembly. Use CommitAsync.");
 
     /// <inheritdoc />
-    public override void Rollback()
-    {
-        if (_completed)
-        {
-            throw new InvalidOperationException("Transaction has already been committed or rolled back.");
-        }
-
-        ExecuteNonQuery("ROLLBACK");
-        _completed = true;
-        _connection.ClearCurrentTransaction(this);
-    }
+    /// <exception cref="NotSupportedException">Always.</exception>
+    /// <remarks>Same as <see cref="Commit"/>; use <see cref="RollbackAsync"/>.</remarks>
+    public override void Rollback() =>
+        throw new NotSupportedException(
+            "Synchronous Rollback is not available in WebAssembly. Use RollbackAsync.");
 
     /// <inheritdoc />
     public override async Task CommitAsync(CancellationToken cancellationToken = default)
@@ -120,37 +114,56 @@ public sealed class SqliteWasmTransaction : DbTransaction
 
     /// <inheritdoc />
     /// <remarks>
-    /// Cannot roll back: synchronous execution does not exist in WebAssembly,
-    /// so the ROLLBACK below is never sent and the worker keeps the
-    /// transaction. Callers that can await must use
-    /// <see cref="DisposeAsync"/>; this path only clears the bookkeeping so a
-    /// leaked transaction does not also poison the connection object.
+    /// <para>
+    /// Cannot await, so it cannot confirm a rollback — but it can still send
+    /// one. The bridge posts a request to the worker before its first await,
+    /// and the worker runs requests in order, so a ROLLBACK issued here lands
+    /// ahead of any BEGIN that follows. That is the same arrangement
+    /// <see cref="SqliteWasmConnection.Open"/> relies on. What is lost is only
+    /// the result: a rollback that fails is written to the error stream rather
+    /// than thrown, because a throw out of Dispose replaces whatever exception
+    /// caused the transaction to be abandoned in the first place.
+    /// </para>
+    /// <para>
+    /// Prefer <c>await using</c>, which reaches <see cref="DisposeAsync"/> and
+    /// does await it.
+    /// </para>
     /// </remarks>
     protected override void Dispose(bool disposing)
     {
         if (disposing && !_completed)
         {
+            _completed = true;
+            _connection.ClearCurrentTransaction(this);
+
             try
             {
-                Rollback();
+                ObserveFaults(ExecuteNonQueryAsync("ROLLBACK", CancellationToken.None));
             }
-            catch
+            catch (Exception ex)
             {
-                // Suppress exceptions during dispose
-            }
-            finally
-            {
-                _connection.ClearCurrentTransaction(this);
+                Console.Error.WriteLine(
+                    $"[SqliteWasmTransaction] ROLLBACK on synchronous dispose could not be sent: {ex.Message}");
             }
         }
+
         base.Dispose(disposing);
     }
 
-    private void ExecuteNonQuery(string sql)
+    /// <summary>
+    /// Keeps a fire-and-forget rollback from dying silently: its fault is the
+    /// one thing a synchronous dispose cannot surface any other way.
+    /// </summary>
+    private static void ObserveFaults(Task rollback)
     {
-        using var command = _connection.CreateCommand();
-        command.CommandText = sql;
-        command.ExecuteNonQuery();
+        _ = rollback.ContinueWith(
+            static t =>
+            {
+                var message = t.Exception is { } ex ? ex.GetBaseException().Message : "unknown";
+                Console.Error.WriteLine(
+                    $"[SqliteWasmTransaction] ROLLBACK on synchronous dispose failed: {message}");
+            },
+            TaskContinuationOptions.OnlyOnFaulted);
     }
 
     private async Task ExecuteNonQueryAsync(string sql, CancellationToken cancellationToken)
