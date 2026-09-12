@@ -9,8 +9,5 @@
   <data name="Header_Title" xml:space="preserve"><value>Datenbankfehler</value></data>
   <data name="Btn_Reload" xml:space="preserve"><value>Neu laden</value></data>
   <data name="Btn_Reset" xml:space="preserve"><value>Datenbank zurücksetzen</value></data>
-  <data name="Alert_MismatchesPrefix" xml:space="preserve"><value>Erkannte Abweichungen:</value></data>
-  <data name="Alert_MissingColumn" xml:space="preserve"><value>fehlende Spalte</value></data>
-  <data name="Alert_ExtraColumn" xml:space="preserve"><value>unerwartete Spalte</value></data>
   <data name="Error_Reset" xml:space="preserve"><value>Datenbank-Reset fehlgeschlagen: {0}</value></data>
 </root>

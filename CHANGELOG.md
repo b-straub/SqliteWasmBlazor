@@ -28,6 +28,31 @@ was nothing left.
 Consumers using `SqliteWasmBlazor.Components.Interop` should drop the `using`;
 the types are in `SqliteWasmBlazor` now.
 
+### A Migration That Cannot Be Applied Asks for a Reset
+
+Migration history recovery is gone. When a pending migration failed because its
+objects already existed, the initializer used to rebuild `__EFMigrationsHistory`
+by stamping every migration id as applied and then walking the model's columns
+to check the result. That is a repair heuristic, and its failure mode was quiet:
+with more than one migration it recorded the later ones as applied without
+having run them, and nothing ever came back for them.
+
+`MigrateAsync` runs as EF intends. If it throws, the schema on disk and the
+migrations in the assembly disagree — a lost history table, a migration
+regenerated under a new id, a table made by hand — and that is reported as
+`SCHEMA_INCOMPATIBLE` with SQLite's own reason (`table "SyncState" already
+exists`). The remedy is the reset `<DatabaseInformationAlert/>` already offers.
+
+- **Breaking:** `SchemaIncompatibleFailure.Mismatches` is replaced by `Reason`,
+  a string; `SchemaMismatch` is removed. The alert renders the reason under the
+  message.
+- Fixed on the way: `SqliteWasmTransaction` did not override `DisposeAsync`, so a
+  transaction disposed without commit rolled back through the synchronous path —
+  which cannot execute in WebAssembly and sent nothing. The worker kept the
+  transaction, and the next `BEGIN` on that connection failed with
+  `cannot start a transaction within a transaction`. This affected every failed
+  `SaveChanges`, not only migrations.
+
 ### Nothing Initializes in `Program.cs` Any More
 
 Database initialization used to run from `Program.cs`, before the app rendered.

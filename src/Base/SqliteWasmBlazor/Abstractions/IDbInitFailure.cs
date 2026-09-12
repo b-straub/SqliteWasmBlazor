@@ -21,10 +21,3 @@ public interface IDbInitFailure
     /// </summary>
     string DefaultMessage { get; }
 }
-
-/// <summary>
-/// One column-level discrepancy between the EF model and the live SQLite
-/// schema, surfaced via <see cref="SchemaIncompatibleFailure"/>. Either
-/// <see cref="MissingColumn"/> or <see cref="ExtraColumn"/> is set.
-/// </summary>
-public sealed record SchemaMismatch(string Table, string? MissingColumn, string? ExtraColumn);

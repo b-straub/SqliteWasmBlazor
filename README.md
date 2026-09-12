@@ -68,9 +68,11 @@ Then place the initializer once, in your layout:
 ```
 
 `Program.cs` only registers. `<SqliteWasmDatabaseInitializer/>` renders nothing;
-after the first render it starts the worker and applies pending migrations (with
-migration-history recovery) for every context declared with
-`AddSqliteWasmDbContext<T>()`. Progress and failures are reported through
+after the first render it starts the worker and applies pending migrations for
+every context declared with `AddSqliteWasmDbContext<T>()`. A migration that
+cannot be applied — the schema on disk disagrees with the migrations in the
+assembly — reports `SCHEMA_INCOMPATIBLE` with SQLite's reason; the remedy is a
+reset, which `<DatabaseInformationAlert/>` offers. Progress and failures are reported through
 `IDbInitializationStatus`.
 
 Initializing after the app renders is what lets a long migration be reported

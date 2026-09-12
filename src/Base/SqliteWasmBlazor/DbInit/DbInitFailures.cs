@@ -15,18 +15,19 @@ public sealed record TabLockedFailure(string DatabaseName) : IDbInitFailure
 }
 
 /// <summary>
-/// EF migrations could not be applied because the existing schema is
-/// incompatible with the current model. <see cref="Mismatches"/> lists every
-/// table/column the recovery probe found wrong. Maps to
-/// <see cref="DbInitState.SCHEMA_INCOMPATIBLE"/>.
+/// A pending migration could not be applied: the schema on disk and the
+/// migrations in the assembly disagree. <see cref="Reason"/> carries the
+/// database's own explanation — typically which object already exists. Maps
+/// to <see cref="DbInitState.SCHEMA_INCOMPATIBLE"/>; the remedy is a reset.
 /// </summary>
 public sealed record SchemaIncompatibleFailure(
     string DatabaseName,
-    IReadOnlyList<SchemaMismatch> Mismatches) : IDbInitFailure
+    string Reason) : IDbInitFailure
 {
     /// <inheritdoc />
     public string DefaultMessage =>
-        "Database schema is incompatible with the current application version. Reset the database to recreate it with the correct schema.";
+        "Database schema is incompatible with the current application version. " +
+        "Reset the database to recreate it with the correct schema.\n" + Reason;
 }
 
 /// <summary>

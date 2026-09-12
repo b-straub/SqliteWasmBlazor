@@ -72,9 +72,7 @@ public static class TestRegistry
         "Migration_GetAppliedMigrations",
         "Migration_DatabaseExistsCheck",
         "Migration_EnsureCreatedVsMigrateConflict",
-        "MigrationRecovery_HistoryRebuildSucceeds",
-        "MigrationRecovery_DroppedColumnSurfacesMismatch",
-        "MigrationRecovery_ExtraColumnSurfacesMismatch",
+        "Migration_LostHistorySurfacesMismatch",
         "Migration_PopulatedDatabaseUpgrade",
         "Migration_InterruptedUpgradeFailsLoudly",
 

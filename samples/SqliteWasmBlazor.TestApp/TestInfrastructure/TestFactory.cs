@@ -7,7 +7,6 @@ using SqliteWasmBlazor.TestApp.TestInfrastructure.Tests.EFCoreFunctions;
 using SqliteWasmBlazor.TestApp.TestInfrastructure.Tests.ImportExport;
 using SqliteWasmBlazor.TestApp.TestInfrastructure.Tests.JsonCollections;
 using SqliteWasmBlazor.TestApp.TestInfrastructure.Tests.Migrations;
-using SqliteWasmBlazor.TestApp.TestInfrastructure.Tests.Migrations.Recovery;
 using SqliteWasmBlazor.Crypto;
 using SqliteWasmBlazor.TestApp.TestInfrastructure.Tests.Migrations.Upgrade;
 using SqliteWasmBlazor.TestApp.TestInfrastructure.Tests.RaceConditions;
@@ -52,7 +51,7 @@ internal class TestFactory
         }
         if (services is not null)
         {
-            PopulateMigrationRecoveryTests(services);
+            PopulateMigrationUpgradeTests(services);
         }
         if (encryptedFactory is not null && session is not null)
         {
@@ -234,18 +233,12 @@ internal class TestFactory
         }
     }
 
-    private void PopulateMigrationRecoveryTests(IServiceProvider services)
+    private void PopulateMigrationUpgradeTests(IServiceProvider services)
     {
         const string cat = "Migrations";
 
-        var t1 = new RecoveryHistoryRebuildTest(services);
+        var t1 = new LostHistoryTest(services);
         _entries.Add(new TestEntry(cat, t1.Name, () => t1.RunTestWithFreshDatabaseAsync()));
-
-        var t2 = new RecoveryDroppedColumnTest(services);
-        _entries.Add(new TestEntry(cat, t2.Name, () => t2.RunTestWithFreshDatabaseAsync()));
-
-        var t3 = new RecoveryExtraColumnTest(services);
-        _entries.Add(new TestEntry(cat, t3.Name, () => t3.RunTestWithFreshDatabaseAsync()));
 
         // Upgrade cases own MigrationProbeDb.db, not TodoDb.db, so they manage
         // their own lifecycle rather than going through SqliteWasmTest.

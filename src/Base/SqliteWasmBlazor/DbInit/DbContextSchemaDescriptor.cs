@@ -64,8 +64,8 @@ internal sealed class DbContextSchemaDescriptor
             var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<TContext>>();
             await using var dbContext = await factory.CreateDbContextAsync(cancellationToken);
 
-            var pendingMigrations = await dbContext.Database.GetPendingMigrationsAsync(cancellationToken);
-            if (pendingMigrations.Any())
+            var pending = await dbContext.Database.GetPendingMigrationsAsync(cancellationToken);
+            if (pending.Any())
             {
                 // Reported whenever there is work, however briefly it lasts.
                 // Whether a state this short is worth putting on screen is a
@@ -77,17 +77,16 @@ internal sealed class DbContextSchemaDescriptor
                 {
                     await dbContext.Database.MigrateAsync(cancellationToken);
                 }
-                catch (Exception ex) when (ex.Message.Contains("already exists", StringComparison.OrdinalIgnoreCase) ||
-                                           (ex.Message.Contains("table", StringComparison.OrdinalIgnoreCase) &&
-                                            ex.Message.Contains("exist", StringComparison.OrdinalIgnoreCase)))
+                catch (Exception ex)
                 {
-                    var recovery = await MigrationHistoryRecovery.RunAsync(dbContext);
-
-                    if (!recovery.Succeeded)
-                    {
-                        return (DbInitState.SCHEMA_INCOMPATIBLE,
-                            new SchemaIncompatibleFailure(databaseName, recovery.Mismatches));
-                    }
+                    // The schema on disk and the migrations in the assembly
+                    // disagree — a history table lost, a migration regenerated
+                    // under a new id, a table someone made by hand. There is no
+                    // repairing that from here without guessing, and a guess
+                    // that records work as done which never ran is worse than
+                    // the reset this asks for.
+                    return (DbInitState.SCHEMA_INCOMPATIBLE,
+                        new SchemaIncompatibleFailure(databaseName, ex.Message));
                 }
             }
 
