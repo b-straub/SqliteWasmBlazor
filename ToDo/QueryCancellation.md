@@ -54,7 +54,12 @@ unavailable — once, as a fact, not silently.
 | G2 worker progress handler + JS bridge channel | done | `bcb45d8` |
 | G3 C# bridge: `CanCancelQueries`, cancel on token, TestApp cases | done | `c85c995` |
 | G4 Demo service worker | done (code); acceptance run open | `e6075f1` |
-| G5 docs + CHANGELOG | done | (this commit) |
+| G5 docs + CHANGELOG | done | `9911216` |
+
+Close-out 2026-09-12: full Playwright suite 166/166 after G5 (both planes,
+SubPath, PRF fixtures). Still owed by hand: the Demo keystroke run (below) and
+an iPad run — sync XHR inside a worker plus service-worker interception is the
+combination no desktop run can vouch for.
 
 Decisions taken while building G1, on top of the plan:
 
