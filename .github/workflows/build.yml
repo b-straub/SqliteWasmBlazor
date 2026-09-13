@@ -149,15 +149,21 @@ jobs:
     # `--logger trx` writes a structured XML report naming each failed test
     # plus its exception message — critical when VSTestTask returns false
     # without logging (MSB4181), which hides the actual assertion failure.
-    # `--blame-hang-timeout 5m` produces a dump on hangs; `--blame-crash`
+    # `--blame-hang-timeout` produces a dump on hangs; `--blame-crash`
     # produces a dump on crashes. Both land under TestResults/.
+    #
+    # The hang timeout bounds a single test, and the first case of each
+    # one-pass class waits for its whole browser queue inside that bound.
+    # WaFixtureBase sizes that wait at 5 s per case, so it must stay above
+    # the longest queue's budget (TestRegistry.AllNames × 5 s) or a slow
+    # runner is reported as a hang.
     - name: Test
       run: |
         dotnet test tests/SqliteWasmBlazor.Tests/SqliteWasmBlazor.Tests.csproj \
           -c Release --no-build --verbosity normal \
           --logger "trx;LogFileName=test-results.trx" \
           --logger "console;verbosity=detailed" \
-          --blame-hang-timeout 5m --blame-crash \
+          --blame-hang-timeout 10m --blame-crash \
           --results-directory TestResults
 
     - name: Upload test diagnostics on failure

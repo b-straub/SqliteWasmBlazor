@@ -26,8 +26,11 @@ public class WaFixtureBase : WebApplicationFactory<TestHost.Program>
         UseKestrel(port);
     }
 
+    // queueLength: how many cases a one-pass run executes before it reports
+    // completion. Sizes the wait for that report; unused per-test.
     protected async Task InitializeAsync(
-        IWaFixture.BrowserType browserType, bool onePass, bool headless, string query = "")
+        IWaFixture.BrowserType browserType, bool onePass, bool headless, string query = "",
+        int queueLength = 0)
     {
         PlaywrightInstaller.EnsureInstalled();
 
@@ -106,15 +109,28 @@ public class WaFixtureBase : WebApplicationFactory<TestHost.Program>
 
         if (onePass)
         {
-            int timeout;
+            if (queueLength <= 0)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(queueLength), queueLength, "A one-pass run needs its queue length to size the wait.");
+            }
+
+            // The budget for the whole queue is per case, so a new case brings
+            // its own share instead of eating into a fixed total. The allowance
+            // is what a case may cost on a GitHub Actions runner, where the
+            // Crypto plane averages ~2 s per case and the plain plane a little
+            // less; a dev box is several times faster. The 20k-row migration
+            // cases are the outliers that set the margin — each takes ~20 s
+            // there.
+            int perCaseMs;
             switch (browserType)
             {
                 case IWaFixture.BrowserType.CHROMIUM:
-                    timeout = 100000;
+                    perCaseMs = 5000;
                     break;
                 case IWaFixture.BrowserType.FIREFOX:
                 case IWaFixture.BrowserType.WEBKIT:
-                    timeout = 300000;
+                    perCaseMs = 15000;
                     break;
                 case IWaFixture.BrowserType.NONE:
                 case IWaFixture.BrowserType.ALL:
@@ -122,14 +138,21 @@ public class WaFixtureBase : WebApplicationFactory<TestHost.Program>
                     throw new ArgumentOutOfRangeException(nameof(browserType));
             }
 
-            var waitForSelectorOptions = new PageWaitForSelectorOptions()
+            var options = new LocatorWaitForOptions()
             {
-                Timeout = timeout
+                Timeout = perCaseMs * queueLength
             };
 
             await Page.GotoAsync($"http://localhost:{_port}/Tests{query}");
 
-            await Page.WaitForSelectorAsync("text=All Tests Completed", waitForSelectorOptions);
+            // The runner ends either with its completion line or with the
+            // harness error banner. Waiting on both lets a TestFactory or
+            // DI failure surface at once — through RunCaseAsync, which reads
+            // the banner — instead of after the full queue budget.
+            var completed = Page.Locator("text=All Tests Completed");
+            var harnessError = Page.Locator("#test-harness-error");
+
+            await completed.Or(harnessError).WaitForAsync(options);
         }
     }
 

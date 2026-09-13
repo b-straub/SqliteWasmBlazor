@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Configuration;
+using SqliteWasmBlazor.TestApp.TestInfrastructure;
 
 namespace SqliteWasmBlazor.Tests.Infrastructure;
 
@@ -52,7 +53,7 @@ public class ChromiumFixture : WaFixtureBase, IWaFixture
 
     public async Task InitializeAsync()
     {
-        await InitializeAsync(Type, OnePass, Headless);
+        await InitializeAsync(Type, OnePass, Headless, queueLength: TestRegistry.AllNames.Count);
     }
 }
 
@@ -78,7 +79,7 @@ public class PlainPlaneFixture : WaFixtureBase, IWaFixture
 
     public async Task InitializeAsync()
     {
-        await InitializeAsync(Type, OnePass, Headless, Query);
+        await InitializeAsync(Type, OnePass, Headless, Query, TestRegistry.PlainPlaneNames.Count);
     }
 }
 

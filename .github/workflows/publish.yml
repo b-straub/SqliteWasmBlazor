@@ -148,7 +148,7 @@ jobs:
           --filter "FullyQualifiedName!=SqliteWasmBlazor.Tests.PrfVirtualAuthenticatorTests.SessionExpiresOnTtl_DropsKeyAndReEnablesAuth" \
           --logger "trx;LogFileName=test-results.trx" \
           --logger "console;verbosity=detailed" \
-          --blame-hang-timeout 5m --blame-crash \
+          --blame-hang-timeout 10m --blame-crash \
           --results-directory TestResults
 
     - name: Upload test diagnostics on failure

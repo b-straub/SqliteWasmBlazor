@@ -28,19 +28,12 @@ public abstract class SqliteWasmTestBase(IWaFixture fixture, ITestOutputHelper o
     {
         Assert.NotNull(_fixture.Page);
 
-        // Cover both modes:
-        //   OnePass — one shared page load runs every test sequentially. Each
-        //     xUnit test polls for its own per-test label, so the wait must
-        //     cover the *cumulative* queue, not just one test's runtime.
-        //   Per-test — fresh navigation per case; wait covers a single WASM
-        //     boot + run.
-        // GitHub Actions runners are noticeably slower than a dev box, and
-        // OnePass-mode tail-end tests (e.g. TimeSpan_Conversion) wait for the
-        // full queue to drain before their label appears. The Chromium budget
-        // was 10 s which passed locally but flaked one test on CI with no
-        // diagnostic (VSTestTask returned false without logging the actual
-        // failure). Bumped to 60 s to match the comment intent and absorb CI
-        // jitter; Firefox/WebKit already at the longer values.
+        // Per-test mode navigates fresh, so this wait covers one WASM boot
+        // plus the case, sized for a GitHub Actions runner. In one-pass mode
+        // the fixture has already waited for the run to end — the queue
+        // budget lives there, scaled by the queue length — so the label is
+        // either on the page or not coming, and this wait only absorbs a
+        // render.
         var timeout = _fixture.Type switch
         {
             IWaFixture.BrowserType.CHROMIUM => 60000,
