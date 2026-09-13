@@ -41,9 +41,13 @@ internal abstract class SqliteWasmTest(IDbContextFactory<TodoDbContext> factory,
         {
             await using var context = await Factory.CreateDbContextAsync();
 
-            // Delete and recreate database for fresh state
+            // Delete and recreate database for fresh state. Migrated, not
+            // EnsureCreated: the file outlives the page in OPFS, and a schema
+            // without its history table is what the next boot's migration
+            // trips over — a table that already exists, reported as
+            // SCHEMA_INCOMPATIBLE before the harness has even wiped the pool.
             await context.Database.EnsureDeletedAsync();
-            await context.Database.EnsureCreatedAsync();
+            await context.Database.MigrateAsync();
 
             Console.WriteLine($"[{Name}] Fresh database created");
         }
