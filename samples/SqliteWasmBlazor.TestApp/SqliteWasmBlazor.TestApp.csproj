@@ -24,10 +24,13 @@
     
     <!-- Use ProjectReference for all configurations - TestApp is for internal testing only -->
     <ItemGroup>
-        <NativeFileReference Include="..\..\src\Base\SqliteWasmBlazor\native\lib\e_sqlite3.a" />
         <ProjectReference Include="..\..\src\Base\SqliteWasmBlazor\SqliteWasmBlazor.csproj" />
         <ProjectReference Include="..\..\src\Base\SqliteWasmBlazor.Models\SqliteWasmBlazor.Models.csproj" />
         <ProjectReference Include="..\..\src\Crypto\SqliteWasmBlazor.Crypto\SqliteWasmBlazor.Crypto.csproj" />
     </ItemGroup>
-    
+
+    <!-- The stub the package ships in buildTransitive/; a ProjectReference
+         carries no package targets. -->
+    <Import Project="..\..\src\Base\SqliteWasmBlazor\buildTransitive\SqliteWasmBlazor.targets" />
+
 </Project>

@@ -37,8 +37,13 @@
     <ItemGroup Condition="'$(Configuration)' == 'Debug'">
         <ProjectReference Include="..\..\src\Base\SqliteWasmBlazor\SqliteWasmBlazor.csproj" />
         <ProjectReference Include="..\..\src\Crypto\SqliteWasmBlazor.Crypto.UI\SqliteWasmBlazor.Crypto.UI.csproj" />
-        <NativeFileReference Include="..\..\src\Base\SqliteWasmBlazor\native\lib\e_sqlite3.a"/>
     </ItemGroup>
+
+    <!-- The stub + upstream-lib strip the package ships in buildTransitive/.
+         A ProjectReference carries no package targets, and the Debug-only
+         block above leaks into the Release restore graph so base resolves
+         as a project there too — import the file directly in both. -->
+    <Import Project="..\..\src\Base\SqliteWasmBlazor\buildTransitive\SqliteWasmBlazor.targets" />
 
     <ItemGroup>
         <ServiceWorker Include="wwwroot\service-worker.js" PublishedContent="wwwroot\service-worker.published.js"/>

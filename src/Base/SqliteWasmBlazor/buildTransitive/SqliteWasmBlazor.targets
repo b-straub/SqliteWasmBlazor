@@ -8,7 +8,12 @@
     Lives in buildTransitive/ (not build/) so NuGet auto-imports it for *both*
     direct PackageReference consumers and transitive consumers (e.g. an app
     that only references SqliteWasmBlazor.Crypto.UI still gets the stub via
-    the Crypto.UI -> Crypto -> SqliteWasmBlazor chain).
+    the Crypto.UI -> Crypto -> SqliteWasmBlazor chain). The in-repo samples
+    import this file directly, since a ProjectReference carries no package
+    targets. The stub must be an evaluation-time item: the SDK decides
+    whether to relink at all from @(NativeFileReference), and a property set
+    in this file cannot guard the item — MSBuild evaluates every property
+    before any item.
   -->
   <ItemGroup Condition="'$(RuntimeIdentifier)' == 'browser-wasm'">
     <NativeFileReference Include="$(MSBuildThisFileDirectory)..\native\lib\e_sqlite3.a" />
@@ -25,14 +30,41 @@
     The matched item path looks like:
       ~/.nuget/packages/sqlitepclraw.lib.e_sqlite3/<ver>/buildTransitive/
         netN.0/../../runtimes/browser-wasm/nativeassets/netN.0/e_sqlite3.a
+
+    Hooks: the WebAssembly SDK turns @(NativeFileReference) into link inputs
+    in _PrepareForBrowserWasmBuildNative, which runs under _WasmBuildAppCore
+    in whichever MSBuild instance performs the native build — the nested
+    publish included. PrepareInputsForWasmBuild is the public target earlier
+    in that same chain, so the removal still happens if the private name
+    moves. Both must run before the copy; hooking a later target only edits
+    an item nobody reads any more, and BeforeTargets on a nonexistent name
+    is silently ignored — which is what the guard below is for.
   -->
   <Target Name="_StripUpstreamSqlitePclRawNativeLib"
-          BeforeTargets="_WasmGenerateRuntimeConfig;WasmTriggerPublishApp;_WasmCompileNativeFiles;_WasmLinkDotNet"
+          BeforeTargets="PrepareInputsForWasmBuild;_PrepareForBrowserWasmBuildNative"
           Condition="'$(RuntimeIdentifier)' == 'browser-wasm'">
     <ItemGroup>
       <NativeFileReference Remove="@(NativeFileReference)"
-                           Condition="$([System.String]::new('%(NativeFileReference.Identity)').Contains('sqlitepclraw.lib.e_sqlite3'))" />
+                           Condition="$([System.String]::new('%(NativeFileReference.Identity)').ToLowerInvariant().Contains('sqlitepclraw.lib.e_sqlite3'))" />
     </ItemGroup>
+  </Target>
+
+  <!--
+    Fail the build if the upstream archive is still about to be linked. With
+    both archives on the line the linker resolves each symbol from whichever
+    comes first, so an SDK rename that disconnects the strip target would not
+    break anything visibly — the app would just ship the full SQLite and
+    report its version instead of the worker engine's.
+  -->
+  <Target Name="_VerifyUpstreamSqlitePclRawNativeLibStripped"
+          BeforeTargets="_WasmWriteRspForLinking"
+          Condition="'$(RuntimeIdentifier)' == 'browser-wasm'">
+    <ItemGroup>
+      <_SqliteWasmBlazorUpstreamNativeLib Include="@(_WasmNativeFileForLinking)"
+                                          Condition="$([System.String]::new('%(_WasmNativeFileForLinking.Identity)').ToLowerInvariant().Contains('sqlitepclraw.lib.e_sqlite3'))" />
+    </ItemGroup>
+    <Error Condition="'@(_SqliteWasmBlazorUpstreamNativeLib)' != ''"
+           Text="SqliteWasmBlazor: the upstream SQLitePCLRaw.lib.e_sqlite3 native library is still on the link line (@(_SqliteWasmBlazorUpstreamNativeLib)). The WebAssembly SDK's native-build targets no longer match the hooks in buildTransitive/SqliteWasmBlazor.targets." />
   </Target>
 
 </Project>
