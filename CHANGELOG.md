@@ -2,10 +2,7 @@
 
 All notable changes to SqliteWasmBlazor are documented in this file.
 
-## Version 0.9.3-pre
-
-### A Note on the Development Delay
-> **A quick update from the maintainer:** You might have noticed a lack of updates over the past few weeks. My development pipeline was hit hard when Anthropic made their services more or less unusable for my workflow. That situation has since been resolved — development is back on **Claude (Opus 5 / Fable 5)** and fully on track again!
+## Version 0.9.4-pre
 
 ### Cancelling a Query Now Stops the Query
 
@@ -150,6 +147,103 @@ and bailed early on a terminal state — so if the first context left the pool
 `ENCRYPTED_LOCKED`, the second was never registered at all, and after unlock only
 the first database migrated. Declaration removes the failure mode rather than
 guarding it.
+
+### Logging: One Level, Set in One Place
+
+`SqliteWasmConnection(string, LogLevel)` set the **process-wide** log level from
+what looks like a per-connection argument, and the usual registration puts that
+constructor inside an `AddDbContextFactory` lambda — so it ran again on every
+context creation, silently overriding whatever the host had configured. With two
+databases it was last-writer-wins between them. The documentation called this
+"Per-Connection Logging", which is the one thing it was not.
+
+- **The opt-in flag now gates both sides of the boundary.** `EnableCommandSqlLogging`
+  guarded only the managed `SqliteWasmCommand` lines; the worker logged SQL text
+  and parameter values off its own log level, so raising the level to Debug for
+  timings emitted schema and data that the flag was supposed to withhold
+  ([#18](https://github.com/b-straub/SqliteWasmBlazor/issues/18)). The flag is
+  forwarded to the worker and gates its `Executing SQL:` and `[PARAM]` lines
+  too. The split is now clean: the **level** controls verbosity, the **flag**
+  controls whether query content is ever emitted. Request timings and the
+  bridge's own trace carry neither, so a Debug-level session exposes no data.
+- **Breaking:** the `(string connectionString, LogLevel logLevel)` constructor
+  overload is gone. `SqliteWasmLogger.SetLogLevel` is the single way to set the
+  level, alongside `SqliteWasmOptions.EnableCommandSqlLogging` for whether SQL
+  text is emitted at all. Callers passing a level drop the argument and call
+  `SetLogLevel` once in `Program.cs`.
+- `SetLogLevel` may now be called **before** the worker exists. The managed
+  level applies immediately; the bridge hands it to the JS halves once the
+  worker is up. Previously it threw or was lost, which meant worker startup,
+  the database opens and the migrations could never be traced.
+
+### Migrating a Populated Database Is Now Covered
+
+`InitializeSqliteWasmDatabaseAsync` applies pending migrations at startup and
+the documentation says migrations "work normally", but nothing exercised that
+against a database with data in it. The demo structurally could not: it does not
+migrate — a schema mismatch there means reset — so a migration only ever ran
+against the empty database the reset had just produced.
+
+The TestApp gains a probe context with two migrations of its own, since
+`TodoDbContext` ships exactly one and an upgrade needs something to upgrade
+from. `IMigrator.MigrateAsync(targetId)` stages a database at V1, the test fills
+it, and `MigrateAsync()` then applies V2 over rows that already exist.
+
+- `Migration_PopulatedDatabaseUpgrade` — the schema changed, the history row is
+  recorded, and every row survived. 20,000 rows, **37 ms** (1.9 us/row).
+- `Migration_PopulatedDatabaseUpgradeEncrypted` — the same on an encrypted pool:
+  **119 ms** (6.0 us/row), a **3.2x** multiplier. Lower than the ~8.6x the
+  browse path pays, an index build being a different profile from a scan.
+  Extrapolating, a comparable migration over 4M rows is roughly 24 s of boot
+  with the UI already up and nothing explaining the pause.
+- `Migration_InterruptedUpgradeFailsLoudly` — a migration that did its work but
+  died before recording it. EF replays the statement, SQLite refuses, and the
+  error names the object; the data is untouched. That the failure is loud rather
+  than a silently half-migrated database is the property worth pinning.
+
+The probe's migrations are hand-written: the TestApp is a Blazor WebAssembly
+project, so `dotnet ef migrations add` cannot load it, and the design-time
+snapshot is not needed at runtime. Migration ids keep EF's 15-character
+timestamp prefix — `MigrationsIdGenerator.GetName` takes `Substring(16)` and
+throws on anything shorter.
+
+### Consumers Link the Stub Again
+
+The base package ships a 9.8 KB native stub in place of the 1.1 MB `e_sqlite3.a`
+that `Microsoft.EntityFrameworkCore.Sqlite` pulls in through
+`SQLitePCLRaw.lib.e_sqlite3` — nothing managed ever calls into it; SQL runs in
+the worker. `buildTransitive/SqliteWasmBlazor.targets` adds the stub and removes
+the upstream archive from the link line. On .NET 10 the removal never ran: it
+was hooked on target names from the .NET 8/9 WebAssembly SDK, and `BeforeTargets`
+naming a target that does not exist is silently ignored. Both archives reached
+the linker, the upstream one first, and every published consumer — the live Demo
+included — carried the full SQLite 3.53.3, with `Microsoft.Data.Sqlite` reading
+that version instead of the worker engine's.
+
+- The strip hooks `PrepareInputsForWasmBuild` and `_PrepareForBrowserWasmBuildNative`,
+  the .NET 10 chain that turns `NativeFileReference` into link inputs, and so
+  runs in the nested publish instance as well.
+- A guard fails the build if the upstream archive is still on the link line, so
+  an SDK rename cannot regress this silently again.
+- A consumer that references only `SqliteWasmBlazor.Crypto.UI` links
+  `dotnet.native.wasm` at 3.14 MB instead of 3.96 MB, and
+  `sqlite3_libversion_number` reports the stub's 3.53.4.
+- The Demo and the TestApp import the same targets file instead of hand-wiring
+  the stub; the Release Demo, which resolves the base as a project, links the
+  stub too.
+
+### Dependencies & Tooling
+
+- .NET / EF Core `10.0.12`, MudBlazor `9.9.0`, RxBlazorV2.MudBlazor `1.3.2`, Test SDK `18.10.0`, SourceLink `10.0.401`; runtime `10.0.12` on the SDK `10.0.400` band.
+- `SqliteWasmBlazor.Crypto.UI` now declares `RxBlazorV2.MudBlazor` 1.3.2 as its floor. The Demo's queued migration notice uses `StatusModel.QueueInfo`, which arrived in 1.3.1.
+- `@sqlite.org/sqlite-wasm` `3.53.4-build1`. The SAHPool patch is regenerated against the new bundle — content unchanged, only offsets moved — and the native stub reports SQLite `3.53.4`. `SQLitePCLRaw.lib.e_sqlite3` stays at `3.53.3`, the newest published, one patch behind the engine; cosmetic, since its `.a` is replaced by the stub.
+- ESLint `10.10.0` + typescript-eslint `8.70.0`, msgpackr `2.1.0`, vitest `5.0.0`. TypeScript stays on `6.0.3`: typescript-eslint still peer-caps `typescript <6.1.0`.
+- `build/SqliteWasmBlazor.props` is removed from the base project: it was never packed, nothing referenced it, and its only content was a stale consumer hint.
+
+## Version 0.9.3-pre
+
+### A Note on the Development Delay
+> **A quick update from the maintainer:** You might have noticed a lack of updates over the past few weeks. My development pipeline was hit hard when Anthropic made their services more or less unusable for my workflow. That situation has since been resolved — development is back on **Claude (Opus 5 / Fable 5)** and fully on track again!
 
 ### Moving Databases Around Is a Plain-Plane Job
 
@@ -339,65 +433,6 @@ The same treatment reaches the demo's two remaining silent operations:
 - **"Clear All" is gone rather than fixed.** It was a raw `DELETE FROM TodoItems` against one table, duplicating two affordances that already do it properly: the per-database broom on the encryption panel, and the pool reset. It was also unsafe as written — no transaction around the delete and the FTS5 `'rebuild'` that follows it, and `FTSTodoItem` is an external-content table, so a failure between the two left the rows gone while the index still matched every one of them.
 - **Search-as-you-type waits for the typing to stop.** Every keystroke used to reach SQLite. `SearchString` now triggers a cancelable command that waits 300 ms before signalling a reload; because the command's method takes a `CancellationToken`, RxBlazorV2 gives it Switch semantics — the next keystroke cancels the previous execution mid-wait, and a query already running is cancelled with it. Mode toggles still refetch immediately; there is no burst to settle.
 
-### Logging: One Level, Set in One Place
-
-`SqliteWasmConnection(string, LogLevel)` set the **process-wide** log level from
-what looks like a per-connection argument, and the usual registration puts that
-constructor inside an `AddDbContextFactory` lambda — so it ran again on every
-context creation, silently overriding whatever the host had configured. With two
-databases it was last-writer-wins between them. The documentation called this
-"Per-Connection Logging", which is the one thing it was not.
-
-- **The opt-in flag now gates both sides of the boundary.** `EnableCommandSqlLogging`
-  guarded only the managed `SqliteWasmCommand` lines; the worker logged SQL text
-  and parameter values off its own log level, so raising the level to Debug for
-  timings emitted schema and data that the flag was supposed to withhold
-  ([#18](https://github.com/b-straub/SqliteWasmBlazor/issues/18)). The flag is
-  forwarded to the worker and gates its `Executing SQL:` and `[PARAM]` lines
-  too. The split is now clean: the **level** controls verbosity, the **flag**
-  controls whether query content is ever emitted. Request timings and the
-  bridge's own trace carry neither, so a Debug-level session exposes no data.
-- **Breaking:** the `(string connectionString, LogLevel logLevel)` constructor
-  overload is gone. `SqliteWasmLogger.SetLogLevel` is the single way to set the
-  level, alongside `SqliteWasmOptions.EnableCommandSqlLogging` for whether SQL
-  text is emitted at all. Callers passing a level drop the argument and call
-  `SetLogLevel` once in `Program.cs`.
-- `SetLogLevel` may now be called **before** the worker exists. The managed
-  level applies immediately; the bridge hands it to the JS halves once the
-  worker is up. Previously it threw or was lost, which meant worker startup,
-  the database opens and the migrations could never be traced.
-
-### Migrating a Populated Database Is Now Covered
-
-`InitializeSqliteWasmDatabaseAsync` applies pending migrations at startup and
-the documentation says migrations "work normally", but nothing exercised that
-against a database with data in it. The demo structurally could not: it does not
-migrate — a schema mismatch there means reset — so a migration only ever ran
-against the empty database the reset had just produced.
-
-The TestApp gains a probe context with two migrations of its own, since
-`TodoDbContext` ships exactly one and an upgrade needs something to upgrade
-from. `IMigrator.MigrateAsync(targetId)` stages a database at V1, the test fills
-it, and `MigrateAsync()` then applies V2 over rows that already exist.
-
-- `Migration_PopulatedDatabaseUpgrade` — the schema changed, the history row is
-  recorded, and every row survived. 20,000 rows, **37 ms** (1.9 us/row).
-- `Migration_PopulatedDatabaseUpgradeEncrypted` — the same on an encrypted pool:
-  **119 ms** (6.0 us/row), a **3.2x** multiplier. Lower than the ~8.6x the
-  browse path pays, an index build being a different profile from a scan.
-  Extrapolating, a comparable migration over 4M rows is roughly 24 s of boot
-  with the UI already up and nothing explaining the pause.
-- `Migration_InterruptedUpgradeFailsLoudly` — a migration that did its work but
-  died before recording it. EF replays the statement, SQLite refuses, and the
-  error names the object; the data is untouched. That the failure is loud rather
-  than a silently half-migrated database is the property worth pinning.
-
-The probe's migrations are hand-written: the TestApp is a Blazor WebAssembly
-project, so `dotnet ef migrations add` cannot load it, and the design-time
-snapshot is not needed at runtime. Migration ids keep EF's 15-character
-timestamp prefix — `MigrationsIdGenerator.GetName` takes `Substring(16)` and
-throws on anything shorter.
-
 ### Other Fixes
 
 - **Bug Fix (#20):** Fixed a documentation error in the Quick Start guide that erroneously instructed users to register a non-existent `IDBInitializationService`.
@@ -406,14 +441,14 @@ throws on anything shorter.
 
 ### Dependencies & Tooling
 
-- .NET / EF Core `10.0.12`, MudBlazor `9.9.0`, RxBlazorV2.MudBlazor `1.3.2`, MessagePack `3.1.8`, R3 `1.3.1`, Playwright `1.62.0`, Test SDK `18.10.0`, xunit.runner.visualstudio `4.0.0`, PolySharp `1.16.0`, BouncyCastle `2.7.0`, SourceLink `10.0.401`.
-- Build now targets the .NET SDK `10.0.400` band (`global.json`), on runtime `10.0.12`.
+- .NET / EF Core `10.0.11`, MudBlazor `9.8.0`, RxBlazorV2.MudBlazor `1.2.7`, MessagePack `3.1.8`, R3 `1.3.1`, Playwright `1.62.0`, Test SDK `18.9.0`, xunit.runner.visualstudio `4.0.0`, PolySharp `1.16.0`, BouncyCastle `2.7.0`, SourceLink `10.0.400`.
+- Build now targets the .NET SDK `10.0.400` band (`global.json`), on runtime `10.0.11`.
 - Roslyn (`Microsoft.CodeAnalysis.*`) moves to `5.6.0` — the newest published Roslyn, and below the `5.9.0` compiler the SDK ships, so generators and analyzers never ask for a Roslyn newer than the one loading them.
-- TypeScript `6.0.3`, ESLint `10.10.0` + typescript-eslint `8.70.0`, msgpackr `2.1.0`, esbuild `0.28.2`, vitest `5.0.0`.
+- TypeScript `6.0.3`, ESLint `10.8.1` + typescript-eslint `8.67.0`, msgpackr `2.0.5`, esbuild `0.28.2`, vitest `4.1.10`.
 - TypeScript stays on the 6.0 line: typescript-eslint 8.x peer-caps `typescript <6.1.0`, so TS 7 (the native port) waits on typescript-eslint support.
-- The `@sqlite.org/sqlite-wasm` patch is ported to `3.53.4-build1` and adds `getFileSize` / `exportFileSlice` to the vendor SAHPool VFS, which is what lets the plain plane export in slices.
-- The native stub now reports SQLite `3.53.4`, matching the worker engine that actually answers — `Microsoft.Data.Sqlite` gates features on `sqlite3_libversion_number`.
-- `SQLitePCLRaw.lib.e_sqlite3` moves to the SQLite-versioned `3.53.3` package — the newest published, one patch behind the worker engine. Its `.a` is excluded and replaced by the stub, so only the provider's P/Invoke surface matters.
+- The `@sqlite.org/sqlite-wasm` patch is ported to `3.53.0-build1` and adds `getFileSize` / `exportFileSlice` to the vendor SAHPool VFS, which is what lets the plain plane export in slices.
+- The native stub now reports SQLite `3.53.0`, matching the worker engine that actually answers — `Microsoft.Data.Sqlite` gates features on `sqlite3_libversion_number`.
+- `SQLitePCLRaw.lib.e_sqlite3` moves to the SQLite-versioned `3.53.3` package. Its `.a` is excluded and replaced by the stub, so only the provider's P/Invoke surface matters.
 - `build_stub.sh` falls back to the .NET wasm-tools workload's Emscripten pack when no standalone emsdk is present — the same toolchain the Blazor native relink uses.
 
 ## Version 0.9.0-pre

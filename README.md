@@ -71,9 +71,14 @@ Then place the initializer once, in your layout:
 after the first render it starts the worker and applies pending migrations for
 every context declared with `AddSqliteWasmDbContext<T>()`. A migration that
 cannot be applied — the schema on disk disagrees with the migrations in the
-assembly — reports `SCHEMA_INCOMPATIBLE` with SQLite's reason; the remedy is a
-reset, which `<DatabaseInformationAlert/>` offers. Progress and failures are reported through
-`IDbInitializationStatus`.
+assembly — reports `SCHEMA_INCOMPATIBLE` with SQLite's reason, and the remedy is
+a reset: delete the database, `ISqliteWasmInitializer.Reset()`, `InitializeAsync()`.
+
+The base package reports and never renders — it carries no UI framework. Read
+`IDbInitializationStatus`, or register an `IDbInitNotifier` with
+`AddDbInitNotifier<T>()` to be told of `MIGRATING`, `READY` and every failure as
+it happens. `SqliteWasmBlazor.Crypto.UI` ships `<DatabaseInformationAlert/>`, which
+renders those states and offers the reset through the host's `IHostRecoveryService`.
 
 Initializing after the app renders is what lets a long migration be reported
 instead of freezing a blank page — and it is the only way an encrypted pool can
@@ -142,15 +147,25 @@ Imports park what they replace, run the incoming file past an optional `validate
 check, and re-run the host's migrations before the import counts; a refusal restores the
 previous files byte-identically.
 
+Cancelling a `CancellationToken` always ends the wait; whether it also stops the running
+statement depends on a service worker. One `importScripts` of
+`_content/SqliteWasmBlazor/sqlite-wasm-cancel.sw.js` and a call to
+`handleSqliteWasmCancel(event)` from its `fetch` and `message` listeners is the whole
+integration; `CanCancelQueries` says whether a session has it. See
+[Cancelling Queries](docs/advanced-features.md#cancelling-queries).
+
 | Type | Purpose |
 |------|---------|
 | `SqliteWasmConnection` / `Command` / `DataReader` / `Parameter` / `Transaction` | ADO.NET provider for direct SQL |
 | `IDbInitializationStatus` | Initialization state and errors |
+| `IDbInitNotifier` / `AddDbInitNotifier<T>()` | Initialization states pushed to the host as they happen; the host writes the sentences |
+| `ISqliteWasmInitializer` | `InitializeAsync()` (idempotent) for a page that renders before the layout; `Reset()` before re-initializing |
+| `MessagePackFileHeaderV2` / `SchemaHashGenerator` | Header of an `ImportRowsAsync` payload and the schema hash it carries |
 | `PoolImportResult` | Outcome of a raw `.db` import |
 | `SchemaMismatchException` | Thrown by `ValidateImportedSchemaAsync`; carries `MissingTables` |
 | `PoolOperationRejectedException` | Typed precondition refusal, carries `Reason` |
 
-Everything else — worker bridge, serialization, VFS — is internal.
+Everything else — worker bridge, VFS — is internal.
 
 ## Optional: at-rest encryption
 
@@ -163,7 +178,7 @@ falls through to byte-for-byte vendor SAHPool behavior.
 - Unlock is verified (slot-0 AEAD probe + manifest MAC), not silent.
 - Encrypted whole-pool export (`.eds`) wraps the key for a recipient X25519 pubkey.
 - `SqliteWasmBlazor.Crypto.UI` ships drop-in RxBlazorV2 panels (en + de), requires
-  `RxBlazorV2.MudBlazor` 1.2.6+.
+  `RxBlazorV2.MudBlazor` 1.3.2+.
 - Machine-checked: 3 Tamarin theories, 74 lemmas, all verified.
 
 Details: [Encrypted VFS](docs/crypto-vfs.md) · [Security](docs/security/README.md) · [Formal models](docs/formal/README.md)
@@ -174,7 +189,7 @@ Details: [Encrypted VFS](docs/crypto-vfs.md) · [Security](docs/security/README.
 |-------|-------------|
 | [Architecture](docs/architecture.md) | Worker-based architecture and technical details |
 | [ADO.NET Usage](docs/ado-net.md) | Using the provider without EF Core, transactions |
-| [Advanced Features](docs/advanced-features.md) | Migrations, FTS5 search, JSON collections, logging |
+| [Advanced Features](docs/advanced-features.md) | Migrations, FTS5 search, JSON collections, logging, cancelling queries, moving databases in and out |
 | [Multi-Database](docs/multi-database.md) | Multiple databases, cross-database references |
 | [Bulk Import/Export](docs/bulk-import-export.md) | V2 format, multi-part export, delta sync |
 | [Encrypted VFS](docs/crypto-vfs.md) | At-rest encryption and threat model |
@@ -213,8 +228,8 @@ Pre-1.0. The public API is deliberately small and has been stable in practice, b
 real-world feedback is needed before committing to long-term guarantees.
 
 Shipped: ADO.NET provider · OPFS SAHPool · EF Core migrations · FTS5 · multi-database ·
-V2 worker-side bulk import/export · memory-flat streamed export/import · at-rest encryption
-with passkey-derived keys · drop-in auth/encryption UI · Tamarin-verified crypto lifecycle.
+V2 worker-side bulk import/export · memory-flat streamed export/import · query cancellation ·
+at-rest encryption with passkey-derived keys · drop-in auth/encryption UI · Tamarin-verified crypto lifecycle.
 
 Next: stable NuGet release · CryptoSync (E2E encrypted delta sync) · server-side delta generation.
 

@@ -41,6 +41,12 @@ Each file consists of a V2 header followed by serialized items:
 [Item N: MessagePack array]
 ```
 
+`MessagePackFileHeaderV2` (namespace `SqliteWasmBlazor`) is this header as a type:
+`MessagePackFileHeaderV2.Create<TDto>(tableName, primaryKeyColumn, recordCount)` derives the
+columns and the schema hash from the DTO — `SchemaHashGenerator.ComputeHash<TDto>()` is the
+same hash on its own — and `Validate(...)` checks a header read back. Serialize it with
+`MessagePackSerializer` ahead of the items.
+
 ## Multi-Part Export
 
 Large databases are automatically split into parts:
