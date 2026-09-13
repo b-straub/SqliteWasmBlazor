@@ -84,8 +84,9 @@ jobs:
     # consumer.
     #
     # A freshly pushed version takes minutes to appear in nuget.org's flat
-    # container, which is what restore reads, so the build waits for it.
-    # The version is the Demo's own reference — SqliteWasmBlazorVersion in
+    # container — the version list restore reads, and later than the
+    # package page shows it — so the build waits for it. The version is
+    # the Demo's own reference: SqliteWasmBlazorVersion in
     # Directory.Build.props, the value the release tag was cut from.
     - name: Wait for the packages on nuget.org
       run: |
@@ -96,14 +97,19 @@ jobs:
         fi
         # The flat container lists versions lowercased.
         version=$(printf '%s' "$version" | tr '[:upper:]' '[:lower:]')
+        index="$RUNNER_TEMP/index.json"
         for id in sqlitewasmblazor sqlitewasmblazor.crypto sqlitewasmblazor.crypto.ui; do
           for attempt in $(seq 1 60); do
-            if curl -fsSL "https://api.nuget.org/v3-flatcontainer/${id}/index.json" \
-                | grep -q "\"${version}\""; then
+            # Fetched to a file, then searched: `curl | grep -q` would let
+            # grep close the pipe on a match and turn curl's SIGPIPE into a
+            # failed pipeline under pipefail.
+            if curl -fsSL -o "$index" "https://api.nuget.org/v3-flatcontainer/${id}/index.json" \
+                && grep -q "\"${version}\"" "$index"; then
               echo "${id} ${version} is listed"
               continue 2
             fi
-            echo "${id} ${version} not listed yet (attempt ${attempt}/60)"
+            latest=$(grep -o '"[^"]*"' "$index" 2>/dev/null | tail -n 1 || true)
+            echo "${id} ${version} not listed yet (attempt ${attempt}/60; newest listed: ${latest:-none})"
             sleep 30
           done
           echo "::error::${id} ${version} did not appear on nuget.org within 30 minutes"
