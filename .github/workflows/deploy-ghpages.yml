@@ -1,13 +1,19 @@
 name: Deploy to GitHub Pages
 
 on:
-  workflow_dispatch:  # Manual trigger only
+  # publish.yml calls this after a release reaches nuget.org; the manual
+  # trigger re-deploys the Demo from whatever ref is picked, against the
+  # packages already published for its version.
+  workflow_call:
+  workflow_dispatch:
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    # The same set the caller grants: a called workflow may narrow the
+    # token's permissions, never widen them.
     permissions:
-      contents: write
+      contents: read
       pages: write
       id-token: write
 
@@ -68,15 +74,42 @@ jobs:
         dotnet clean -c Release --nologo
         rm -rf samples/SqliteWasmBlazor.Demo/bin/Release samples/SqliteWasmBlazor.Demo/obj/Release
 
-    # deploy-ghpages is workflow_dispatch (manual) — its purpose is to
-    # validate the LIVE published nupkgs end-to-end after publish.yml has
-    # shipped them to nuget.org. So we deliberately DO NOT prebuild the
-    # libraries locally here: the Demo's Release-only PackageReference
-    # chain (Demo -> Crypto.UI -> Crypto -> base) must resolve from
-    # nuget.org so we exercise exactly what a downstream consumer would.
-    # build.yml / publish.yml prebuild locally because they ARE the
-    # source of those packages; deploy-ghpages is a downstream consumer.
+    # This deploy validates the LIVE published nupkgs end-to-end after
+    # publish.yml has shipped them to nuget.org. So we deliberately DO NOT
+    # prebuild the libraries locally here: the Demo's Release-only
+    # PackageReference chain (Demo -> Crypto.UI -> Crypto -> base) must
+    # resolve from nuget.org so we exercise exactly what a downstream
+    # consumer would. build.yml / publish.yml prebuild locally because
+    # they ARE the source of those packages; this job is a downstream
+    # consumer.
     #
+    # A freshly pushed version takes minutes to appear in nuget.org's flat
+    # container, which is what restore reads, so the build waits for it.
+    # The version is the Demo's own reference — SqliteWasmBlazorVersion in
+    # Directory.Build.props, the value the release tag was cut from.
+    - name: Wait for the packages on nuget.org
+      run: |
+        version=$(sed -n 's:.*<SqliteWasmBlazorVersion>\(.*\)</SqliteWasmBlazorVersion>.*:\1:p' Directory.Build.props)
+        if [ -z "$version" ]; then
+          echo "::error::SqliteWasmBlazorVersion not found in Directory.Build.props"
+          exit 1
+        fi
+        # The flat container lists versions lowercased.
+        version=$(printf '%s' "$version" | tr '[:upper:]' '[:lower:]')
+        for id in sqlitewasmblazor sqlitewasmblazor.crypto sqlitewasmblazor.crypto.ui; do
+          for attempt in $(seq 1 60); do
+            if curl -fsSL "https://api.nuget.org/v3-flatcontainer/${id}/index.json" \
+                | grep -q "\"${version}\""; then
+              echo "${id} ${version} is listed"
+              continue 2
+            fi
+            echo "${id} ${version} not listed yet (attempt ${attempt}/60)"
+            sleep 30
+          done
+          echo "::error::${id} ${version} did not appear on nuget.org within 30 minutes"
+          exit 1
+        done
+
     # Note: `dotnet build` on a single csproj does single-project restore
     # which honors `<ItemGroup Condition="...">` blocks correctly — no
     # solution-wide static-graph leak (the issue documented in build.yml).

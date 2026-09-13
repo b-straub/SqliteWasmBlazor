@@ -7,7 +7,31 @@ on:
     branches: [ master, develop ]
 
 jobs:
+  # A release tag runs publish.yml, which builds and tests the same commit
+  # before packing it. When master and its tag arrive in one push, both
+  # workflows would build that commit; this looks the tag up first so the
+  # push builds once. Pull requests never carry a tag and always build.
+  gate:
+    runs-on: ubuntu-latest
+    outputs:
+      release-tag: ${{ steps.tag.outputs.release-tag }}
+    steps:
+    - name: Look for a release tag on this commit
+      id: tag
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        tag=$(gh api "repos/${GITHUB_REPOSITORY}/tags?per_page=100" \
+          --jq ".[] | select(.commit.sha == \"${GITHUB_SHA}\") | .name" \
+          | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+' | head -n 1 || true)
+        echo "release-tag=${tag}" >> "$GITHUB_OUTPUT"
+        if [ -n "$tag" ]; then
+          echo "::notice::${GITHUB_SHA} is tagged ${tag}; publish.yml builds it."
+        fi
+
   build:
+    needs: gate
+    if: needs.gate.outputs.release-tag == ''
     runs-on: ubuntu-latest
 
     steps:

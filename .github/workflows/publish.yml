@@ -182,3 +182,16 @@ jobs:
         generate_release_notes: true
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # The Demo on GitHub Pages is built against the packages this run just
+  # shipped, resolved from nuget.org like any consumer would — so it only
+  # runs once they are published, and doubles as the end-to-end check of
+  # the release. Same steps as the manual deploy; it waits for nuget.org
+  # to list the version before building.
+  deploy-demo:
+    needs: publish
+    uses: ./.github/workflows/deploy-ghpages.yml
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
