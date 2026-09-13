@@ -8,18 +8,16 @@ on:
 jobs:
   publish:
     runs-on: ubuntu-latest
-    env:
-      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     permissions:
       contents: write
       packages: write
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
 
     - name: Setup .NET
-      uses: actions/setup-dotnet@v4
+      uses: actions/setup-dotnet@v6
       with:
         global-json-file: global.json
 
@@ -27,13 +25,13 @@ jobs:
       run: dotnet workload install wasm-tools
 
     - name: Setup Node.js
-      uses: actions/setup-node@v4
+      uses: actions/setup-node@v7
       with:
         node-version: '22'
 
     - name: Setup Emscripten
       if: ${{ !env.ACT }}
-      uses: mymindstorm/setup-emsdk@v14
+      uses: mymindstorm/setup-emsdk@v15
       with:
         version: '3.1.56'
 
@@ -153,7 +151,7 @@ jobs:
 
     - name: Upload test diagnostics on failure
       if: failure()
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: test-diagnostics
         path: |
@@ -178,7 +176,7 @@ jobs:
       run: dotnet nuget push ./.nuget/*.nupkg --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate
 
     - name: Create GitHub Release
-      uses: softprops/action-gh-release@v1
+      uses: softprops/action-gh-release@v3
       with:
         files: ./.nuget/*.nupkg
         generate_release_notes: true
