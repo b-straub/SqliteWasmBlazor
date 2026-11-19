@@ -2,6 +2,10 @@
 
 **True filesystem-backed SQLite with full EF Core support for Blazor WebAssembly.**
 
+> [!IMPORTANT]
+> **Maintenance mode.** This repository receives bug fixes only — no new features are planned.
+> Development has moved to a Rust-based successor; see [Project Status](#project-status).
+
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![.NET](https://img.shields.io/badge/.NET-10.0-purple.svg)](https://dotnet.microsoft.com/)
 [![NuGet](https://img.shields.io/nuget/vpre/SqliteWasmBlazor)](https://www.nuget.org/packages/SqliteWasmBlazor)
@@ -23,6 +27,18 @@ filesystem, no manual serialization.
 | **SqliteWasmBlazor** | **OPFS** | **yes** | **full** |
 
 ## Install
+
+**Prerequisite: the `wasm-tools` workload.** SqliteWasmBlazor links a small native stub into the
+.NET WebAssembly runtime, and that relink needs the workload:
+
+```bash
+dotnet workload install wasm-tools
+```
+
+In Visual Studio, enable **.NET WebAssembly Build Tools** in the Visual Studio Installer instead.
+Without the workload the SDK only warns (`@(NativeFileReference) is not empty, but the native
+references won't be linked in…`), the build succeeds, and the app fails at the first query with
+`System.DllNotFoundException: e_sqlite3`. Clean and rebuild after installing it.
 
 ```bash
 dotnet add package SqliteWasmBlazor --prerelease
@@ -108,6 +124,9 @@ builder.Services.AddSqliteWasm(o => o.BaseHref =
 
 Your `DbContext` is an ordinary EF Core context — migrations, LINQ, `Include`, relationships and
 decimal arithmetic all work as usual.
+
+Queries must be asynchronous: `await db.TodoItems.ToListAsync()`, never `ToList()`. The engine
+runs in a Web Worker, so the provider's synchronous reader returns no rows.
 
 ## Public API
 
@@ -219,29 +238,43 @@ sheet's share menu saves to Files — worth telling your users, since it looks l
 | **[BlazorPRF](https://github.com/b-straub/BlazorPRF)** | WebAuthn-PRF encryption primitives — absorbed into this repo as `SqliteWasmBlazor.Crypto`. |
 
 Together: persistent local storage with optional at-rest encryption, plus reactive state
-management. **Coming next:** CryptoSync — end-to-end encrypted multi-device delta sync with
-per-row permissions and a relay that never sees plaintext.
+management.
 
 ## Project Status
 
-Pre-1.0. The public API is deliberately small and has been stable in practice, but broader
-real-world feedback is needed before committing to long-term guarantees.
+**Maintenance mode — bug fixes only.** Active development has moved to a Rust-based successor.
+
+With AI-assisted development at today's level, I no longer see .NET as the long-term route for
+browser-local, offline-first software like this:
+
+- **Rust fits AI-assisted development.** Its compiler checks ownership, lifetimes and
+  exhaustiveness up front, so mistakes in generated code fail the build instead of surfacing in
+  the browser. A strict compiler is the most valuable reviewer an AI-driven workflow can have.
+- **Smaller, faster WebAssembly.** Rust compiles straight to wasm, with no managed runtime or
+  garbage collector to ship. The result is a fraction of a Blazor app's download, starts faster,
+  and runs without a runtime layer between the code and the browser. SQLite already runs here as
+  native WebAssembly in the worker; in Rust the rest of the stack can join it.
+- **It is where the ecosystem is moving.** Many developers are making the same switch, and much
+  of the new open-source work in this space, including the widely followed open alternatives to
+  established creative suites, is being built in Rust.
+
+I do not plan further .NET feature work. Existing packages stay published; reported bugs will
+still be looked at, but without any commitment to timelines.
+
+Pre-1.0. The public API is deliberately small and has been stable in practice.
 
 Shipped: ADO.NET provider · OPFS SAHPool · EF Core migrations · FTS5 · multi-database ·
 V2 worker-side bulk import/export · memory-flat streamed export/import · query cancellation ·
 at-rest encryption with passkey-derived keys · drop-in auth/encryption UI · Tamarin-verified crypto lifecycle.
 
-Next: stable NuGet release · CryptoSync (E2E encrypted delta sync) · server-side delta generation.
-
-This is a non-commercial hobby project maintained in spare time — no fixed release cycle.
-"Hobby" refers to time, not craftsmanship: it is developed with test coverage and attention to
-code quality. It grows through bug reports, feature requests and pull requests.
+This is a non-commercial hobby project — no fixed release cycle.
 
 ## Contributing
 
-Issues, bug reports and feature discussions are always welcome. For code we use an
-**issue-first policy**: open an issue and agree on the approach before submitting a PR.
-Trivial fixes can be sent directly. See [CONTRIBUTING.md](CONTRIBUTING.md).
+Bug reports are welcome; feature requests will not be implemented while the project is in
+maintenance mode. For code we use an **issue-first policy**: open an issue and agree on the
+approach before submitting a PR. Trivial fixes can be sent directly. See
+[CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Credits
 
